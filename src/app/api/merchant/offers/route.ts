@@ -564,7 +564,7 @@ export async function POST(request: NextRequest) {
           offerType,
           isFeatured: !!isFeatured,
           isExclusive: !!isExclusive,
-          redemptionType: redemptionType ?? null,
+          redemption: redemptionType ?? null,
           status: targetStatus,
           startDate: new Date(startDate),
           endDate: new Date(endDate),
