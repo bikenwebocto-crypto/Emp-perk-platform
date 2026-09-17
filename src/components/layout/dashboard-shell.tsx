@@ -20,7 +20,6 @@ const pageTitles: Record<string, string> = {
   '/admin/csv-uploads': 'CSV Uploads',
   '/admin/audit-logs': 'Audit Logs',
   '/admin/billing': 'Billing',
-  '/admin/settings': 'Settings',
   '/admin/settings/login-branding': 'Login Branding',
   '/admin/themes/customize': 'Theme Customizer',
   '/admin/notifications': 'Notifications',

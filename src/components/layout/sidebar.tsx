@@ -69,7 +69,6 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Tickets', href: '/admin/complaints', icon: FileText },
     { label: 'Banners', href: '/admin/banners', icon: Palette },
     { label: 'Notifications', href: '/admin/notifications', icon: Bell },
-    { label: 'Settings', href: '/admin/settings', icon: Settings },
     { label: 'Login Branding', href: '/admin/settings/login-branding', icon: Palette },
     { label: 'Theme Customizer', href: '/admin/themes/customize', icon: Palette },
   ],
