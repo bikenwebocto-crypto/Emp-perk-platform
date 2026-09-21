@@ -91,7 +91,7 @@ export async function GET(
         maxRedemptions: offer.capacity?.maxRedemptions ?? null,
         currentRedemptions: offer.capacity?.redeemedCount ?? 0,
         daysOfWeek: offer.redemption?.daysOfWeek ?? null,
-        offerCode: redemptionConfig.code ?? null,
+        offerCode: redemption?.redemptionCode ?? null,
         bookingUrl: redemptionConfig.bookingUrl ?? null,
         qrCodeUrl: redemptionConfig.qrCodeUrl ?? null,
         startDate: offer.startDate,
@@ -105,7 +105,7 @@ export async function GET(
         visibilityReason: visibility.reason,
         isSaved: !!saved,
         isRedeemed: !!redemption,
-        redemptionCode: redemption?.redemptionCode ?? null,   // <-- handy top-level field
+        // redemptionCode: redemption?.redemptionCode ?? null,   // <-- handy top-level field
         redemption: redemption
           ? {
               id: redemption.id,
