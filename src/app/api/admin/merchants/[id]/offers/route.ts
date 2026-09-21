@@ -1,28 +1,28 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id } = await params
+    const { id } = await params;
 
     const merchant = await prisma.merchant.findUnique({
       where: { id },
-    })
+    });
 
     if (!merchant || merchant.deletedAt) {
       return NextResponse.json(
         {
           success: false,
           error: {
-            code: 'NOT_FOUND',
-            message: 'Merchant not found',
+            code: "NOT_FOUND",
+            message: "Merchant not found",
           },
         },
         { status: 404 },
-      )
+      );
     }
 
     const offers = await prisma.merchantOffer.findMany({
@@ -31,7 +31,7 @@ export async function GET(
         deletedAt: null,
       },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
       select: {
         id: true,
@@ -58,8 +58,8 @@ export async function GET(
 
         capacity: {
           select: {
-            maxRedemptions: true,
             redeemedCount: true,
+            maxRedemptions: true,
           },
         },
 
@@ -83,62 +83,58 @@ export async function GET(
           },
         },
       },
-    })
+    });
 
     const data = offers.map((offer) => {
       const configuration =
-        (offer.pricing?.configuration as Record<string, unknown> | null) ?? {}
+        (offer.pricing?.configuration as Record<string, unknown> | null) ?? {};
 
       return {
+        // Existing merchant table fields
         id: offer.id,
+        title: offer.title,
+        status: offer.status,
+        offerType: offer.offerType,
+        startDate: offer.startDate,
+        endDate: offer.endDate,
 
-        title: offer.title ?? '',
-
-        description: offer.content?.description ?? '',
-        shortDescription: offer.content?.shortDescription ?? '',
-        termsAndConditions: offer.content?.termsAndConditions ?? '',
+        // Fields required by EditOfferModal / OfferForm
+        description: offer.content?.description ?? "",
+        shortDescription: offer.content?.shortDescription ?? "",
+        termsAndConditions: offer.content?.termsAndConditions ?? "",
         imageUrls: offer.content?.imageUrls ?? [],
 
-        offerType: offer.offerType,
+        discountValue: configuration.discountValue ?? "",
+        discountMax: configuration.discountMax ?? "",
+        discountPercent: configuration.discountPercent ?? "",
+        minimumSpend: configuration.minimumSpend ?? "",
 
-        discountValue: configuration.discountValue ?? '',
-        discountMax: configuration.discountMax ?? '',
-        discountPercent: configuration.discountPercent ?? '',
-        minimumSpend: configuration.minimumSpend ?? '',
+        maxRedemptions: offer.capacity?.maxRedemptions ?? "",
 
-        maxRedemptions: offer.capacity?.maxRedemptions ?? '',
+        buyQuantity: configuration.buyQuantity ?? "",
+        buyItem: configuration.buyItem ?? "",
+        getQuantity: configuration.getQuantity ?? "",
+        freeItem: configuration.freeItem ?? "",
+        maxFreeItems: configuration.maxFreeItems ?? "",
 
-        buyQuantity: configuration.buyQuantity ?? '',
-        buyItem: configuration.buyItem ?? '',
-        getQuantity: configuration.getQuantity ?? '',
-        freeItem: configuration.freeItem ?? '',
-        maxFreeItems: configuration.maxFreeItems ?? '',
+        daysOfWeek: configuration.daysOfWeek ?? "",
+        redemptionCode: configuration.redemptionCode ?? "",
+        redemptionInstructions: configuration.redemptionInstructions ?? "",
 
-        startDate: offer.startDate ?? '',
-        endDate: offer.endDate ?? '',
+        categoryId: configuration.categoryId ?? "",
+        submissionNotes: configuration.submissionNotes ?? "",
 
-        daysOfWeek: configuration.daysOfWeek ?? '',
+        redemptionType: configuration.redemptionType ?? "IN_STORE_QR",
 
-        redemptionCode: configuration.redemptionCode ?? '',
-        redemptionInstructions:
-          configuration.redemptionInstructions ?? '',
+        bookingUrl: configuration.bookingUrl ?? "",
+        qrCodeUrl: configuration.qrCodeUrl ?? "",
 
-        categoryId: configuration.categoryId ?? '',
-
-        submissionNotes: configuration.submissionNotes ?? '',
-
-        redemptionType:
-          configuration.redemptionType ?? 'IN_STORE_QR',
-
-        bookingUrl: configuration.bookingUrl ?? '',
-        qrCodeUrl: configuration.qrCodeUrl ?? '',
-
+        // Existing additional data
         _count: offer._count,
         replacesOffer: offer.replacesOffer,
-
         review: offer.review,
-      }
-    })
+      };
+    });
 
     return NextResponse.json({
       success: true,
@@ -146,20 +142,19 @@ export async function GET(
       meta: {
         total: data.length,
       },
-    })
+    });
   } catch (error) {
-    console.error('Merchant offers error:', error)
+    console.error("Merchant offers error:", error);
 
     return NextResponse.json(
       {
         success: false,
         error: {
-          code: 'INTERNAL',
-          message: 'Internal server error',
+          code: "INTERNAL",
+          message: "Internal server error",
         },
       },
       { status: 500 },
-    )
+    );
   }
 }
-
