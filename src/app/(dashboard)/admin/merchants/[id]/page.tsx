@@ -17,7 +17,7 @@ import { useMerchantById, useMerchantOffers, useDeleteMerchant } from '@/hooks/q
 import { useAdminMerchantStoreMap } from '@/hooks/queries/use-store-map'
 import { showToast } from '@/hooks/use-toast'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
-import { BusinessOverview } from '@/components/shared/business-overview'
+import { EditOfferModal } from "@/features/merchant/offers/components/edit-offer-modal"
 import type { ColumnDef } from '@/types'
 
 type Tab = 'overview' | 'offers' | 'store-map'
@@ -31,8 +31,10 @@ const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
 export default function MerchantDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+
   const [activeTab, setActiveTab] = useState<Tab>('overview')
-  const [selectedOffer, setSelectedOffer] = useState<string | null>(null)
+  const [selectedOffer, setSelectedOffer] = useState<any | null>(null)  
   const [confirmDelete, setConfirmDelete] = useState(false)
   const deleteMerchant = useDeleteMerchant()
 
@@ -102,47 +104,94 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
     { label: 'Total Offers', value: merchant._count?.offers ?? 0 },
     { label: 'Active Branches', value: merchant._count?.branches ?? 0 },
     { label: 'Redemptions', value: merchant._count?.redemptions ?? 0 },
+    { label: 'Rating', value: `${Number(merchant.averageRating ?? 0).toFixed(1)} ★` },
     ...(merchant.liveAt
       ? [{ label: 'Live Since', value: new Date(merchant.liveAt).toLocaleDateString() }]
       : []),
   ]
 
   // Build a readable address line from whatever fields are present
-  const addressParts = [merchant.addressLine1, merchant.city, merchant.country].filter(Boolean)
+  const addressParts = [merchant.address, merchant.city, merchant.country].filter(Boolean)
   const fullAddress = addressParts.length ? addressParts.join(', ') : null
 
-  const offerColumns: ColumnDef<any>[] = [
-    { key: 'title', header: 'Offer', sortable: true },
-    {
-      key: 'offerType',
-      header: 'Type',
-      render: (o: any) => <span className="capitalize">{o.offerType?.replace(/_/g, ' ')}</span>,
+
+const handleEditOffer = (offer: any) => {
+  setSelectedOffer(offer)
+  setIsEditModalOpen(true)
+}
+
+ const offerColumns: ColumnDef<any>[] = [
+  {
+    key: 'title',
+    header: 'Offer',
+    render: (o: any) => (
+      <div className="flex flex-col">
+        <span className="font-medium">{o.title}</span>  
+      </div>
+    ),
+  },
+  {
+    key: 'offerType',
+    header: 'Type',
+    render: (o: any) => (
+      <span className="capitalize">
+        {o.offerType?.replace(/_/g, ' ')}
+      </span>
+    ),
+  },
+  {
+    key: 'discountValue',
+    header: 'Value',
+    render: (o: any) => {
+      if (o.offerType === 'PERCENTAGE' || o.discountPercent) {
+        return `${o.discountPercent ?? 0}%`
+      }
+
+      return `£${Number(o.discountValue ?? 0).toFixed(2)}`
     },
-    {
-      key: 'discountValue',
-      header: 'Value',
-      render: (o: any) => {
-        if (o.offerType === 'PERCENTAGE' || o.discountPercent) return `${o.discountPercent ?? 0}%`
-        return `€${Number(o.discountValue ?? 0).toFixed(2)}`
-      },
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (o: any) => <StatusBadge status={o.status} />,
-    },
-    { key: 'currentRedemptions', header: 'Redemptions', align: 'center' },
-    {
-      key: 'startDate',
-      header: 'Start',
-      render: (o: any) => new Date(o.startDate).toLocaleDateString(),
-    },
-    {
-      key: 'endDate',
-      header: 'End',
-      render: (o: any) => new Date(o.endDate).toLocaleDateString(),
-    },
-  ]
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    render: (o: any) => <StatusBadge status={o.status} />,
+  },
+  {
+    key: 'currentRedemptions',
+    header: 'Redemptions',
+    align: 'center',
+  },
+  {
+    key: 'startDate',
+    header: 'Start',
+    render: (o: any) =>
+      new Date(o.startDate).toLocaleDateString(),
+  },
+  {
+    key: 'endDate',
+    header: 'End',
+    render: (o: any) =>
+      new Date(o.endDate).toLocaleDateString(),
+  },
+  {
+  key: "actions",
+  header: "Actions",
+  align: "center",
+  render: (o: any) => (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={(e) => {
+        e.stopPropagation()
+        handleEditOffer(o)
+      }}
+    >
+      <Pencil className="mr-1 h-4 w-4" />
+      Edit
+    </Button>
+  ),
+},
+]
 
   return (
     <div className="space-y-6 py-6">
@@ -210,11 +259,16 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
 
               {/* Contact / location details */}
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              
-                {merchant.contactPhone  && (
+                {merchant.email && (
+                  <span className="flex items-center gap-1">
+                    <Mail className="h-3.5 w-3.5" />
+                    {merchant.email}
+                  </span>
+                )}
+                {merchant.phoneNumber && (
                   <span className="flex items-center gap-1">
                     <Phone className="h-3.5 w-3.5" />
-                    {merchant.contactPhone}
+                    {merchant.phoneNumber}
                   </span>
                 )}
                 {fullAddress && (
@@ -279,9 +333,6 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
               </Card>
             ))}
           </div>
-
-          {/* ─── Business Overview (Redemptions & Revenue / Offer Capacity / Offer Expiry / Banner Bookings) ─── */}
-          <BusinessOverview merchantId={id} scope="admin" />
 
           {/* Branches summary */}
           <Card>
@@ -385,6 +436,14 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(false)}
       />
+      <EditOfferModal
+        open={isEditModalOpen}
+        offer={selectedOffer}
+        onClose={() => {
+          setIsEditModalOpen(false)
+          setSelectedOffer(null)
+        }}
+      />
     </div>
   )
-}
+}		
