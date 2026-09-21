@@ -1,4 +1,5 @@
 "use client";
+
 import {
   Dialog,
   DialogContent,
@@ -12,10 +13,27 @@ interface EditOfferModalProps {
   open: boolean;
   onClose: () => void;
   offer: any | null;
+  /**
+   * True when the current actor is a superadmin acting on behalf of a merchant.
+   * When true, OfferForm forwards `merchantId` to the API so the server can
+   * scope the offer lookup without relying on a merchant session.
+   */
+  isAdmin?: boolean;
 }
 
-export function EditOfferModal({ open, onClose, offer }: EditOfferModalProps) {
+export function EditOfferModal({
+  open,
+  onClose,
+  offer,
+  isAdmin = false,
+}: EditOfferModalProps) {
   if (!offer) return null;
+
+  // Fall back across the shapes the offer might arrive in:
+  //   - offer.merchantId                 (MerchantOffer column)
+  //   - offer.merchant?.id               (if `merchant` relation was included)
+  const merchantId: string | undefined =
+    offer.merchantId ?? offer.merchant?.id ?? undefined;
 
   return (
     <Dialog
@@ -32,6 +50,8 @@ export function EditOfferModal({ open, onClose, offer }: EditOfferModalProps) {
         </DialogHeader>
         <OfferForm
           offerId={offer.id}
+          merchantId={merchantId}
+          isAdmin={isAdmin}
           initialData={{
             title: offer.title ?? "",
             description: offer.description ?? "",

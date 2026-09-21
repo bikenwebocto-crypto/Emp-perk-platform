@@ -49,8 +49,15 @@ export function useCreateMerchantOffer() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (data: Record<string, unknown>) => {
-      const res = await fetch('/api/merchant/offers', {
+    mutationFn: async ({
+      merchantId,
+      ...data
+    }: { merchantId?: string } & Record<string, unknown>) => {
+      const url = merchantId
+        ? `/api/merchant/offers?merchantId=${encodeURIComponent(merchantId)}`
+        : '/api/merchant/offers'
+
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -66,12 +73,21 @@ export function useCreateMerchantOffer() {
   })
 }
 
+
 export function useUpdateMerchantOffer() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ id, ...data }: { id: string } & Record<string, unknown>) => {
-      const res = await fetch(`/api/merchant/offers/${id}`, {
+    mutationFn: async ({
+      id,
+      merchantId,
+      ...data
+    }: { id: string; merchantId?: string } & Record<string, unknown>) => {
+      const url = merchantId
+        ? `/api/merchant/offers/${id}?merchantId=${encodeURIComponent(merchantId)}`
+        : `/api/merchant/offers/${id}`
+
+      const res = await fetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -153,8 +169,16 @@ export function useSubmitMerchantOffer() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ id, ...data }: { id: string } & Record<string, unknown>) => {
-      const res = await fetch(`/api/merchant/offers/${id}/submit`, {
+    mutationFn: async ({
+      id,
+      merchantId,
+      ...data
+    }: { id: string; merchantId?: string } & Record<string, unknown>) => {
+      const url = merchantId
+        ? `/api/merchant/offers/${id}/submit?merchantId=${encodeURIComponent(merchantId)}`
+        : `/api/merchant/offers/${id}/submit`
+
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),

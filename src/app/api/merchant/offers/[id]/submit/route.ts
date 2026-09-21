@@ -4,6 +4,7 @@ import { getMerchantFromSession } from '@/lib/merchant-session'
 import { createAuditLog } from '@/services/audit-log.service';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
 import { OfferStatus } from '@prisma/client';
+import { getCurrentUser } from '@/lib/supabase/server';
 
 function unauthorized() {
   return NextResponse.json(
@@ -205,10 +206,15 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const merchant = await getMerchantFromSession();
-    if (!merchant) {
-      return unauthorized();
-    }
+    const merchant  = await getMerchantFromSession();
+    const user = await getCurrentUser();
+       if (user?.userType === "admin") {
+            // admin is allowed
+          } else if (merchant) {
+            // merchant is allowed
+          } else {
+            return unauthorized();
+          }
 
     const { id } = await params;
 
