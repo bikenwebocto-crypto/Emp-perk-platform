@@ -47,7 +47,7 @@ export async function GET(
     if (!offer) return notFound('Offer not found')
 
     const visibility = await isOfferVisibleToEmployees(id)
-    const [saved, redeemed] = await Promise.all([
+    const [saved, redemption] = await Promise.all([
       prisma.notificationEvent.findFirst({
         where: {
           employeeId: auth.employee.id,
@@ -58,7 +58,14 @@ export async function GET(
       }),
       prisma.redemption.findFirst({
         where: { employeeId: auth.employee.id, offerId: id },
-        select: { id: true },
+        select: {
+          id: true,
+          redemptionCode: true,
+          isRedeemed: true,
+          isVerified: true,
+          redeemedAt: true,
+          rejectionReason: true,
+        },
       }),
     ])
 
@@ -97,7 +104,18 @@ export async function GET(
         isVisible: visibility.visible,
         visibilityReason: visibility.reason,
         isSaved: !!saved,
-        isRedeemed: !!redeemed,
+        isRedeemed: !!redemption,
+        redemptionCode: redemption?.redemptionCode ?? null,   // <-- handy top-level field
+        redemption: redemption
+          ? {
+              id: redemption.id,
+              redemptionCode: redemption.redemptionCode,
+              isRedeemed: redemption.isRedeemed,
+              isVerified: redemption.isVerified,
+              redeemedAt: redemption.redeemedAt,
+              rejectionReason: redemption.rejectionReason,
+            }
+          : null,
       },
     })
   } catch (error) {
