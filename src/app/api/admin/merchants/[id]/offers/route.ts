@@ -35,6 +35,8 @@ export async function GET(
       },
       select: {
         id: true,
+        merchantId: true,
+        categoryId: true,
         title: true,
         status: true,
         offerType: true,
@@ -62,7 +64,14 @@ export async function GET(
             maxRedemptions: true,
           },
         },
-
+        redemption:{
+          select:{
+            redemptionType:true,
+            configuration:true,
+            daysOfWeek:true,
+            maxRedemptions:true,
+          }
+        },
         _count: {
           select: {
             redemptions: true,
@@ -78,6 +87,7 @@ export async function GET(
 
         review: {
           select: {
+            submissionNotes: true,
             reviewNotes: true,
             rejectionReason: true,
           },
@@ -88,7 +98,8 @@ export async function GET(
     const data = offers.map((offer) => {
       const configuration =
         (offer.pricing?.configuration as Record<string, unknown> | null) ?? {};
-
+        const pricing = (offer.pricing?.configuration as Record<string, unknown> | null) ?? {};
+        const redemptionCfg = (offer.redemption?.configuration as Record<string, unknown> | null) ?? {};
       return {
         // Existing merchant table fields
         id: offer.id,
@@ -104,30 +115,29 @@ export async function GET(
         termsAndConditions: offer.content?.termsAndConditions ?? "",
         imageUrls: offer.content?.imageUrls ?? [],
 
-        discountValue: configuration.discountValue ?? "",
-        discountMax: configuration.discountMax ?? "",
-        discountPercent: configuration.discountPercent ?? "",
-        minimumSpend: configuration.minimumSpend ?? "",
+       
+        discountValue: pricing.amount ?? "",
+        discountMax: pricing.maximumDiscount ?? "",
+        discountPercent: pricing.percent ?? "",
+        minimumSpend: pricing.minimumSpend ?? "",
+        maxRedemptions:   offer.capacity?.maxRedemptions ?? offer.redemption?.maxRedemptions ?? "",
 
-        maxRedemptions: offer.capacity?.maxRedemptions ?? "",
+        buyQuantity: pricing.buyQuantity ?? "",  buyItem: pricing.buyItem ?? "",
+        getQuantity: pricing.getQuantity ?? "",
+        freeItem: pricing.freeItem ?? "",
+        maxFreeItems: pricing.maxFreeItems ?? "",
 
-        buyQuantity: configuration.buyQuantity ?? "",
-        buyItem: configuration.buyItem ?? "",
-        getQuantity: configuration.getQuantity ?? "",
-        freeItem: configuration.freeItem ?? "",
-        maxFreeItems: configuration.maxFreeItems ?? "",
+        daysOfWeek: offer.redemption?.daysOfWeek ?? [0, 1, 2, 3, 4, 5, 6],
+        redemptionCode: redemptionCfg.code ?? "",
+        redemptionInstructions: redemptionCfg.instructions ?? "",
 
-        daysOfWeek: configuration.daysOfWeek ?? "",
-        redemptionCode: configuration.redemptionCode ?? "",
-        redemptionInstructions: configuration.redemptionInstructions ?? "",
+        categoryId: offer.categoryId ?? "",
+        submissionNotes: offer.review?.submissionNotes ?? "",
 
-        categoryId: configuration.categoryId ?? "",
-        submissionNotes: configuration.submissionNotes ?? "",
+        redemptionType: offer.redemption?.redemptionType ?? "IN_STORE_QR",
 
-        redemptionType: configuration.redemptionType ?? "IN_STORE_QR",
-
-        bookingUrl: configuration.bookingUrl ?? "",
-        qrCodeUrl: configuration.qrCodeUrl ?? "",
+        bookingUrl: redemptionCfg.bookingUrl ?? "",
+        qrCodeUrl: redemptionCfg.qrCodeUrl ?? "",
 
         // Existing additional data
         _count: offer._count,

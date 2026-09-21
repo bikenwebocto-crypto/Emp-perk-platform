@@ -20,7 +20,13 @@ interface EditOfferModalProps {
    */
   isAdmin?: boolean;
 }
-
+const toLocalInput = (value?: string | Date | null) => {
+  if (!value) return "";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 export function EditOfferModal({
   open,
   onClose,
@@ -58,7 +64,7 @@ export function EditOfferModal({
             shortDescription: offer.shortDescription ?? "",
             termsAndConditions: offer.termsAndConditions ?? "",
             imageUrls: offer.imageUrls ?? [],
-            offerType: offer.offerType ?? "FLAT",
+            offerType: offer.offerType ?? "flat_rate",
             discountValue: offer.discountValue?.toString() ?? "",
             discountMax: offer.discountMax?.toString() ?? "",
             discountPercent: offer.discountPercent?.toString() ?? "",
@@ -69,9 +75,9 @@ export function EditOfferModal({
             getQuantity: offer.getQuantity?.toString() ?? "",
             freeItem: offer.freeItem ?? "",
             maxFreeItems: offer.maxFreeItems?.toString() ?? "",
-            startDate: offer.startDate ?? "",
-            endDate: offer.endDate ?? "",
-            daysOfWeek: offer.daysOfWeek ?? "",
+            startDate: toLocalInput(offer.startDate),
+            endDate: toLocalInput(offer.endDate),
+            daysOfWeek: Array.isArray(offer.daysOfWeek)? offer.daysOfWeek.join(","): "0,1,2,3,4,5,6",
             redemptionCode: offer.redemptionCode ?? "",
             redemptionInstructions: offer.redemptionInstructions ?? "",
             categoryId: offer.categoryId ?? "",
