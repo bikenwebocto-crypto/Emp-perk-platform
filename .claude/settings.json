@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"src\\\\app\\\\api\" -Recurse -Filter \"route.ts\" -File | Where-Object { $_.FullName -match 'categor|banner|auth' } | Select-Object -ExpandProperty FullName)"
+    ]
+  }
+}
