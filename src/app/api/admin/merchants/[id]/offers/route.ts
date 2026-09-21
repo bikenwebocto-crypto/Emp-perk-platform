@@ -41,6 +41,28 @@ export async function GET(
         startDate: true,
         endDate: true,
 
+        content: {
+          select: {
+            description: true,
+            shortDescription: true,
+            termsAndConditions: true,
+            imageUrls: true,
+          },
+        },
+
+        pricing: {
+          select: {
+            configuration: true,
+          },
+        },
+
+        capacity: {
+          select: {
+            maxRedemptions: true,
+            redeemedCount: true,
+          },
+        },
+
         _count: {
           select: {
             redemptions: true,
@@ -54,25 +76,6 @@ export async function GET(
           },
         },
 
-        pricing: {
-          select: {
-            configuration: true,
-          },
-        },
-
-        capacity: {
-          select: {
-            redeemedCount: true,
-            maxRedemptions: true,
-          },
-        },
-
-        content: {
-          select: {
-            imageUrls: true,
-          },
-        },
-
         review: {
           select: {
             reviewNotes: true,
@@ -82,11 +85,66 @@ export async function GET(
       },
     })
 
+    const data = offers.map((offer) => {
+      const configuration =
+        (offer.pricing?.configuration as Record<string, unknown> | null) ?? {}
+
+      return {
+        id: offer.id,
+
+        title: offer.title ?? '',
+
+        description: offer.content?.description ?? '',
+        shortDescription: offer.content?.shortDescription ?? '',
+        termsAndConditions: offer.content?.termsAndConditions ?? '',
+        imageUrls: offer.content?.imageUrls ?? [],
+
+        offerType: offer.offerType,
+
+        discountValue: configuration.discountValue ?? '',
+        discountMax: configuration.discountMax ?? '',
+        discountPercent: configuration.discountPercent ?? '',
+        minimumSpend: configuration.minimumSpend ?? '',
+
+        maxRedemptions: offer.capacity?.maxRedemptions ?? '',
+
+        buyQuantity: configuration.buyQuantity ?? '',
+        buyItem: configuration.buyItem ?? '',
+        getQuantity: configuration.getQuantity ?? '',
+        freeItem: configuration.freeItem ?? '',
+        maxFreeItems: configuration.maxFreeItems ?? '',
+
+        startDate: offer.startDate ?? '',
+        endDate: offer.endDate ?? '',
+
+        daysOfWeek: configuration.daysOfWeek ?? '',
+
+        redemptionCode: configuration.redemptionCode ?? '',
+        redemptionInstructions:
+          configuration.redemptionInstructions ?? '',
+
+        categoryId: configuration.categoryId ?? '',
+
+        submissionNotes: configuration.submissionNotes ?? '',
+
+        redemptionType:
+          configuration.redemptionType ?? 'IN_STORE_QR',
+
+        bookingUrl: configuration.bookingUrl ?? '',
+        qrCodeUrl: configuration.qrCodeUrl ?? '',
+
+        _count: offer._count,
+        replacesOffer: offer.replacesOffer,
+
+        review: offer.review,
+      }
+    })
+
     return NextResponse.json({
       success: true,
-      data: offers,
+      data,
       meta: {
-        total: offers.length,
+        total: data.length,
       },
     })
   } catch (error) {
