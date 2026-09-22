@@ -52,6 +52,7 @@ interface MerchantActionsMenuProps {
   onSuspend?: (id: string, reason: string) => void
   onActivate?: (id: string) => void
   onPause?: (id: string) => void
+  onResume?: (id: string) => void
   onToggleFeatured?: (id: string, value: boolean) => void
   onToggleHomepage?: (id: string, value: boolean) => void
   onChangePriority?: (id: string, value: number) => void
@@ -68,6 +69,7 @@ export function MerchantActionsMenu({
   onSuspend,
   onActivate,
   onPause,
+  onResume,
   onToggleFeatured,
   onToggleHomepage,
   onChangePriority,
@@ -160,14 +162,34 @@ export function MerchantActionsMenu({
             </>
           )}
 
-          {(isActive || isPaused) && (
-            <DropdownMenuItem
-              onClick={() => setSuspendOpen(true)}
-              className="flex items-center gap-2 text-rose-600"
-            >
-              <Ban className="h-4 w-4" /> Suspend
-            </DropdownMenuItem>
-          )}
+
+
+{isPaused && (
+  <>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem
+      onClick={() => onResume?.(row.id)}
+      className="flex items-center gap-2 text-emerald-600"
+    >
+      <CheckCircle2 className="h-4 w-4" /> Resume
+    </DropdownMenuItem>
+    <DropdownMenuItem
+      onClick={() => setSuspendOpen(true)}
+      className="flex items-center gap-2 text-rose-600"
+    >
+      <Ban className="h-4 w-4" /> Suspend
+    </DropdownMenuItem>
+  </>
+)}
+
+{isSuspended && (
+  <DropdownMenuItem
+    onClick={() => onActivate?.(row.id)}
+    className="flex items-center gap-2 text-emerald-600"
+  >
+    <CheckCircle2 className="h-4 w-4" /> Reactivate
+  </DropdownMenuItem>
+)}
 
           {isSuspended && (
             <DropdownMenuItem

@@ -42,6 +42,7 @@ interface MerchantOperationsTableProps {
   onSuspend?: (id: string, reason: string) => void
   onActivate?: (id: string) => void
   onPause?: (id: string) => void
+  onResume?: (id: string) => void  
   onToggleFeatured?: (id: string, value: boolean) => void
   onToggleHomepage?: (id: string, value: boolean) => void
   onChangePriority?: (id: string, value: number) => void
@@ -211,6 +212,7 @@ export function MerchantOperationsTable({
   onSuspend,
   onActivate,
   onPause,
+  onResume,
   onToggleFeatured,
   onToggleHomepage,
   onChangePriority,
@@ -432,6 +434,7 @@ export function MerchantOperationsTable({
                     onSuspend={onSuspend}
                     onActivate={onActivate}
                     onPause={onPause}
+                    onResume={onResume}
                     onToggleFeatured={onToggleFeatured}
                     onToggleHomepage={onToggleHomepage}
                     onChangePriority={onChangePriority}
@@ -534,6 +537,7 @@ export function MerchantOperationsTable({
                     onSuspend={onSuspend}
                     onActivate={onActivate}
                     onPause={onPause}
+                    onResume={onResume}
                     onToggleFeatured={onToggleFeatured}
                     onToggleHomepage={onToggleHomepage}
                     onChangePriority={onChangePriority}
@@ -561,6 +565,7 @@ export function MerchantOperationsTable({
             onSuspend={onSuspend}
             onActivate={onActivate}
             onPause={onPause}
+            onResume={onResume}
             onToggleFeatured={onToggleFeatured}
             onToggleHomepage={onToggleHomepage}
             onChangePriority={onChangePriority}
@@ -583,6 +588,7 @@ interface MerchantMobileCardProps {
   onSuspend?: (id: string, reason: string) => void
   onActivate?: (id: string) => void
   onPause?: (id: string) => void
+  onResume?: (id: string) => void
   onToggleFeatured?: (id: string, value: boolean) => void
   onToggleHomepage?: (id: string, value: boolean) => void
   onChangePriority?: (id: string, value: number) => void

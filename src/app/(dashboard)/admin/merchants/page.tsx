@@ -316,6 +316,17 @@ export default function MerchantsPage() {
     [pauseMutation],
   )
 
+   const onResume = useCallback(
+    (id: string) => {
+      activateMutation.mutate(id, {
+        onSuccess: () => showToast({ type: 'success', title: 'Merchant resumed' }),
+        onError: (err: Error) => showToast({ type: 'error', title: 'Failed to resume', description: err.message }),
+      })
+    },
+    [activateMutation],
+  )
+  
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -407,6 +418,7 @@ export default function MerchantsPage() {
             onSuspend={onSuspend}
             onActivate={onActivate}
             onPause={onPause}
+            onResume={onResume}
             onToggleFeatured={onToggleFeatured}
             onToggleHomepage={onToggleHomepage}
             onChangePriority={onChangePriority}

@@ -53,6 +53,8 @@ interface FormData {
   redemptionType: string;
   bookingUrl: string;
   qrCodeUrl: string;
+  isFeatured: boolean;
+  isExclusive: boolean;
 }
 
 interface FormErrors {
@@ -189,6 +191,8 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     redemptionType: initialData?.redemptionType ?? "IN_STORE_QR",
     bookingUrl: initialData?.bookingUrl ?? "",
     qrCodeUrl: initialData?.qrCodeUrl ?? "",
+    isFeatured: initialData?.isFeatured ?? false,
+    isExclusive: initialData?.isExclusive ?? false,
   });
 
   const set =
@@ -207,6 +211,18 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         });
       if (field === "discountValue" || field === "offerType")
         setShowStrength(true);
+    };
+    
+    const toggleBoolean = (field: "isFeatured" | "isExclusive") => () => {
+      setForm((prev) => {
+        const turningOn = !prev[field];
+        if (turningOn) {
+          // Mutually exclusive: turning one on turns the other off
+          const other = field === "isFeatured" ? "isExclusive" : "isFeatured";
+          return { ...prev, [field]: true, [other]: false };
+        }
+        return { ...prev, [field]: false };
+      });
     };
 
   const handleLinkedFieldChange = (
@@ -414,6 +430,8 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     description: form.description || null,
     shortDescription: form.shortDescription || null,
     termsAndConditions: form.termsAndConditions || null,
+    isFeatured: form.isFeatured,
+  isExclusive: form.isExclusive,
     imageUrls: form.imageUrls,
     offerType: OFFER_TYPE_MAP[form.offerType] ?? form.offerType,
     discountValue: form.discountValue ? Number(form.discountValue) : null,
@@ -746,7 +764,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
               <CardContent className="space-y-4">
                 <div>
-                  <label className={labelClass}>Title *</label>
+                  <label className={labelClass}>Title <span className="text-destructive">*</span></label>
 
                   <Input
                     className={inputClass}
@@ -786,7 +804,48 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     maxLength={2000}
                   />
                 </div>
+                
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className={labelClass}>Featured Offer</label>
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={toggleBoolean("isFeatured")}
+                        className={`
+                          rounded-full px-3 py-1.5 text-xs font-medium transition-colors
+                          ${
+                            form.isFeatured
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-muted-foreground hover:bg-muted/80"
+                          }
+                        `}
+                      >
+                        {form.isFeatured ? "Featured" : "Not Featured"}
+                      </button>
+                    </div>
+                  </div>
 
+                  <div>
+                    <label className={labelClass}>Exclusive Offer</label>
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={toggleBoolean("isExclusive")}
+                        className={`
+                          rounded-full px-3 py-1.5 text-xs font-medium transition-colors
+                          ${
+                            form.isExclusive
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-muted-foreground hover:bg-muted/80"
+                          }
+                        `}
+                      >
+                        {form.isExclusive ? "Exclusive" : "Not Exclusive"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className={labelClass}>Category</label>
@@ -808,7 +867,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   </div>
 
                   <div>
-                    <label className={labelClass}>Offer Type *</label>
+                    <label className={labelClass}>Offer Type <span className="text-destructive">*</span></label>
 
                     <select
                       name="offerType"
@@ -907,7 +966,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
                     <CardContent>
                       <div>
-                        <label className={labelClass}>Booking URL *</label>
+                        <label className={labelClass}>Booking URL <span className="text-destructive">*</span></label>
 
                         <Input
                           className={inputClass}
@@ -946,7 +1005,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 {form.offerType === "FLAT" && (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
-                      <label className={labelClass}>Discount Amount *</label>
+                      <label className={labelClass}>Discount Amount <span className="text-destructive">*</span></label>
 
                       <Input
                         className={inputClass}
@@ -1014,7 +1073,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div>
                         <label className={labelClass}>
-                          Discount Percentage *
+                          Discount Percentage <span className="text-destructive">*</span>
                         </label>
 
                         <Input
@@ -1139,7 +1198,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   <>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div>
-                        <label className={labelClass}>Buy Quantity *</label>
+                        <label className={labelClass}>Buy Quantity <span className="text-destructive">*</span></label>
 
                         <Input
                           className={inputClass}
@@ -1157,7 +1216,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                       </div>
 
                       <div>
-                        <label className={labelClass}>Buy Item *</label>
+                        <label className={labelClass}>Buy Item <span className="text-destructive">*</span></label>
 
                         <Input
                           className={inputClass}
@@ -1176,7 +1235,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div>
-                        <label className={labelClass}>Get Quantity *</label>
+                        <label className={labelClass}>Get Quantity <span className="text-destructive">*</span></label>
 
                         <Input
                           className={inputClass}
@@ -1194,7 +1253,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                       </div>
 
                       <div>
-                        <label className={labelClass}>Free Item *</label>
+                        <label className={labelClass}>Free Item <span className="text-destructive">*</span></label>
 
                         <Input
                           className={inputClass}
@@ -1266,7 +1325,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className={labelClass}>Start Date *</label>
+                    <label className={labelClass}>Start Date <span className="text-destructive">*</span></label>
 
                     <Input
                       className={inputClass}
@@ -1283,7 +1342,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   </div>
 
                   <div>
-                    <label className={labelClass}>End Date *</label>
+                    <label className={labelClass}>End Date <span className="text-destructive">*</span></label>
 
                     <Input
                       className={inputClass}
@@ -1394,7 +1453,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 <div>
                   <label className={labelClass}>
                     Terms & Conditions
-                    {isReplacement && "*"}
+                    <span className="text-destructive">*</span>
                   </label>
 
                   <textarea
@@ -1525,8 +1584,8 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   startDate={form.startDate}
                   endDate={form.endDate}
                   imageUrls={form.imageUrls}
-                  isFeatured={false}
-                  isExclusive={false}
+                  isFeatured={form.isFeatured}
+                  isExclusive={form.isExclusive}
                   merchantName="Your Business"
                   categoryName={categoryName}
                   redemptionType={form.redemptionType}

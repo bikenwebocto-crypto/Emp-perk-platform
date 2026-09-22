@@ -59,7 +59,7 @@ export default function MerchantOffersPage() {
   const { data, isLoading } = useMerchantOffers({
     page,
     pageSize: 10,
-    scope,
+    scope ,
     q: search || undefined,
   })
 
@@ -70,7 +70,12 @@ export default function MerchantOffersPage() {
   const meta = data?.meta ?? { total: 0, totalPages: 1 }
 
   // Live offers for the Featured Carousel (top 5)
-  const liveOffers = (data?.data ?? []).filter((o: any) => o.status === 'LIVE').slice(0, 5)
+ const { data: liveData } = useMerchantOffers({
+  page: 1,
+  pageSize: 5,
+  scope: undefined,
+  })
+const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE').slice(0, 5)
 
   const columns: ColumnDef<any>[] = [
     { key: 'title', header: 'Title' , render: (o: any) => <span className="font-medium">{o.title}</span> },
