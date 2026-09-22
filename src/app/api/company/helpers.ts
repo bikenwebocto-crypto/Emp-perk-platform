@@ -12,11 +12,22 @@ export class CompanyInactiveError extends Error {
   }
 }
 
-export async function getCompanyAdmin(): Promise<{
+export interface GetCompanyAdminOptions {
+  /**
+   * Allow read-style access while the company is PAUSED / SUSPENDED /
+   * CANCELLED. The company admin can then SEE their status (e.g. the
+   * read-only Account Status card) without being able to mutate via the
+   * strict routes. Hard-deleted companies remain blocked either way.
+   */
+  allowInactive?: boolean
+}
+
+export async function getCompanyAdmin(options: GetCompanyAdminOptions = {}): Promise<{
   company: Company
   companyAdmin: CompanyAdmin
   user: Awaited<ReturnType<typeof getCurrentUser>>
 }> {
+  const { allowInactive = false } = options
   const user = await getCurrentUser()
   if (!user || user.userType !== 'company_admin') {
     throw new AuthError('Unauthorized')
@@ -38,10 +49,15 @@ export async function getCompanyAdmin(): Promise<{
     }
   }
 
-  if (!company || company.deletedAt || company.status === 'CANCELLED') {
+  if (!company || company.deletedAt) {
     throw new AuthError('Company not found or inactive')
   }
-  if (company.status === 'PAUSED' || company.status === 'SUSPENDED') {
+  if (
+    !allowInactive &&
+    (company.status === 'CANCELLED' ||
+      company.status === 'PAUSED' ||
+      company.status === 'SUSPENDED')
+  ) {
     throw new CompanyInactiveError(company.status)
   }
 

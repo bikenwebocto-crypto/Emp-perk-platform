@@ -132,6 +132,11 @@ export const MERCHANT_LOGO_OPTIONS: UploadImageOptions = {
   folder: 'Brand_logo',
 }
 
+export const COMPANY_LOGO_OPTIONS  : UploadImageOptions = {
+  bucket: 'offer-images',
+  folder: 'Brand_logo',
+}
+
 // ---------------------------------------------------------------------------
 // Preset: Merchant Cover Image
 // ---------------------------------------------------------------------------

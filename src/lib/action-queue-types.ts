@@ -1,4 +1,4 @@
-export type QueueTabKey = 'ALL' | 'MERCHANT_APPROVAL' | 'OFFER_APPROVAL' | 'COMPANY_ACTIVATION' | 'ISSUES' | 'ALERTS'
+export type QueueTabKey = 'ALL'  | 'OFFER_APPROVAL' | 'COMPANY_ACTIVATION' | 'ISSUES' | 'ALERTS'
 
 export type EntityKind = 'MERCHANT' | 'MERCHANT_OFFER' | 'COMPANY' | 'ISSUE' | 'CSV' | 'ASSET' | 'RENEWAL_ALERT' | 'UNKNOWN'
 
@@ -11,13 +11,13 @@ export interface QueueTypeMapping {
 }
 
 export const QUEUE_TYPE_MAP: Record<string, QueueTypeMapping> = {
-  NEW_MERCHANT_APPLICATION: {
-    displayType: 'Merchant Application',
-    tabCategory: 'MERCHANT_APPROVAL',
-    priority: 'HIGH',
-    entityKind: 'MERCHANT',
-    reviewComponent: 'MerchantApplicationReview',
-  },
+  // NEW_MERCHANT_APPLICATION: {
+  //   displayType: 'Merchant Application',
+  //   // tabCategory: 'MERCHANT_APPROVAL',
+  //   priority: 'HIGH',
+  //   entityKind: 'MERCHANT',
+  //   reviewComponent: 'MerchantApplicationReview',
+  // },
 
   FIRST_OFFER_APPROVAL: {
     displayType: 'First Offer Approval',
@@ -35,13 +35,13 @@ export const QUEUE_TYPE_MAP: Record<string, QueueTypeMapping> = {
     reviewComponent: 'OfferReplacementReview',
   },
 
-  PROFILE_EDIT_REQUEST: {
-    displayType: 'Profile Change',
-    tabCategory: 'MERCHANT_APPROVAL',
-    priority: 'MEDIUM',
-    entityKind: 'MERCHANT',
-    reviewComponent: 'ProfileReview',
-  },
+  // PROFILE_EDIT_REQUEST: {
+  //   displayType: 'Profile Change',
+  //   // tabCategory: 'MERCHANT_APPROVAL',
+  //   priority: 'MEDIUM',
+  //   entityKind: 'MERCHANT',
+  //   reviewComponent: 'ProfileReview',
+  // },
 
   COMPANY_ACTIVATION: {
     displayType: 'Company Activation',
@@ -67,13 +67,13 @@ export const QUEUE_TYPE_MAP: Record<string, QueueTypeMapping> = {
     reviewComponent: 'CsvImportReview',
   },
 
-  BRANCH_EDIT_REQUEST: {
-    displayType: 'Branch Edit Request',
-    tabCategory: 'MERCHANT_APPROVAL',
-    priority: 'MEDIUM',
-    entityKind: 'MERCHANT',
-    reviewComponent: 'BranchReview',
-  },
+  // BRANCH_EDIT_REQUEST: {
+  //   displayType: 'Branch Edit Request',
+  //   // tabCategory: 'MERCHANT_APPROVAL',
+  //   priority: 'MEDIUM',
+  //   entityKind: 'MERCHANT',
+  //   reviewComponent: 'BranchReview',
+  // },
 
   ASSET_REVIEW: {
     displayType: 'Asset Review',
@@ -86,7 +86,7 @@ export const QUEUE_TYPE_MAP: Record<string, QueueTypeMapping> = {
 
 export const TAB_KEYS: { key: QueueTabKey; label: string; queueTypes: string[] }[] = [
   { key: 'ALL', label: 'All', queueTypes: [] },
-  { key: 'MERCHANT_APPROVAL', label: 'Merchant Applications', queueTypes: ['NEW_MERCHANT_APPLICATION', 'PROFILE_EDIT_REQUEST', 'BRANCH_EDIT_REQUEST'] },
+  // { key: 'MERCHANT_APPROVAL', label: 'Merchant Applications', queueTypes: ['NEW_MERCHANT_APPLICATION', 'PROFILE_EDIT_REQUEST', 'BRANCH_EDIT_REQUEST'] },
   { key: 'OFFER_APPROVAL', label: 'Offer Approvals', queueTypes: ['FIRST_OFFER_APPROVAL', 'OFFER_REPLACEMENT'] },
   { key: 'COMPANY_ACTIVATION', label: 'Company Activation', queueTypes: ['COMPANY_ACTIVATION'] },
   { key: 'ISSUES', label: 'Issues', queueTypes: ['ISSUE_REVIEW', 'CSV_IMPORT'] },
@@ -135,6 +135,5 @@ export function getPriorityLabel(priority: number): string {
   if (priority >= 4) return 'HIGH'
   if (priority >= 3) return 'MEDIUM'
   if (priority >= 2) return 'STANDARD'
-  if (priority >= 1) return 'STANDARD'
   return 'LOW'
 }

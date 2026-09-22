@@ -12,6 +12,41 @@ import { derivePrimaryAdmin, summarizeAdmins } from '@/lib/company-contact';
 import { createPerfTimer } from '@/lib/perf';
 import type { CompanyStatus } from '@/types';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessToAdmins, publishBusinessToCompanyAdmins } from '@/services/business-notification.service';
+import { z } from 'zod';
+
+const submissionAttempts = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const RATE_LIMIT_MAX_ATTEMPTS = 3; // per IP per window, unauthenticated only
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = submissionAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    submissionAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT_MAX_ATTEMPTS) return false;
+  entry.count += 1;
+  return true;
+}
+
+const companySignupSchema = z.object({
+  name: z.string().trim().min(2).max(200),
+  email: z.string().trim().email().max(254),
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
+  phone: z.string().trim().max(30).optional().nullable(),
+  website: z.string().trim().url().max(300).optional().nullable().or(z.literal('')),
+  employeeCount: z.number().int().min(0).max(1_000_000).optional().nullable(),
+  addressLine1: z.string().trim().max(300).optional().nullable(),
+  addressLine2: z.string().trim().max(300).optional().nullable(),
+  city: z.string().trim().max(120).optional().nullable(),
+  state: z.string().trim().max(120).optional().nullable(),
+  postalCode: z.string().trim().max(20).optional().nullable(),
+  country: z.string().trim().max(120).optional().nullable(),
+  taxId: z.string().trim().max(60).optional().nullable(),
+});
+
 
 function unauthorized() {
   return NextResponse.json(
@@ -170,21 +205,36 @@ export async function POST(request: NextRequest) {
   timer.section('Authentication')
   try {
     const user = await getCurrentUser(timer);
+    const requiresApproval = !user || user.role !== 'SUPER_ADMIN'
     timer.point('user auth check')
-    if (!user || user.userType !== 'admin') return unauthorized();
 
-    const body = await request.json();
-    const { name, email, firstName, lastName, phone, website, employeeCount, addressLine1, addressLine2, city, state, postalCode, country, taxId } = body;
-    console.log('[COMPANY_ADMIN_EMAIL][ROUTE] POST /api/admin/companies', { companyName: name, email, firstName, lastName });
-
-    if (!name || !email || !firstName || !lastName) {
-      return NextResponse.json(
-        { success: false, error: { code: 'VALIDATION', message: 'Missing required fields: name, email, firstName, lastName' } },
-        { status: 400 },
-      );
+    // Rate limit only applies to unauthenticated (public signup) submissions —
+    // Super Admins are trusted, already-authenticated actors.
+    if (!user) {
+      const ip =
+        request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+        request.headers.get('x-real-ip') ??
+        'unknown';
+      if (!checkRateLimit(ip)) {
+        return NextResponse.json(
+          { success: false, error: { code: 'RATE_LIMITED', message: 'Too many submissions. Please try again later.' } },
+          { status: 429 },
+        );
+      }
     }
 
     timer.section('Validation')
+    timer.point('schema validation')
+    const rawBody = await request.json();
+    const parsed = companySignupSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { success: false, error: { code: 'VALIDATION', message: 'Validation failed', details: parsed.error.flatten().fieldErrors } },
+        { status: 400 },
+      );
+    }
+    const { name, email, firstName, lastName, phone, website, employeeCount, addressLine1, addressLine2, city, state, postalCode, country, taxId } = parsed.data;
+
     timer.point('validateUserEmail')
     const validation = await validateUserEmail(email);
     if (validation.exists) {
@@ -203,7 +253,8 @@ export async function POST(request: NextRequest) {
         data: {
           name, slug, email, employeeCount: employeeCount ?? 0, phone, website,
           addressLine1, addressLine2, city, state, postalCode, country, taxId,
-          status: 'APPROVED_PENDING_PAYMENT', approvedAt: new Date(),
+          status: requiresApproval ? 'PENDING' : 'APPROVED_PENDING_PAYMENT',
+          approvedAt: requiresApproval ? null : new Date(),
         },
       });
 
@@ -220,28 +271,44 @@ export async function POST(request: NextRequest) {
         data: { companyId: company.id, plan: 'growth', pricePerEmployee: 5.0, isTrial: true, trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
       });
 
-      await tx.auditLog.create({
-        data: buildAuditData(fromCurrentUser(user, 'COMPANY_CREATED', 'company', company.id, { changes: {} })) as any,
-      });
+     
+
+      if (requiresApproval) {
+        await tx.actionQueueItem.create({
+          data: {
+            type: 'COMPANY_ACTIVATION',
+            title: `New company activation: ${company.name}`,
+            description: `Company ${company.name} is awaiting board activation approval.`,
+            referenceId: company.id,
+            referenceType: 'company',
+            status: 'PENDING',
+            priority: 2,
+            metadata: { queueType: 'COMPANY_ACTIVATION', source: user ? 'ADMIN' : 'PUBLIC_SIGNUP' },
+          },
+        });
+      }
 
       return company;
     });
 
-    await publishBusinessToAdmins({
-      type: 'SYSTEM',
-      title: `New company registration: ${result.name}`,
-      message: 'A company registration is waiting for review.',
-      priority: 'HIGH',
-      channels: channels('IN_APP', 'PUSH'),
-      referenceType: 'company',
-      referenceId: result.id,
-      metadata: { companyId: result.id },
-    });
+    if (requiresApproval) {
+      await publishBusinessToAdmins({
+        type: 'SYSTEM',
+        title: `New company activation: ${result.name}`,
+        message: 'A company activation is waiting for board approval.',
+        priority: 'HIGH',
+        channels: channels('IN_APP', 'PUSH'),
+        referenceType: 'company',
+        referenceId: result.id,
+        metadata: { companyId: result.id },
+      });
+    }
 
     timer.point('sendCompanyAdminInvitation')
     await sendCompanyAdminInvitation({
       email, firstName, lastName, companyName: name, companyId: result.id,
-      actorType: user.userType, actorId: user.profileId,
+      actorType: user?.userType ?? 'PUBLIC',
+      actorId: user?.profileId ?? null,
     })
 
     timer.section('Serialization')

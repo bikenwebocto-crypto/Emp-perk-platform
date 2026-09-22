@@ -61,17 +61,19 @@ export default function ActionQueuePage() {
   const [status, setStatus] = useState<string>(searchParams.get('status') ?? 'ALL')
   const [type, setType] = useState<string>(searchParams.get('queueType') ?? 'ALL')
   const [showFilters, setShowFilters] = useState(false)
+  const [page, setPage] = useState(1)
 
   const filters = useMemo(
-    () => ({
-      tab: activeTab === 'ALL' ? undefined : activeTab,
-      queueType: type === 'ALL' ? undefined : type,
-      status: status === 'ALL' ? undefined : status,
-      priority: priority === 'ALL' ? undefined : priority,
-      q: search.trim() || undefined,
-    }),
-    [activeTab, type, status, priority, search],
-  )
+  () => ({
+    tab: activeTab === 'ALL' ? undefined : activeTab,
+    queueType: type === 'ALL' ? undefined : type,
+    status: status,   // always send it — 'ALL' included — so the server can distinguish "show everything" from "no filter set"
+    priority: priority === 'ALL' ? undefined : priority,
+    q: search.trim() || undefined,
+    page,
+  }),
+  [activeTab, type, status, priority, search, page],
+)
 
   const { data, isLoading, isFetching } = useActionQueue(filters)
   const items = data?.data ?? []
@@ -79,6 +81,7 @@ export default function ActionQueuePage() {
 
   const handleTabChange = (tab: QueueTabKey) => {
     setActiveTab(tab)
+    setPage(1)
     const params = new URLSearchParams()
     if (tab !== 'ALL') params.set('tab', tab)
     router.replace(`/admin/action-queue${params.toString() ? `?${params}` : ''}`, { scroll: false })
@@ -89,6 +92,7 @@ export default function ActionQueuePage() {
     setPriority('ALL')
     setStatus('ALL')
     setType('ALL')
+    setPage(1)
   }
 
   const hasActiveFilter = search.trim() !== '' || priority !== 'ALL' || status !== 'ALL' || type !== 'ALL'
@@ -156,7 +160,7 @@ export default function ActionQueuePage() {
             placeholder="Search by title or description…"
             className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
           />
         </div>
         <div className="flex items-center gap-2">
@@ -189,7 +193,7 @@ export default function ActionQueuePage() {
             <select
               className="w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={priority}
-              onChange={(e) => setPriority(e.target.value)}
+              onChange={(e) => { setPriority(e.target.value); setPage(1) }}
             >
               {PRIORITY_OPTIONS.map((p) => (
                 <option key={p} value={p}>
@@ -203,7 +207,7 @@ export default function ActionQueuePage() {
             <select
               className="w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={status}
-              onChange={(e) => setStatus(e.target.value)}
+              onChange={(e) => { setStatus(e.target.value); setPage(1) }}
             >
               {STATUS_OPTIONS.map((s) => (
                 <option key={s} value={s}>
@@ -217,7 +221,7 @@ export default function ActionQueuePage() {
             <select
               className="w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={type}
-              onChange={(e) => setType(e.target.value)}
+              onChange={(e) => { setType(e.target.value); setPage(1) }}
             >
               {TYPE_OPTIONS.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
@@ -315,9 +319,29 @@ export default function ActionQueuePage() {
           <span>
             Showing {items.length} of {meta.total} items
           </span>
-          <span>
-            Page {meta.page} of {meta.totalPages}
-          </span>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={!meta.hasPreviousPage}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </Button>
+            <span>
+              Page {meta.page} of {meta.totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={!meta.hasNextPage}
+              onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
     </div>

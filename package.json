@@ -88,7 +88,7 @@
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^14.0.0",
-    "zod": "^3.23.8",
+    "zod": "^3.25.76",
     "zustand": "^5.0.1"
   },
   "devDependencies": {
@@ -106,9 +106,9 @@
     "@types/react-dom": "^19.0.0-rc-f1e5d9f9-20241017",
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.14.0",
-    "cross-env": "^7.0.3",
     "@typescript-eslint/parser": "^8.14.0",
     "autoprefixer": "^10.4.20",
+    "cross-env": "^7.0.3",
     "eslint": "^8.57.0",
     "eslint-config-next": "^15.0.0",
     "eslint-plugin-react-hooks": "^5.0.0",

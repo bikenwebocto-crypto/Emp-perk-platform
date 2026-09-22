@@ -345,14 +345,14 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
         />
       )}
 
-      {editMode && canEdit && (
+      {/* {editMode && canEdit && (
         <EditFieldsForm
           fields={editableFields}
           entity={entity}
           edits={edits}
           setEdits={setEdits}
         />
-      )}
+      )} */}
 
       <RemarksPanel
         queueItem={queueItem}
@@ -389,7 +389,7 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
 
           {/* Right: action buttons */}
           <div className="flex flex-wrap items-center gap-2">
-            {!isFinalized && canEdit && !editMode && (
+            {/* {!isFinalized && canEdit && !editMode && (
               <Button
                 variant="outline"
                 size="sm"
@@ -399,7 +399,7 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
               >
                 <Edit3 className="h-4 w-4" />Edit &amp; Approve
               </Button>
-            )}
+            )} */}
             {!isFinalized && editMode && (
               <>
                 <Button

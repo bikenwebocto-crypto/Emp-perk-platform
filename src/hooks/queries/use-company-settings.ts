@@ -1,7 +1,25 @@
 'use client'
 
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { companyDashboardKeys } from './use-company-dashboard'
+
+export function useCompanyProfile() {
+  return useQuery({
+    queryKey: ['company', 'profile'],
+    queryFn: async () => {
+      const res = await fetch('/api/company/settings/profile')
+      const body = await res.json()
+      if (!res.ok || !body.success) {
+        const code = body.error?.code
+        const msg = body.error?.message ?? 'Failed to fetch company profile'
+        const err = new Error(msg) as Error & { code?: string }
+        err.code = code
+        throw err
+      }
+      return body
+    },
+  })
+}
 
 export function useUpdateCompanyProfile() {
   const queryClient = useQueryClient()

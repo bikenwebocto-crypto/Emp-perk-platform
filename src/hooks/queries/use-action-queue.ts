@@ -24,7 +24,7 @@ export function useActionQueue(filters?: ActionQueueFilters) {
     queryKey: actionQueueKeys.list(filters as unknown as Record<string, unknown> ?? {}),
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (filters?.status && filters.status !== 'ALL') params.set('status', filters.status);
+      if (filters?.status) params.set('status', filters.status);
       if (filters?.type && filters.type !== 'ALL') params.set('type', filters.type);
       if (filters?.queueType) params.set('queueType', filters.queueType);
       if (filters?.tab) params.set('tab', filters.tab);

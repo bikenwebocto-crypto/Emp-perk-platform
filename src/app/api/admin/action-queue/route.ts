@@ -81,31 +81,25 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = {};
 
-    if (status && status !== "ALL") {
-      if (status === "ACTIVE") {
-        where.status = { in: ["PENDING", "IN_PROGRESS"] };
-      } else {
-        where.status = status;
-      }
-    } else {
-      where.status = { in: ["PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"] };
+    if (!status || status === "ACTIVE") {
+      where.status = { in: ["PENDING", "IN_PROGRESS"] };
+    } else if (status !== "ALL") {
+      where.status = status;
     }
     const queueTypes = resolveTypeFilter(queueType, type);
     if (tab && tab !== "ALL") {
-
       const tabQueueTypes = Object.entries(QUEUE_TYPE_MAP)
         .filter(([, m]) => m.tabCategory === tab)
         .map(([k]) => k);
-      const typeWhere = buildTypeWhere(tabQueueTypes);
-      console.log("tabQueueTypes:", tabQueueTypes, "typeWhere:", typeWhere);
-
+      const effectiveQueueTypes = queueTypes?.length
+        ? tabQueueTypes.filter((t) => queueTypes.includes(t))
+        : tabQueueTypes;
+      const typeWhere = buildTypeWhere(effectiveQueueTypes);
       if (typeWhere) where.AND = [typeWhere];
     } else {
       const typeWhere = buildTypeWhere(queueTypes);
       if (typeWhere) where.AND = [typeWhere];
     }
-
-    console.log(" queueTypes:", queueTypes, "tab:", tab, "where:", where);  
 
     if (priority && priority !== "ALL") {
       const priorityMap: Record<string, [number, number]> = {
@@ -139,16 +133,7 @@ export async function GET(request: NextRequest) {
     const staleItemIds = await getStaleOfferQueueItemIds();
     const staleFilter = staleItemIds.length > 0 ? { id: { notIn: staleItemIds } } : {};
 
-    const actionQueueItem = prisma.actionQueueItem.findMany({
-          where: { ...(where as any), ...staleFilter },
-          orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
-          skip: (page - 1) * pageSize,
-          take: pageSize,
-          include: {
-            merchant: { select: { id: true, businessName: true } },
-          },
-        })
-    const [items, total, statusCounts, priorityCounts, typeCounts] =
+    const [items, total, priorityCounts] =
       await Promise.all([
         prisma.actionQueueItem.findMany({
           where: { ...(where as any), ...staleFilter },
@@ -161,25 +146,9 @@ export async function GET(request: NextRequest) {
         }),
         prisma.actionQueueItem.count({ where: { ...(where as any), ...staleFilter } }),
         prisma.actionQueueItem.groupBy({
-          by: ["status"],
-          _count: { _all: true },
-          where: {
-            status: {
-              in: ["PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "SKIPPED"],
-            },
-            ...staleFilter,
-          },
-        }),
-        prisma.actionQueueItem.groupBy({
           by: ["priority"],
           _count: { _all: true },
           where: { status: { in: ["PENDING", "IN_PROGRESS"] }, ...staleFilter },
-        }),
-        prisma.actionQueueItem.count({
-          where: {
-            status: { in: ["PENDING", "IN_PROGRESS"] },
-            ...staleFilter,
-          },
         }),
       ]);
 
