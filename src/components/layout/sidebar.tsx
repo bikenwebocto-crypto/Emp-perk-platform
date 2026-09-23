@@ -54,7 +54,7 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Banners', href: '/admin/banners', icon: Palette },
     { label: 'Notifications', href: '/admin/notifications', icon: Bell },
     { label: 'Login Branding', href: '/admin/settings/login-branding', icon: Palette },
-    { label: 'Theme Customizer', href: '/admin/themes/customize', icon: Palette },
+    // { label: 'Theme Customizer', href: '/admin/themes/customize', icon: Palette },
   ],
   merchant: [
     { label: 'Overview', href: '/merchant', icon: LayoutDashboard, exact: true },
