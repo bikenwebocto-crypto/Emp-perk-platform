@@ -72,6 +72,20 @@ const POSITION_LABELS: Record<string, string> = {
   TOP: "Top",
   BOTTOM: "Bottom",
 };
+// Local YYYY-MM-DD (avoids UTC shifting the day)
+function toDateInput(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function addDays(dateStr: string, n: number) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return toDateInput(d);
+}
+// Returns true if the two date ranges overlap (inclusive)
 
 function statusBadge(s: string) {
   const cls =
@@ -360,6 +374,11 @@ export default function AdminBannersPage() {
       showToast({ type: "error", title: "Failed", description: e?.message }),
   });
 
+  const editBannerExpiryISO = editBookingBanner?.expiresAt
+  ? editBookingBanner.expiresAt.slice(0, 10)
+  : undefined;
+
+
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     createMutation.mutate({
@@ -439,6 +458,23 @@ export default function AdminBannersPage() {
   async function handleEditBooking(e: React.FormEvent) {
     e.preventDefault();
     if (!editBooking || !editBookingBanner) return;
+
+     if (editBookingBanner.expiresAt && editBookingForm.endDate) {
+        const bannerExpiry = new Date(editBookingBanner.expiresAt);
+        // treat expiry as end-of-day to match typical date-only semantics
+        bannerExpiry.setHours(23, 59, 59, 999);
+        const newEnd = new Date(`${editBookingForm.endDate}T00:00:00`);
+        if (newEnd > bannerExpiry) {
+          showToast({
+            type: "error",
+            title: "End date after banner expiry",
+            description: `End date cannot be after ${editBookingBanner.expiresAt
+              .toString()
+              .slice(0, 10)}`,
+          });
+          return;
+        }
+      }
 
     let imageUrl = editBookingForm.imageUrl;
     if (editBookingPendingFile) {
@@ -816,150 +852,129 @@ export default function AdminBannersPage() {
             </CardContent>
           </Card>
 
-          {editBanner && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between text-base">
-                  <span>Edit: {editBanner.name}</span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setEditBanner(null)}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleEdit} className="space-y-3">
+          <Dialog
+            open={!!editBanner}
+            onOpenChange={(open) => !open && setEditBanner(null)}
+          >
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+              <DialogHeader>
+                <DialogTitle>Edit: {editBanner?.name}</DialogTitle>
+                <DialogDescription>
+                  Update the banner slot details below.
+                </DialogDescription>
+              </DialogHeader>
+
+              <form onSubmit={handleEdit} className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    Name *
+                  </label>
+                  <Input
+                    value={editForm.name}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, name: e.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    Description
+                  </label>
+                  <Input
+                    value={editForm.description}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, description: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      Name *
+                      Price Per Day (€) *
                     </label>
                     <Input
-                      value={editForm.name}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editForm.pricePerDay}
                       onChange={(e) =>
-                        setEditForm((f) => ({ ...f, name: e.target.value }))
+                        setEditForm((f) => ({ ...f, pricePerDay: e.target.value }))
                       }
                       required
                     />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      Description
-                    </label>
-                    <Input
-                      value={editForm.description}
-                      onChange={(e) =>
-                        setEditForm((f) => ({
-                          ...f,
-                          description: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                        Price Per Day (€) *
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={editForm.pricePerDay}
-                        onChange={(e) =>
-                          setEditForm((f) => ({
-                            ...f,
-                            pricePerDay: e.target.value,
-                          }))
-                        }
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                        Min Days
-                      </label>
-                      <Input
-                        type="number"
-                        min="1"
-                        value={editForm.minDays}
-                        onChange={(e) =>
-                          setEditForm((f) => ({
-                            ...f,
-                            minDays: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                        Max Days
-                      </label>
-                      <Input
-                        type="number"
-                        min="1"
-                        value={editForm.maxDays}
-                        onChange={(e) =>
-                          setEditForm((f) => ({
-                            ...f,
-                            maxDays: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      Display Order (slot number — lower = appears first)
+                      Min Days
                     </label>
                     <Input
                       type="number"
-                      value={editForm.displayOrder}
+                      min="1"
+                      value={editForm.minDays}
                       onChange={(e) =>
-                        setEditForm((f) => ({
-                          ...f,
-                          displayOrder: e.target.value,
-                        }))
+                        setEditForm((f) => ({ ...f, minDays: e.target.value }))
                       }
                     />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      Expires At (optional — blank = no expiry)
+                      Max Days
                     </label>
                     <Input
-                      type="date"
-                      value={editForm.expiresAt}
+                      type="number"
+                      min="1"
+                      value={editForm.maxDays}
                       onChange={(e) =>
-                        setEditForm((f) => ({
-                          ...f,
-                          expiresAt: e.target.value,
-                        }))
+                        setEditForm((f) => ({ ...f, maxDays: e.target.value }))
                       }
                     />
                   </div>
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setEditBanner(null)}
-                    >
-                      Cancel
-                    </Button>
-                    <LoadingButton
-                      type="submit"
-                      loading={updateMutation.isPending}
-                      loadingText="Saving…"
-                    >
-                      Save
-                    </LoadingButton>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
-          )}
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    Display Order (slot number — lower = appears first)
+                  </label>
+                  <Input
+                    type="number"
+                    value={editForm.displayOrder}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, displayOrder: e.target.value }))
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    Expires At (optional — blank = no expiry)
+                  </label>
+                  <Input
+                    type="date"
+                    value={editForm.expiresAt}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, expiresAt: e.target.value }))
+                    }
+                  />
+                </div>
+
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setEditBanner(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <LoadingButton
+                    type="submit"
+                    loading={updateMutation.isPending}
+                    loadingText="Saving…"
+                  >
+                    Save
+                  </LoadingButton>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </>
       )}
 
@@ -1309,40 +1324,54 @@ export default function AdminBannersPage() {
                         </p>
                       </div>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                          Start Date *
-                        </label>
-                        <Input
-                          type="date"
-                          value={editBookingForm.startDate}
-                          onChange={(e) =>
-                            setEditBookingForm((f) => ({
-                              ...f,
-                              startDate: e.target.value,
-                            }))
-                          }
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                          End Date *
-                        </label>
-                        <Input
-                          type="date"
-                          value={editBookingForm.endDate}
-                          onChange={(e) =>
-                            setEditBookingForm((f) => ({
-                              ...f,
-                              endDate: e.target.value,
-                            }))
-                          }
-                          required
-                        />
-                      </div>
-                    </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+  <div>
+    <label className="mb-1 block text-xs font-medium text-muted-foreground">
+      Start Date *
+    </label>
+    <Input
+      type="date"
+      value={editBookingForm.startDate}
+      max={editBannerExpiryISO}
+      onChange={(e) =>
+        setEditBookingForm((f) => {
+          const startDate = e.target.value;
+          // If start pushes end past expiry, clamp end to expiry
+          const endDate =
+            editBannerExpiryISO && f.endDate > editBannerExpiryISO
+              ? editBannerExpiryISO
+              : f.endDate;
+          return { ...f, startDate, endDate };
+        })
+      }
+      required
+    />
+  </div>
+  <div>
+    <label className="mb-1 block text-xs font-medium text-muted-foreground">
+      End Date *
+    </label>
+    <Input
+      type="date"
+      value={editBookingForm.endDate}
+      min={editBookingForm.startDate || undefined}
+      max={editBannerExpiryISO}
+      onChange={(e) =>
+        setEditBookingForm((f) => ({
+          ...f,
+          endDate: e.target.value,
+        }))
+      }
+      required
+    />
+    {editBannerExpiryISO && (
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        Must be on or before{" "}
+        {new Date(editBannerExpiryISO).toLocaleDateString()}.
+      </p>
+    )}
+  </div>
+</div>
                     <ImageUpload
                       value={editBookingForm.imageUrl}
                       onChange={(url) =>
