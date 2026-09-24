@@ -41,7 +41,13 @@ export async function GET(_request: NextRequest) {
     const staleFilter = staleItemIds.length > 0 ? { id: { notIn: staleItemIds } } : {}
 
     // Count by type using actual ActionQueueType enum values
-    const merchantApplications = allPendingItems.filter(i => i.type === 'NEW_MERCHANT_APPLICATION').length
+    const merchantApplications = await prisma.merchant.count({
+  where: {
+    OR: [
+      { status: 'PENDING' },
+    ],
+  },
+})
     const offerApprovals = allPendingItems.filter(i => i.type === 'FIRST_OFFER_APPROVAL' && !staleSet.has(i.id)).length
     const offerReplacements = allPendingItems.filter(i => i.type === 'OFFER_REPLACEMENT' && !staleSet.has(i.id)).length
     const profileChanges = allPendingItems.filter(i => i.type === 'PROFILE_EDIT_REQUEST').length

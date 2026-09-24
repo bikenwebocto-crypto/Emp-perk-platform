@@ -1,6 +1,6 @@
 'use client'
 import { useState, useMemo, useCallback, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Plus, Package, Activity, FileText } from 'lucide-react'
 import { PageHeader } from '@/components/shared/page-header'
@@ -41,10 +41,26 @@ const TABS: { key: TabKey; label: string; icon: any }[] = [
   { key: 'pending', label: 'Pending Approval', icon: Activity },
 ]
 
+
+
 export default function MerchantsPage() {
   const router = useRouter()
   const navigateToMerchant = useCallback((id: string) => router.push(`/admin/merchants/${id}`), [router])
+  
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get("tab")
 
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    tabParam && TABS.some((t) => t.key === tabParam)
+      ? (tabParam as TabKey)
+      : "all",
+  )
+
+  useEffect(() => {
+    if (tabParam && TABS.some((t) => t.key === tabParam)) {
+      setActiveTab(tabParam as TabKey)
+    }
+  }, [tabParam])
   // ----- UI State -----
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<MerchantStatus | 'ALL'>('ALL')
@@ -55,7 +71,7 @@ export default function MerchantsPage() {
   const [hasLiveOffersFilter, setHasLiveOffersFilter] = useState<boolean | null>(null)
   const [hasPendingOffersFilter, setHasPendingOffersFilter] = useState<boolean | null>(null)
   const [priorityMinFilter, setPriorityMinFilter] = useState<number | null>(null)
-  const [activeTab, setActiveTab] = useState<TabKey>('all')
+  // const [activeTab, setActiveTab] = useState<TabKey>('all')
   const [sortConfig, setSortConfig] = useState<TableSortConfig>({ key: 'priority', direction: 'desc' })
 
   const [confirmOpen, setConfirmOpen] = useState(false)

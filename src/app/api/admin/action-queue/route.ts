@@ -2,16 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createAuditLog, fromCurrentUser } from "@/services/audit-log.service";
 import { getCurrentUser } from "@/lib/supabase/server";
-import { QUEUE_TYPE_MAP, getPriorityLabel } from "@/lib/action-queue-types";
+import { QUEUE_TYPE_MAP, type QueueTabKey, getPriorityLabel } from "@/lib/action-queue-types";
 import { getStaleOfferQueueItemIds } from "@/lib/action-queue-stale";
-import { publishBusinessToAdmins } from '@/services/business-notification.service';
+import { publishBusinessToAdmins } from "@/services/business-notification.service";
 
 function unauthorized() {
   return NextResponse.json(
-    {
-      success: false,
-      error: { code: "UNAUTHORIZED", message: "Unauthorized" },
-    },
+    { success: false, error: { code: "UNAUTHORIZED", message: "Unauthorized" } },
     { status: 401 },
   );
 }
@@ -19,443 +16,199 @@ function unauthorized() {
 function internalError(error: unknown) {
   console.error("Action Queue API error:", error);
   return NextResponse.json(
-    {
-      success: false,
-      error: { code: "INTERNAL", message: "Internal server error" },
-    },
+    { success: false, error: { code: "INTERNAL", message: "Internal server error" } },
     { status: 500 },
   );
+}
+
+// ---------------- Helpers ----------------
+
+type Where = Record<string, unknown>;
+type TabFilter = QueueTabKey | "ALL";
+type PriorityLabel = "HIGH" | "MEDIUM" | "STANDARD" | "LOW";
+
+const MATCH_NONE: Where = { id: { in: [] } };
+
+function and(...parts: (Where | undefined)[]): Where {
+  const p = parts.filter(Boolean) as Where[];
+  return p.length ? { AND: p } : {};
+}
+
+const VALID_TABS = new Set<string>(
+  Object.values(QUEUE_TYPE_MAP).map((m) => m.tabCategory),
+);
+
+function isQueueTab(value: string): value is QueueTabKey {
+  return VALID_TABS.has(value);
+}
+
+function normalizeTab(tabParam: string | null): TabFilter {
+  const raw = tabParam?.trim().toUpperCase() || "ALL";
+  return isQueueTab(raw) ? raw : "ALL";
 }
 
 function resolveTypeFilter(
   queueTypeParam: string | null,
   typeParam: string | null,
 ): string[] | undefined {
-  if (queueTypeParam) {
-    const mapping = QUEUE_TYPE_MAP[queueTypeParam];
-    if (mapping)
-      return [mapping.reviewComponent ? queueTypeParam : queueTypeParam].length
-        ? [queueTypeParam]
-        : undefined;
-    return undefined;
-  }
-  if (typeParam && typeParam !== "ALL") {
-    return typeParam.split(",").filter(Boolean);
+  if (queueTypeParam) return QUEUE_TYPE_MAP[queueTypeParam] ? [queueTypeParam] : [];
+  if (typeParam && typeParam.trim().toUpperCase() !== "ALL") {
+    return typeParam.split(",").map((t) => t.trim()).filter(Boolean);
   }
   return undefined;
 }
 
-function buildTypeWhere(queueTypes?: string[]) {
-  if (!queueTypes?.length) return undefined;
+const PRIORITY_RANGES: Record<PriorityLabel, [number, number]> = {
+  HIGH: [4, 100],
+  MEDIUM: [3, 3],
+  STANDARD: [2, 2],
+  LOW: [0, 1],
+};
 
-  if (queueTypes.length === 1) {
-    return {
-      type: queueTypes[0],
-    };
-  }
-
-  return {
-    type: {
-      in: queueTypes,
-    },
-  };
+function isPriorityLabel(value: string): value is PriorityLabel {
+  return value in PRIORITY_RANGES;
 }
+
+// ---------------- GET ----------------
 
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser();
     if (!user || user.userType !== "admin") return unauthorized();
 
-    const { searchParams } = new URL(request.url);
-    const status = searchParams.get("status");
-    const priority = searchParams.get("priority");
-    const queueType = searchParams.get("queueType");
-    const type = searchParams.get("type");
-    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
-    const pageSize = Math.min(
-      100,
-      Math.max(1, parseInt(searchParams.get("pageSize") ?? "50")),
-    );
-    const q = searchParams.get("q");
-    const tab = searchParams.get("tab");
+    const sp = new URL(request.url).searchParams;
+    const status = sp.get("status")?.trim().toUpperCase() || null;
+    const priority = sp.get("priority")?.trim().toUpperCase() || null;
+    const tab = normalizeTab(sp.get("tab")); // "All", "", missing, unknown → "ALL"
+    const q = sp.get("q")?.trim();
+    const page = Math.max(1, parseInt(sp.get("page") ?? "1") || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(sp.get("pageSize") ?? "50") || 50));
 
-    const where: Record<string, unknown> = {};
+    // ---- Status ----
+    // No tab → all records. Tab selected → PENDING only.
+    // Explicit status (not ALL) always wins.
+    const explicitStatus = status && status !== "ALL" ? status : null;
 
-    if (!status || status === "ACTIVE") {
-      where.status = { in: ["PENDING", "IN_PROGRESS"] };
-    } else if (status !== "ALL") {
-      where.status = status;
-    }
-    const queueTypes = resolveTypeFilter(queueType, type);
-    if (tab && tab !== "ALL") {
-      const tabQueueTypes = Object.entries(QUEUE_TYPE_MAP)
+    const allTabStatusWhere: Where | undefined = explicitStatus
+      ? { status: explicitStatus }
+      : undefined;
+
+    const tabStatusWhere: Where = explicitStatus
+      ? { status: explicitStatus }
+      : { status: "PENDING" };
+
+    const statusWhere = tab === "ALL" ? allTabStatusWhere : tabStatusWhere;
+
+    // ---- Type (queueType / type params) ----
+    const queueTypes = resolveTypeFilter(sp.get("queueType"), sp.get("type"));
+    const typeWhere: Where | undefined =
+      queueTypes === undefined
+        ? undefined
+        : queueTypes.length
+          ? { type: { in: queueTypes } }
+          : MATCH_NONE;
+
+    // ---- Tab (ALL → no filter) ----
+    let tabWhere: Where | undefined;
+    if (tab !== "ALL") {
+      const tabTypes = Object.entries(QUEUE_TYPE_MAP)
         .filter(([, m]) => m.tabCategory === tab)
         .map(([k]) => k);
-      const effectiveQueueTypes = queueTypes?.length
-        ? tabQueueTypes.filter((t) => queueTypes.includes(t))
-        : tabQueueTypes;
-      const typeWhere = buildTypeWhere(effectiveQueueTypes);
-      if (typeWhere) where.AND = [typeWhere];
-    } else {
-      const typeWhere = buildTypeWhere(queueTypes);
-      if (typeWhere) where.AND = [typeWhere];
+      tabWhere = { type: { in: tabTypes } };
     }
 
-    if (priority && priority !== "ALL") {
-      const priorityMap: Record<string, [number, number]> = {
-        HIGH: [4, 100],
-        MEDIUM: [3, 3],
-        STANDARD: [2, 2],
-        LOW: [0, 1],
-      };
-      const range = priorityMap[priority];
-      if (range) {
-        where.priority = { gte: range[0], lte: range[1] };
-      }
-    }
+    // ---- Priority ----
+    const range = priority && isPriorityLabel(priority) ? PRIORITY_RANGES[priority] : undefined;
+    const priorityWhere: Where | undefined = range
+      ? { priority: { gte: range[0], lte: range[1] } }
+      : undefined;
 
-    if (q) {
-      const qFilter = {
-        OR: [
-          { title: { contains: q, mode: "insensitive" as const } },
-          { description: { contains: q, mode: "insensitive" as const } },
-        ],
-      };
-      if (where.AND) {
-        where.AND = [...(where.AND as any[]), qFilter];
-      } else {
-        where.AND = [qFilter];
-      }
-    }
-    // Soft-delete guard: PENDING/IN_PROGRESS offer-type items whose
-    // referenced offer was deleted by the merchant must not appear in the
-    // queue (list, total, status/priority/tab counts). Acting on them 404s.
-    const staleItemIds = await getStaleOfferQueueItemIds();
-    const staleFilter = staleItemIds.length > 0 ? { id: { notIn: staleItemIds } } : {};
+    // ---- Search ----
+    const searchWhere: Where | undefined = q
+      ? {
+          OR: [
+            { title: { contains: q, mode: "insensitive" } },
+            { description: { contains: q, mode: "insensitive" } },
+          ],
+        }
+      : undefined;
 
-    const [items, total, priorityCounts] =
-      await Promise.all([
-        prisma.actionQueueItem.findMany({
-          where: { ...(where as any), ...staleFilter },
-          orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
-          skip: (page - 1) * pageSize,
-          take: pageSize,
-          include: {
-            merchant: { select: { id: true, businessName: true } },
-          },
-        }),
-        prisma.actionQueueItem.count({ where: { ...(where as any), ...staleFilter } }),
-        prisma.actionQueueItem.groupBy({
-          by: ["priority"],
-          _count: { _all: true },
-          where: { status: { in: ["PENDING", "IN_PROGRESS"] }, ...staleFilter },
-        }),
-      ]);
+    // ---- Soft-delete guard ----
+    const staleIds = await getStaleOfferQueueItemIds();
+    const staleWhere: Where | undefined = staleIds.length
+      ? { id: { notIn: staleIds } }
+      : undefined;
 
+    // ---- List + priority buckets follow the current tab's status rule ----
+    const listWhere = and(statusWhere, typeWhere, tabWhere, priorityWhere, searchWhere, staleWhere);
+    const priorityCountWhere = and(statusWhere, typeWhere, tabWhere, searchWhere, staleWhere);
 
-    const activeQueueTypes = await prisma.actionQueueItem.findMany({
-      where: {
-        status: {
-          in: ["PENDING", "IN_PROGRESS"],
-        },
-        ...staleFilter,
-      },
-      select: {
-        type: true,
-      },
-    });
+    // ---- Tab badges: ALL uses all statuses, each tab uses PENDING ----
+    const allBadgeWhere = and(allTabStatusWhere, typeWhere, priorityWhere, searchWhere, staleWhere);
+    const tabBadgeWhere = and(tabStatusWhere, typeWhere, priorityWhere, searchWhere, staleWhere);
 
-    const priorityBuckets: Record<string, number> = {
+    const [items, total, priorityCounts, allCount, typeCounts] = await Promise.all([
+      prisma.actionQueueItem.findMany({
+        where: listWhere as any,
+        orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: { merchant: { select: { id: true, businessName: true } } },
+      }),
+      prisma.actionQueueItem.count({ where: listWhere as any }),
+      prisma.actionQueueItem.groupBy({
+        by: ["priority"],
+        _count: { _all: true },
+        where: priorityCountWhere as any,
+      }),
+      prisma.actionQueueItem.count({ where: allBadgeWhere as any }),
+      prisma.actionQueueItem.groupBy({
+        by: ["type"],
+        _count: { _all: true },
+        where: tabBadgeWhere as any,
+      }),
+    ]);
+
+    // ---- Priority buckets ----
+    const priorityBuckets: Record<PriorityLabel, number> = {
       HIGH: 0,
       MEDIUM: 0,
       STANDARD: 0,
       LOW: 0,
     };
-    priorityCounts.forEach((p: any) => {
-      const label = getPriorityLabel(p.priority);
-      priorityBuckets[label] = (priorityBuckets[label] ?? 0) + p._count._all;
-    });
+    for (const p of priorityCounts) {
+      const label = getPriorityLabel(p.priority) as PriorityLabel;
+      priorityBuckets[label] += p._count._all;
+    }
 
-    const tabCounts: Record<string, number> = {
-      ALL: activeQueueTypes.length,
-      MERCHANT_APPROVAL: 0,
+    // ---- Tab counts ----
+    const tabCounts: Record<TabFilter, number> = {
+      ALL: allCount,
       OFFER_APPROVAL: 0,
       COMPANY_ACTIVATION: 0,
       ISSUES: 0,
       ALERTS: 0,
     };
-
-    const typeToTab = new Map<string, string>();
-
-    for (const [queueType, config] of Object.entries(QUEUE_TYPE_MAP)) {
-      typeToTab.set(queueType, config.tabCategory);
+    for (const row of typeCounts) {
+      const cat = QUEUE_TYPE_MAP[row.type]?.tabCategory;
+      if (cat) tabCounts[cat] += row._count._all;
     }
 
-    for (const item of activeQueueTypes) {
-      const tab = typeToTab.get(item.type);
-      if (tab) {
-        tabCounts[tab] = (tabCounts[tab] ?? 0) + 1;
-      }
-    }
     return NextResponse.json({
       success: true,
       data: items,
       meta: {
-        activeQueueTypes,
+        tab,
         priorityBuckets,
         tabCounts,
         count: total,
+        total,
         page,
         pageSize,
-        total,
         totalPages: Math.ceil(total / pageSize),
         hasNextPage: page * pageSize < total,
         hasPreviousPage: page > 1,
       },
-    });
-  } catch (error) {
-    return internalError(error);
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const user = await getCurrentUser();
-    if (!user || user.userType !== "admin") return unauthorized();
-
-    const body = await request.json();
-    const {
-      id,
-      status,
-      assignedTo,
-      title,
-      description,
-      type,
-      referenceId,
-      referenceType,
-      priority,
-      metadata,
-    } = body;
-
-    if (id && status) {
-      const existing = await prisma.actionQueueItem.findUnique({
-        where: { id },
-      });
-      if (!existing) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: {
-              code: "NOT_FOUND",
-              message: "Action queue item not found",
-            },
-          },
-          { status: 404 },
-        );
-      }
-
-      const updated = await prisma.actionQueueItem.update({
-        where: { id },
-        data: {
-          status,
-          assignedTo: assignedTo ?? existing.assignedTo,
-          completedAt:
-            status === "COMPLETED"
-              ? new Date()
-              : status === "PENDING"
-                ? null
-                : undefined,
-        },
-        include: {
-          merchant: { select: { id: true, businessName: true } },
-        },
-      });
-
-      await createAuditLog(
-        fromCurrentUser(user, `ACTION_QUEUE_${status}`, "action_queue", id, {
-          changes: { from: existing.status, to: status } as any,
-        }),
-      );
-
-      return NextResponse.json({
-        success: true,
-        data: updated,
-        message: `Item ${status.toLowerCase()}`,
-      });
-    }
-
-    if (!title || !type || !referenceId || !referenceType) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: "VALIDATION",
-            message:
-              "Missing required fields: title, type, referenceId, referenceType",
-          },
-        },
-        { status: 400 },
-      );
-    }
-
-    const item = await prisma.actionQueueItem.create({
-      data: {
-        title,
-        description,
-        type,
-        referenceId,
-        referenceType,
-        priority: priority ?? 0,
-        status: "PENDING",
-        metadata: metadata ?? undefined,
-      },
-      include: {
-        merchant: { select: { id: true, businessName: true } },
-      },
-    });
-
-    await publishBusinessToAdmins({
-      type: 'SYSTEM',
-      title: `Approval required: ${item.title}`,
-      message: item.description ?? 'A new action queue item requires review.',
-      priority: 'HIGH',
-      channels: ['IN_APP', 'PUSH'],
-      referenceType: 'action_queue',
-      referenceId: item.id,
-      metadata: { queueType: item.type, referenceId: item.referenceId, referenceType: item.referenceType },
-    });
-
-    return NextResponse.json(
-      { success: true, data: item, message: "Action queue item created" },
-      { status: 201 },
-    );
-  } catch (error: any) {
-    if (error?.code === "P2003") {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: "VALIDATION",
-            message: "Invalid reference ID — related record not found",
-          },
-        },
-        { status: 400 },
-      );
-    }
-    return internalError(error);
-  }
-}
-
-export async function PATCH(request: NextRequest) {
-  try {
-    const user = await getCurrentUser();
-    if (!user || user.userType !== "admin") return unauthorized();
-
-    const body = await request.json();
-    const { id, status, assignedTo } = body;
-
-    if (!id) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: { code: "VALIDATION", message: "Item ID is required" },
-        },
-        { status: 400 },
-      );
-    }
-
-    const existing = await prisma.actionQueueItem.findUnique({ where: { id } });
-    if (!existing) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: { code: "NOT_FOUND", message: "Action queue item not found" },
-        },
-        { status: 404 },
-      );
-    }
-
-    const data: Record<string, unknown> = {};
-    if (status) {
-      data.status = status;
-      if (status === "COMPLETED") data.completedAt = new Date();
-      if (status === "PENDING") data.completedAt = null;
-    }
-    if (assignedTo !== undefined) data.assignedTo = assignedTo;
-
-    const updated = await prisma.actionQueueItem.update({
-      where: { id },
-      data: data as any,
-      include: {
-        merchant: { select: { id: true, businessName: true } },
-      },
-    });
-
-    if (status) {
-      await createAuditLog(
-        fromCurrentUser(user, `ACTION_QUEUE_${status}`, "action_queue", id, {
-          changes: { from: existing.status, to: status } as any,
-        }),
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: updated,
-      message: status ? `Item ${status.toLowerCase()}` : "Item updated",
-    });
-  } catch (error) {
-    return internalError(error);
-  }
-}
-
-export async function DELETE(request: NextRequest) {
-  try {
-    const user = await getCurrentUser();
-    if (!user || user.userType !== "admin") return unauthorized();
-
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get("id");
-
-    if (!id) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: "VALIDATION",
-            message: 'Query parameter "id" is required',
-          },
-        },
-        { status: 400 },
-      );
-    }
-
-    const existing = await prisma.actionQueueItem.findUnique({ where: { id } });
-    if (!existing) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: { code: "NOT_FOUND", message: "Action queue item not found" },
-        },
-        { status: 404 },
-      );
-    }
-
-    await prisma.actionQueueItem.update({
-      where: { id },
-      data: { status: "SKIPPED" },
-    });
-
-    await createAuditLog(
-      fromCurrentUser(user, "ACTION_QUEUE_SKIPPED", "action_queue", id, {
-        changes: { from: existing.status, to: "SKIPPED" } as any,
-      }),
-    );
-
-    return NextResponse.json({
-      success: true,
-      data: null,
-      message: "Item skipped",
     });
   } catch (error) {
     return internalError(error);
