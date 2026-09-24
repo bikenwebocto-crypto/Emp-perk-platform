@@ -190,7 +190,7 @@ export async function PATCH(
         priority: "NORMAL",
         recipients: [{ role: "employee", id: result.employeeId }],
         channels: channels("IN_APP", "PUSH"),
-        referenceType: "complaint",
+        referenceType: complaint.complaintType === "APPLICATION_SUPPORT" ? "application_ticket" : "offer_ticket",
         referenceId: result.id,
         metadata: { status, resolutionNotes: resolutionNotes ?? null },
       });
