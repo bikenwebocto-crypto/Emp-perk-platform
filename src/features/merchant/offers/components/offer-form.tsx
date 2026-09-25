@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef  } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -166,6 +166,8 @@ export function OfferForm({
     : (profileCategory ?? null);
   const categoryLoading = !hasCategoryProp && profileCategoryLoading;
   const missingCategory = !categoryLoading && !merchantCategory;
+    // true once the merchant types their own Maximum Discount
+  const maxManuallySet = useRef(!!initialData?.discountMax);
   const [lastEditedField, setLastEditedField] = useState<
     "discountValue" | "minimumSpend" | "discountMax" | "discountPercent" | null
   >(null);
@@ -221,7 +223,17 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
       >,
     ) => {
-      setForm((prev) => ({ ...prev, [field]: e.target.value }));
+            setForm((prev) => {
+        const next = { ...prev, [field]: e.target.value };
+        if (field === "offerType" && prev.offerType !== e.target.value) {
+          next.discountValue = "";
+          next.discountPercent = "";
+          next.discountMax = "";
+          next.minimumSpend = "";
+          maxManuallySet.current = false;
+        }
+        return next;
+      });
       if (errors[field])
         setErrors((prev) => {
           const n = { ...prev };
@@ -244,73 +256,33 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       });
     };
 
-  const handleLinkedFieldChange = (
+   const handleLinkedFieldChange = (
     field: "discountValue" | "minimumSpend" | "discountMax" | "discountPercent",
     value: string,
   ) => {
     setLastEditedField(field);
+
+    // Merchant typing in Maximum Discount takes over; clearing it hands back to auto
+    if (field === "discountMax") {
+      maxManuallySet.current = value.trim() !== "";
+    }
+
     setForm((prev) => {
       const next = { ...prev, [field]: value };
 
       if (next.offerType === "PERCENTAGE") {
-        const dv = Number(next.discountValue);
         const ms = Number(next.minimumSpend);
-        const dm = Number(next.discountMax);
         const dp = Number(next.discountPercent);
-        const hasDv = !isNaN(dv) && dv > 0;
         const hasMs = !isNaN(ms) && ms > 0;
-        const hasDm = !isNaN(dm) && dm > 0;
         const hasDp = !isNaN(dp) && dp > 0;
 
-        if (field === "discountValue") {
-          if (hasDv && hasDp) {
-            const calcMs = dv / (dp / 100);
-            next.minimumSpend = String(Math.round(calcMs * 100) / 100);
-            next.discountMax = String(dv);
-          } else if (hasDv && hasMs) {
-            const pct = (dv / ms) * 100;
-            next.discountPercent = Math.min(
-              Math.round(pct * 100) / 100,
-              90,
-            ).toString();
-            next.discountMax = String(dv);
-          } else if (hasDv) {
-            next.discountMax = String(dv);
-          }
-        } else if (field === "minimumSpend") {
-          if (hasDv && hasDp) {
-            const calcMs = dv / (dp / 100);
-            next.minimumSpend = String(Math.round(calcMs * 100) / 100);
-            next.discountMax = String(dv);
-          } else if (hasMs && hasDp) {
-            next.discountMax = String(
-              Math.round(((ms * dp) / 100) * 100) / 100,
-            );
-          } else if (hasMs && hasDm) {
-            const pct = (dm / ms) * 100;
-            next.discountPercent = Math.min(
-              Math.round(pct * 100) / 100,
-              90,
-            ).toString();
-          }
-        } else if (field === "discountPercent") {
-          if (hasDv && hasMs) {
-            const calcMs = dv / (dp / 100);
-            next.minimumSpend = String(Math.round(calcMs * 100) / 100);
-            next.discountMax = String(dv);
-          } else if (hasMs && hasDm) {
-            next.discountMax = String(
-              Math.round(((ms * dp) / 100) * 100) / 100,
-            );
-          }
-        } else if (field === "discountMax") {
-          if (hasDv && hasMs) {
-            const pct = (dm / ms) * 100;
-            next.discountPercent = Math.min(
-              Math.round(pct * 100) / 100,
-              90,
-            ).toString();
-          }
+        // Keep the suggestion in sync on every keystroke until the merchant sets their own max
+        if (
+          (field === "minimumSpend" || field === "discountPercent") &&
+          !maxManuallySet.current
+        ) {
+          next.discountMax =
+            hasMs && hasDp ? String(Math.round(ms * dp) / 100) : "";
         }
       } else if (next.offerType === "FLAT") {
         const dv = Number(next.discountValue);
@@ -331,6 +303,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       delete n.discountValue;
       return n;
     });
+
     setShowStrength(true);
   };
 
@@ -695,7 +668,13 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
   };
 
   const categoryName = merchantCategory?.name;
-
+  const previewImageUrls = useMemo(
+      () =>
+        pendingImages
+          .map((p) => p.url ?? p.previewUrl)
+          .filter((u): u is string => !!u),
+      [pendingImages],
+    );
   const labelClass = "text-sm font-medium";
   const inputClass = "w-full";
 
@@ -1648,7 +1627,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   offerType={form.offerType}
                   startDate={form.startDate}
                   endDate={form.endDate}
-                  imageUrls={form.imageUrls}
+                  imageUrls={previewImageUrls}
                   isFeatured={form.isFeatured}
                   isExclusive={form.isExclusive}
                   merchantName="Your Business"

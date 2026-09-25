@@ -15,6 +15,9 @@ interface LoginClientProps {
 export function LoginClient({ branding }: LoginClientProps) {
   const router = useRouter();
   const syncedRef = useRef(false);
+  // Invite links (bulk employee upload) must set a password before the
+  // account is synced and redirected.
+  const inviteRef = useRef(false);
   const [view, setView] = useState<'sign_in' | 'update_password'>('sign_in');
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +27,8 @@ export function LoginClient({ branding }: LoginClientProps) {
     setMounted(true);
 
     const hash = window.location.hash
-    if (!hash.includes('type=recovery')) return
+    inviteRef.current = hash.includes('type=invite')
+    if (!hash.includes('type=recovery') && !inviteRef.current) return
 
     const params = new URLSearchParams(hash.substring(1))
     const access_token = params.get('access_token')
@@ -84,7 +88,14 @@ export function LoginClient({ branding }: LoginClientProps) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") setView("update_password");
-      if (event === "SIGNED_IN") onAuth();
+      if (event === "SIGNED_IN") {
+        if (inviteRef.current) setView("update_password");
+        else onAuth();
+      }
+      if (event === "USER_UPDATED" && inviteRef.current) {
+        inviteRef.current = false;
+        onAuth();
+      }
     });
     return () => subscription.unsubscribe();
   }, [onAuth]);

@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { ArrowLeft, Save, Upload } from 'lucide-react'
-import { CSVUploadDropzone } from '@/features/csv-uploads/components/csv-upload-dropzone'
+import { BulkEmployeeUpload } from '@/features/employees/components/bulk-employee-upload'
 import { useCreateEmployee } from '@/hooks/queries/use-employees'
 import { useCompanies } from '@/hooks/queries/use-companies'
 import { showToast } from '@/hooks/use-toast'
@@ -80,74 +80,6 @@ export function EmployeeForm() {
     })
   }
 
-  const handleBulkUpload = (file: File) => {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const text = e.target?.result as string
-      const lines = text.split('\n').filter(Boolean)
-      if (lines.length < 2) {
-        showToast({ type: 'error', title: 'CSV must have a header row and at least one data row' })
-        return
-      }
-      const headers = (lines[0] ?? '').split(',').map((h) => h.trim().toLowerCase())
-
-      const requiredFields = ['firstname', 'lastname', 'email', 'companyid', 'department']
-      const missing = requiredFields.filter((f) => !headers.includes(f))
-      if (missing.length > 0) {
-        showToast({ type: 'error', title: 'Missing required columns', description: `Required: ${requiredFields.join(', ')}. Missing: ${missing.join(', ')}` })
-        return
-      }
-
-      let successCount = 0
-      let errorCount = 0
-      const errMsgs: string[] = []
-
-      const processLine = async (i: number) => {
-        if (i >= lines.length - 1) {
-          if (successCount > 0) showToast({ type: 'success', title: 'Bulk upload complete', description: `${successCount} created, ${errorCount} failed` })
-          if (errorCount > 0) showToast({ type: 'error', title: 'Some rows failed', description: errMsgs.slice(0, 5).join('; ') })
-          router.refresh()
-          return
-        }
-
-        const vals = (lines[i + 1] ?? '').split(',').map((v) => v.trim())
-        const row: Record<string, string> = {}
-        headers.forEach((h, idx) => { row[h] = vals[idx] ?? '' })
-
-        try {
-          const res = await fetch('/api/admin/employees', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              firstName: row.firstname,
-              lastName: row.lastname,
-              email: row.email,
-              companyId: row.companyid,
-              department: row.department,
-              jobTitle: row.jobtitle || '',
-              phone: row.phone || '',
-              employeeId: row.employeeid || '',
-              joinMethod: row.joinmethod || 'csv_import',
-            }),
-          })
-          const json = await res.json()
-          if (res.ok) successCount++
-          else {
-            errorCount++
-            errMsgs.push(`Row ${i + 2}: ${json.error?.message ?? 'Unknown error'}`)
-          }
-        } catch {
-          errorCount++
-          errMsgs.push(`Row ${i + 2}: Network error`)
-        }
-        processLine(i + 1)
-      }
-
-      processLine(0)
-    }
-    reader.readAsText(file)
-  }
-
   const inputClass = (field: string) =>
     `w-full ${errors[field] ? 'border-destructive focus-visible:ring-destructive' : ''}`
 
@@ -165,14 +97,12 @@ export function EmployeeForm() {
             <p className="mt-1 text-sm text-muted-foreground">Register a new employee under a company</p>
           </div>
         </div>
-        <Button type="button" variant="outline" onClick={() => setShowBulk(!showBulk)}>
+        <Button type="button" variant="outline" onClick={() => setShowBulk(true)}>
           <Upload className="mr-1 h-4 w-4" />Bulk Upload CSV
         </Button>
       </div>
 
-      {showBulk && (
-        <CSVUploadDropzone onUpload={handleBulkUpload} isUploading={createEmployee.isPending} acceptedFormats=".csv" />
-      )}
+      <BulkEmployeeUpload open={showBulk} onOpenChange={setShowBulk} companyId={form.companyId || undefined} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

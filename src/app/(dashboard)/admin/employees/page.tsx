@@ -6,7 +6,7 @@ import { DataTable } from '@/components/shared/data-table'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { CSVUploadDropzone } from '@/features/csv-uploads/components/csv-upload-dropzone'
+import { BulkEmployeeUpload } from '@/features/employees/components/bulk-employee-upload'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Plus, Upload, Trash2, CheckCircle, XCircle, Pencil } from 'lucide-react'
@@ -29,7 +29,6 @@ export default function EmployeesPage() {
   const [showUpload, setShowUpload] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState<'delete' | 'deactivate'>('delete')
-  const [isProcessing, setIsProcessing] = useState(false)
   const [editingEmployee, setEditingEmployee] = useState<any | null>(null)
 
   const { page, setPage, pageSize, resetPage } = useTablePagination({ defaultPageSize: 10 })
@@ -168,14 +167,6 @@ export default function EmployeesPage() {
     clearSelection()
   }, [selectedIds, bulkDelete, clearSelection, selectedCount])
 
-  const handleCSVUpload = useCallback((_file: File) => {
-    setIsProcessing(true)
-    setTimeout(() => {
-      setIsProcessing(false)
-      setShowUpload(false)
-    }, 1500)
-  }, [])
-
   const openConfirm = useCallback((action: 'delete' | 'deactivate') => {
     setConfirmAction(action)
     setConfirmOpen(true)
@@ -188,7 +179,7 @@ export default function EmployeesPage() {
         description="View and manage employees across companies"
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setShowUpload(!showUpload)}>
+            <Button variant="outline" onClick={() => setShowUpload(true)}>
               <Upload className="mr-1 h-4 w-4" />Bulk Upload
             </Button>
             <Link href="/admin/employees/add">
@@ -198,9 +189,7 @@ export default function EmployeesPage() {
         }
       />
 
-      {showUpload && (
-        <CSVUploadDropzone onUpload={handleCSVUpload} isUploading={isProcessing} acceptedFormats=".csv" />
-      )}
+      <BulkEmployeeUpload open={showUpload} onOpenChange={setShowUpload} />
 
       <FilterBar
         searchValue={search}
