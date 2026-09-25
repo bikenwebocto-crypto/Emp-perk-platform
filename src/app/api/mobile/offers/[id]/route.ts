@@ -71,6 +71,8 @@ export async function GET(
 
     const pricingConfig = (offer.pricing?.configuration as Record<string, unknown>) ?? {}
     const redemptionConfig = (offer.redemption?.configuration as Record<string, unknown>) ?? {}
+    
+    console.log('$$$ Offer Data:', { pricingConfig, redemptionConfig })
 
     return NextResponse.json({
       success: true,
@@ -92,6 +94,7 @@ export async function GET(
         currentRedemptions: offer.capacity?.redeemedCount ?? 0,
         daysOfWeek: offer.redemption?.daysOfWeek ?? null,
         offerCode: redemption?.redemptionCode ?? null,
+        redemptionCode: redemptionConfig?.code ?? null,
         bookingUrl: redemptionConfig.bookingUrl ?? null,
         qrCodeUrl: redemptionConfig.qrCodeUrl ?? null,
         startDate: offer.startDate,

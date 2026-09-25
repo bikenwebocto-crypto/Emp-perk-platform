@@ -11,6 +11,7 @@ import {
   Calendar,
   CheckCircle2,
   Copy,
+  CreditCard,
   ExternalLink,
   Gift,
   Info,
@@ -39,7 +40,7 @@ import { type EmployeeOffer } from "./offers/employee-offer";
  */
 interface RedemptionResult {
   id: string;
-  type: "ONLINE_CODE" | "BOOKING_LINK" | "IN_STORE_QR";
+  type: "ONLINE_CODE" | "BOOKING_LINK" | "IN_STORE_QR" | "VIRTUAL_CARD_AUTO_VERIFY";
   status: "PENDING" | "CONFIRMED" | "REJECTED" | "CANCELLED";
   offerCode?: string | null;
   bookingUrl?: string | null;
@@ -58,6 +59,16 @@ interface RedemptionResult {
     longitude?: number | null;
     openingHours?: string | null;
     googleMapsUrl?: string | null;
+  };
+  virtualCard?: {
+    code: string | null;
+    holderName: string;
+    employeeNumber: string | null;
+    companyName: string | null;
+    merchantName: string;
+    offerTitle: string;
+    issuedAt: string;
+    verified: true;
   };
 }
 
@@ -79,6 +90,7 @@ const REDEMPTION_METHOD_LABELS: Record<string, string> = {
   ONLINE_CODE: "Online Code",
   BOOKING_LINK: "Booking Link",
   IN_STORE_QR: "In-Store (QR Code)",
+  VIRTUAL_CARD_AUTO_VERIFY: "Virtual Card",
 };
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
@@ -854,13 +866,78 @@ export function RedeemModal({
                 </Card>
               )}
 
+              {o.redemptionType === "VIRTUAL_CARD_AUTO_VERIFY" && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <CreditCard className="h-4 w-4" /> Your Virtual Card
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {redemptionResult?.virtualCard ? (
+                      <div className="rounded-xl bg-gradient-to-br from-primary to-primary/70 p-5 text-primary-foreground shadow-lg">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-xs uppercase tracking-wider opacity-80">
+                              {redemptionResult.virtualCard.merchantName}
+                            </p>
+                            <p className="truncate font-semibold">
+                              {redemptionResult.virtualCard.offerTitle}
+                            </p>
+                          </div>
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-medium">
+                            <CheckCircle2 className="h-3 w-3" /> Verified
+                          </span>
+                        </div>
+                        <p className="mt-5 font-mono text-2xl font-bold tracking-widest">
+                          {redemptionResult.virtualCard.code ?? "—"}
+                        </p>
+                        <div className="mt-4 flex items-end justify-between gap-2 text-sm">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">
+                              {redemptionResult.virtualCard.holderName}
+                            </p>
+                            <p className="truncate text-xs opacity-80">
+                              {redemptionResult.virtualCard.companyName ?? ""}
+                              {redemptionResult.virtualCard.employeeNumber
+                                ? ` · #${redemptionResult.virtualCard.employeeNumber}`
+                                : ""}
+                            </p>
+                          </div>
+                          <p className="shrink-0 text-xs opacity-80">
+                            {new Date(
+                              redemptionResult.virtualCard.issuedAt,
+                            ).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Your redemption is verified. Your virtual card and code
+                        are available in your My Redemptions list.
+                      </p>
+                    )}
+                    <p className="text-sm text-muted-foreground">
+                      Show this card to store staff. Your redemption has been
+                      verified automatically.
+                    </p>
+                    {redemptionResult?.instructions && (
+                      <p className="text-sm text-muted-foreground">
+                        {redemptionResult.instructions}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Generic post-redemption instructions card — only
                   shown if the API returned instructions but no
                   type-specific card above already displayed them. */}
               {redemptionResult?.instructions &&
                 o.redemptionType !== "ONLINE_CODE" &&
                 o.redemptionType !== "BOOKING_LINK" &&
-                o.redemptionType !== "IN_STORE_QR" && (
+                o.redemptionType !== "IN_STORE_QR" &&
+                o.redemptionType !== "VIRTUAL_CARD_AUTO_VERIFY" && (
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-base">How to redeem</CardTitle>

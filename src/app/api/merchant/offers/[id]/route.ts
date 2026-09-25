@@ -7,7 +7,7 @@ import { ensureOfferQRCode } from '@/lib/offer-qr';
 import { createAuditLog } from '@/services/audit-log.service';
 
 const EDITABLE_STATUSES = ["DRAFT", "VALIDATION_FAILED", "AWAITING_APPROVAL"];
-const VALID_REDEMPTION_TYPES = ['ONLINE_CODE', 'BOOKING_LINK', 'IN_STORE_QR'] as const;
+const VALID_REDEMPTION_TYPES = ['ONLINE_CODE', 'BOOKING_LINK', 'IN_STORE_QR', 'VIRTUAL_CARD_AUTO_VERIFY'] as const;
 const DELETABLE_STATUSES = [
   "DRAFT",
   "VALIDATION_FAILED",
@@ -128,7 +128,8 @@ export async function PATCH(
     const merchantOfferUpdatable: Record<string, unknown> = {};
     if (body.title !== undefined) merchantOfferUpdatable.title = body.title;
     if (body.offerType !== undefined) merchantOfferUpdatable.offerType = body.offerType;
-    if (body.categoryId !== undefined) merchantOfferUpdatable.categoryId = body.categoryId;
+    // Offer category always mirrors the merchant's category (self-heals old offers on edit).
+    merchantOfferUpdatable.categoryId = merchant.categoryId ?? null;
     if (body.startDate) merchantOfferUpdatable.startDate = new Date(body.startDate);
     if (body.endDate) merchantOfferUpdatable.endDate = new Date(body.endDate);
 

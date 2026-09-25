@@ -5,6 +5,7 @@ import { getAuthenticatedMobileEmployee } from "@/lib/mobile-auth";
 import { checkRedemptionEligibility } from "@/lib/offer-visibility";
 import { encodeMethod } from "@/lib/redemption-status";
 import { generateRedemptionCode } from "@/lib/redemption-code";
+import { VIRTUAL_CARD_AUTO_VERIFY, buildVirtualCard } from "@/lib/virtual-card";
 import {
   AlreadyRedeemedError,
   OfferLimitReachedError,
@@ -269,6 +270,17 @@ export async function POST(
 
       if (redemptionType === "BOOKING_LINK") {
         data.bookingUrl = redemptionConfig.bookingUrl ?? null;
+        data.instructions = redemptionConfig.instructions ?? null;
+      }
+
+      if (redemptionType === VIRTUAL_CARD_AUTO_VERIFY) {
+        data.virtualCard = await buildVirtualCard({
+          employeeId: auth.employee.id,
+          merchantName: offer.merchant.businessName,
+          offerTitle: offer.title,
+          redemptionCode: redemption.redemptionCode,
+          redeemedAt: redemption.redeemedAt,
+        });
         data.instructions = redemptionConfig.instructions ?? null;
       }
 

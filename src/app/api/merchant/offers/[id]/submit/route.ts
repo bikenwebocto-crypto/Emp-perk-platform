@@ -290,7 +290,7 @@ export async function POST(
         review: { select: { validationErrors: true } },
         // Admins skip the merchantId filter, so resolve the owning merchant
         // from the offer row rather than the caller's session.
-        merchant: { select: { id: true, businessName: true } },
+        merchant: { select: { id: true, businessName: true, categoryId: true } },
       },
     });
 
@@ -320,6 +320,15 @@ export async function POST(
       );
     }
 
+    // Offer category always mirrors the owning merchant's category; any client value is ignored.
+    const categoryId = (merchant ?? offer.merchant).categoryId;
+    if (!categoryId) {
+      return NextResponse.json(
+        { success: false, error: { code: "MISSING_CATEGORY", message: "Your business category is not set. Please contact support." } },
+        { status: 400 },
+      );
+    }
+
     const body = await request.json();
     console.log("[SUBMIT OFFER] Body received:", Object.keys(body));
 
@@ -344,6 +353,7 @@ export async function POST(
       buyItem: body.buyItem ?? pricingConfig.buyItem,
       getQuantity: body.getQuantity ?? pricingConfig.getQuantity,
       freeItem: body.freeItem ?? pricingConfig.freeItem,
+      categoryId,
     });
     console.log("[SUBMIT OFFER] qcResult.passed:", qcResult.passed);
 
@@ -539,8 +549,7 @@ export async function POST(
           merchantOfferUpdatable.startDate = new Date(body.startDate);
         if (body.endDate)
           merchantOfferUpdatable.endDate = new Date(body.endDate);
-        if (body.categoryId !== undefined)
-          merchantOfferUpdatable.categoryId = body.categoryId;
+        merchantOfferUpdatable.categoryId = categoryId;
         if (body.offerType !== undefined)
           merchantOfferUpdatable.offerType = body.offerType;
         if (body.title !== undefined) merchantOfferUpdatable.title = body.title;

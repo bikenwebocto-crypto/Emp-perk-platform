@@ -32,7 +32,8 @@ export async function GET(request: NextRequest) {
           billAmount: true,
           loggedSavingAmount: true,
           quantityPurchased: true,
-
+          isRedeemed: true,
+          rejectionReason: true,
           // Savings form / validation fields
           savingLoggedAt: true,
           savingEditedAt: true,
@@ -86,7 +87,6 @@ export async function GET(request: NextRequest) {
     const items = rows.map((r) => ({
       id: r.id,
       redeemedAt: r.redeemedAt,
-
       // Original redemption/saving values
       savingsAmount: r.savingsAmount,
       discountAmount: r.discountAmount,
@@ -101,6 +101,8 @@ export async function GET(request: NextRequest) {
       savingValidationMessage: r.savingValidationMessage,
 
       redemptionCode: r.redemptionCode,
+      isRedeemed: r.isRedeemed,
+      rejectionReason: r.rejectionReason,
       isVerified: r.isVerified,
       status: deriveStatus(r),
 

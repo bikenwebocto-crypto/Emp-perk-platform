@@ -439,6 +439,7 @@ const handleEditOffer = (offer: any) => {
       <EditOfferModal
         open={isEditModalOpen}
         offer={selectedOffer}
+        merchantCategory={merchant.category ?? null}
         onClose={() => {
           setIsEditModalOpen(false)
           setSelectedOffer(null)

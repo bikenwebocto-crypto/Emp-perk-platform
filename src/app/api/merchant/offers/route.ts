@@ -16,7 +16,7 @@ const MAX_TITLE_LENGTH = 255;
 const MAX_DESCRIPTION_LENGTH = 2000;
 const MAX_SHORT_DESCRIPTION_LENGTH = 500;
 const ALLOWED_IMAGE_FORMATS = ["jpg", "jpeg", "png", "webp"];
-const VALID_REDEMPTION_TYPES = ['ONLINE_CODE', 'BOOKING_LINK', 'IN_STORE_QR'] as const;
+const VALID_REDEMPTION_TYPES = ['ONLINE_CODE', 'BOOKING_LINK', 'IN_STORE_QR', 'VIRTUAL_CARD_AUTO_VERIFY'] as const;
 const VALID_OFFER_TYPES = ['flat_rate', 'percentage', 'buy_x_get_y'] as const;
 
 function unauthorized() {
@@ -549,7 +549,7 @@ export async function POST(request: NextRequest) {
     // Offer code generation is needed to build the redemption config inside
     // the transaction below, so it must stay synchronous/awaited.
     let offerCodeValue: string | null = null;
-    if (redemptionType === 'ONLINE_CODE') {
+    if (redemptionType === 'ONLINE_CODE' || redemptionType === 'VIRTUAL_CARD_AUTO_VERIFY') {
       offerCodeValue = await generateUniqueOfferCode();
     }
 
@@ -617,6 +617,9 @@ export async function POST(request: NextRequest) {
         redemptionConfig.bookingUrl = bookingUrl ?? null;
         redemptionConfig.instructions = redemptionInstructions ?? null;
       } else if (redemptionType === 'IN_STORE_QR') {
+        redemptionConfig.instructions = redemptionInstructions ?? null;
+      } else if (redemptionType === 'VIRTUAL_CARD_AUTO_VERIFY') {
+        redemptionConfig.code = offerCodeValue;
         redemptionConfig.instructions = redemptionInstructions ?? null;
       }
 

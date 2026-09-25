@@ -173,7 +173,9 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
                   ? "Online"
                   : offer.redemptionType === "BOOKING_LINK"
                     ? "Booking"
-                    : offer.redemptionType}
+                    : offer.redemptionType === "VIRTUAL_CARD_AUTO_VERIFY"
+                      ? "Virtual Card"
+                      : offer.redemptionType}
             </Badge>
           </div>
         )}

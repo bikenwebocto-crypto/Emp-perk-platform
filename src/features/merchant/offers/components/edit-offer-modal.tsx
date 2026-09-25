@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-import { OfferForm } from "./offer-form";
+import { OfferForm, type MerchantCategory } from "./offer-form";
 
 interface EditOfferModalProps {
   open: boolean;
@@ -19,6 +19,8 @@ interface EditOfferModalProps {
    * scope the offer lookup without relying on a merchant session.
    */
   isAdmin?: boolean;
+  /** The owning merchant's category, shown read-only in the form. */
+  merchantCategory?: MerchantCategory | null;
 }
 const toLocalInput = (value?: string | Date | null) => {
   if (!value) return "";
@@ -32,6 +34,7 @@ export function EditOfferModal({
   onClose,
   offer,
   isAdmin = false,
+  merchantCategory,
 }: EditOfferModalProps) {
   if (!offer) return null;
 
@@ -58,6 +61,7 @@ export function EditOfferModal({
           offerId={offer.id}
           merchantId={merchantId}
           isAdmin={isAdmin}
+          merchantCategory={merchantCategory}
           initialData={{
             title: offer.title ?? "",
             description: offer.description ?? "",
@@ -80,7 +84,6 @@ export function EditOfferModal({
             daysOfWeek: Array.isArray(offer.daysOfWeek)? offer.daysOfWeek.join(","): "0,1,2,3,4,5,6",
             redemptionCode: offer.redemptionCode ?? "",
             redemptionInstructions: offer.redemptionInstructions ?? "",
-            categoryId: offer.categoryId ?? "",
             submissionNotes: offer.submissionNotes ?? "",
             redemptionType: offer.redemptionType ?? "IN_STORE_QR",
             bookingUrl: offer.bookingUrl ?? "",

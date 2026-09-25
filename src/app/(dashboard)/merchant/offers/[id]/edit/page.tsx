@@ -45,7 +45,6 @@ export default function EditOfferPage({ params }: { params: Promise<{ id: string
         shortDescription: offer.content?.shortDescription ?? '',
         termsAndConditions: offer.content?.termsAndConditions ?? '',
         imageUrls: Array.isArray(offer.content?.imageUrls) ? offer.content.imageUrls : [],
-        categoryId: offer.categoryId ?? '',
         offerType: frontendType,
         discountValue: pricingConfig.amount != null ? String(pricingConfig.amount) : '',
         discountMax: pricingConfig.maximumDiscount != null ? String(pricingConfig.maximumDiscount) : '',

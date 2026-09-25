@@ -1,6 +1,7 @@
 "use client";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,6 @@ import { OfferImageGallery } from "@/components/merchant/offers/OfferImageGaller
 import { OfferMobilePreview } from "@/components/merchant/offers/OfferMobilePreview";
 import { OfferBannerInfo } from "@/components/merchant/offers/OfferBannerInfo";
 import { showToast } from "@/hooks/use-toast";
-import { useCategories } from "@/hooks/queries/use-categories";
 import { uploadImage, OFFER_IMAGE_OPTIONS } from "@/lib/upload/image";
 import { deleteOfferImage } from "@/lib/upload-offer-image";
 
@@ -47,7 +47,6 @@ interface FormData {
   daysOfWeek: string;
   redemptionCode: string;
   redemptionInstructions: string;
-  categoryId: string;
   submissionNotes: string;
   replacementReason: string;
   redemptionType: string;
@@ -61,6 +60,12 @@ interface FormErrors {
   [key: string]: string;
 }
 
+export interface MerchantCategory {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 interface OfferFormProps {
   offerId?: string;
   initialData?: Partial<FormData>;
@@ -71,6 +76,19 @@ interface OfferFormProps {
   merchantId?: string;
   /** True when a superadmin is acting on behalf of `merchantId`. */
   isAdmin?: boolean;
+  /**
+   * The owning merchant's category. When omitted (merchant portal), it is
+   * read from the merchant's own profile. The offer's category is always set
+   * server-side from the merchant; this is for display only.
+   */
+  merchantCategory?: MerchantCategory | null;
+}
+
+async function fetchMerchantProfileCategory(): Promise<MerchantCategory | null> {
+  const res = await fetch("/api/merchant/profile");
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message ?? "Failed to load profile");
+  return json.data?.category ?? null;
 }
 
 const ACCEPTED_TYPES = [
@@ -127,6 +145,7 @@ export function OfferForm({
   onCancel,
   merchantId,
   isAdmin = false,
+  merchantCategory: merchantCategoryProp,
 }: OfferFormProps) {
   const router = useRouter();
   const isEdit = !!offerId;
@@ -135,7 +154,18 @@ export function OfferForm({
   const submitOffer = useSubmitMerchantOffer();
   const [errors, setErrors] = useState<FormErrors>({});
   const [showStrength, setShowStrength] = useState(false);
-  const { data: categories } = useCategories();
+  const hasCategoryProp = merchantCategoryProp !== undefined;
+  const { data: profileCategory, isLoading: profileCategoryLoading } = useQuery({
+    queryKey: ["merchant-profile", "category"],
+    queryFn: fetchMerchantProfileCategory,
+    enabled: !hasCategoryProp,
+    staleTime: 5 * 60 * 1000,
+  });
+  const merchantCategory = hasCategoryProp
+    ? merchantCategoryProp
+    : (profileCategory ?? null);
+  const categoryLoading = !hasCategoryProp && profileCategoryLoading;
+  const missingCategory = !categoryLoading && !merchantCategory;
   const [lastEditedField, setLastEditedField] = useState<
     "discountValue" | "minimumSpend" | "discountMax" | "discountPercent" | null
   >(null);
@@ -143,16 +173,6 @@ export function OfferForm({
 
 const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
   isAdmin && merchantId ? { ...payload, merchantId } : payload;
-  useEffect(() => {
-    if (categories && initialData?.categoryId) {
-      const categoryExits = categories.some(
-        (c) => c.id === initialData.categoryId,
-      );
-      if (categoryExits) {
-        setForm((prev) => ({ ...prev, categoryId: initialData.categoryId! }));
-      }
-    }
-  }, [categories, initialData?.categoryId]);
   const initialImageUrls = useMemo(
     () => parseInitialImageUrls(initialData?.imageUrls),
     [initialData?.imageUrls],
@@ -185,7 +205,6 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     daysOfWeek: initialData?.daysOfWeek ?? "0,1,2,3,4,5,6",
     redemptionCode: initialData?.redemptionCode ?? "",
     redemptionInstructions: initialData?.redemptionInstructions ?? "",
-    categoryId: initialData?.categoryId ?? "",
     submissionNotes: initialData?.submissionNotes ?? "",
     replacementReason: initialData?.replacementReason ?? "",
     redemptionType: initialData?.redemptionType ?? "IN_STORE_QR",
@@ -427,11 +446,12 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
   const buildBody = (saveAsDraft = false): Record<string, unknown> => ({
     title: form.title,
+    categoryId: merchantCategory?.id ?? null, 
     description: form.description || null,
     shortDescription: form.shortDescription || null,
     termsAndConditions: form.termsAndConditions || null,
     isFeatured: form.isFeatured,
-  isExclusive: form.isExclusive,
+    isExclusive: form.isExclusive,
     imageUrls: form.imageUrls,
     offerType: OFFER_TYPE_MAP[form.offerType] ?? form.offerType,
     discountValue: form.discountValue ? Number(form.discountValue) : null,
@@ -452,7 +472,6 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       .filter((n) => !isNaN(n)),
     redemptionCode: form.redemptionCode || null,
     redemptionInstructions: form.redemptionInstructions || null,
-    categoryId: form.categoryId || null,
     submissionNotes: form.submissionNotes || null,
     replacementReason: isReplacement ? form.replacementReason || null : null,
     saveAsDraft,
@@ -675,9 +694,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     });
   };
 
-  const categoryName = form.categoryId
-    ? categories?.find((c) => c.id === form.categoryId)?.name
-    : undefined;
+  const categoryName = merchantCategory?.name;
 
   const labelClass = "text-sm font-medium";
   const inputClass = "w-full";
@@ -748,6 +765,19 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
             <p className="mt-1 text-xs text-muted-foreground">
               {form.replacementReason.length}/1000
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {missingCategory && (
+        <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/20">
+          <CardContent className="p-4 text-sm">
+            <p className="font-medium">Business category not set</p>
+            <p className="text-muted-foreground mt-1">
+              Your business category is not set. Please contact support. You
+              can still save a draft, but the offer cannot be submitted until a
+              category is assigned.
             </p>
           </CardContent>
         </Card>
@@ -849,21 +879,21 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className={labelClass}>Category</label>
-
-                    <select
+                   
+                    <Input
                       name="category"
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                      value={form.categoryId}
-                      onChange={set("categoryId")}
-                    >
-                      <option value="">Select category</option>
-
-                      {(categories ?? []).map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.name}
-                        </option>
-                      ))}
-                    </select>
+                      className={inputClass}
+                      value={
+                        categoryLoading
+                          ? "Loading..."
+                          : (merchantCategory?.name ?? "Not set")
+                      }
+                      readOnly
+                      disabled
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Based on your business category
+                    </p>
                   </div>
 
                   <div>
@@ -896,6 +926,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     <option value="ONLINE_CODE">Online Code</option>
 
                     <option value="BOOKING_LINK">Booking Link</option>
+                    <option value="VIRTUAL_CARD_AUTO_VERIFY">
+                      Virtual Card (Auto Verify)
+                    </option>
                   </select>
 
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -907,6 +940,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
                     {form.redemptionType === "IN_STORE_QR" &&
                       "Employee shows QR code at merchant location"}
+
+                    {form.redemptionType === "VIRTUAL_CARD_AUTO_VERIFY" &&
+                      "Employee shows a virtual card at the counter; redemption is verified automatically"}
                   </p>
                 </div>
                 {/* Redemption Type Specific Fields */}
@@ -1002,6 +1038,25 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   </Card>
                 )}
 
+                {form.redemptionType === "VIRTUAL_CARD_AUTO_VERIFY" && (
+                  <Card className="bg-muted/30">
+                    <CardHeader>
+                      <CardTitle className="text-sm">
+                        Virtual Card Configuration
+                      </CardTitle>
+                    </CardHeader>
+
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">
+                        On redeem, the employee gets a virtual card with their
+                        name, company and a unique code to show your staff. The
+                        redemption is verified automatically — no confirmation
+                        is needed on your side.
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+
                 {form.offerType === "FLAT" && (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
@@ -1056,7 +1111,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     <OfferStrengthIndicator
                       discountValue={Number(form.discountValue)}
                       offerType={form.offerType}
-                      categoryId={form.categoryId || null}
+                      categoryId={merchantCategory?.slug ?? null}
                       minimumSpend={
                         form.minimumSpend
                           ? Number(form.minimumSpend)
@@ -1151,7 +1206,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                         <OfferStrengthIndicator
                           discountValue={Number(form.discountValue)}
                           offerType={form.offerType}
-                          categoryId={form.categoryId || null}
+                          categoryId={merchantCategory?.slug ?? null}
                           minimumSpend={
                             form.minimumSpend
                               ? Number(form.minimumSpend)
@@ -1502,7 +1557,12 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
                   <Button
                     type="submit"
-                    disabled={createOffer.isPending || submitOffer.isPending}
+                    disabled={
+                      createOffer.isPending ||
+                      submitOffer.isPending ||
+                      categoryLoading ||
+                      missingCategory
+                    }
                   >
                     {submitOffer.isPending ? (
                       <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -1521,7 +1581,12 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 <>
                   <Button
                     type="submit"
-                    disabled={updateOffer.isPending || submitOffer.isPending}
+                    disabled={
+                      updateOffer.isPending ||
+                      submitOffer.isPending ||
+                      categoryLoading ||
+                      missingCategory
+                    }
                   >
                     {updateOffer.isPending ? (
                       <Loader2 className="mr-1 h-4 w-4 animate-spin" />

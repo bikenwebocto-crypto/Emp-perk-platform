@@ -10,6 +10,7 @@ import {
   badRequest,
 } from "@/lib/employee-session";
 import { generateRedemptionCode } from "@/lib/redemption-code";
+import { VIRTUAL_CARD_AUTO_VERIFY, buildVirtualCard } from "@/lib/virtual-card";
 import {
   AlreadyRedeemedError,
   OfferLimitReachedError,
@@ -355,6 +356,17 @@ export async function POST(request: NextRequest) {
 
       if (redemptionType === "BOOKING_LINK") {
         data.bookingUrl = redemptionConfig.bookingUrl ?? null;
+        data.instructions = redemptionConfig.instructions ?? null;
+      }
+
+      if (redemptionType === VIRTUAL_CARD_AUTO_VERIFY) {
+        data.virtualCard = await buildVirtualCard({
+          employeeId: employee.id,
+          merchantName: offer.merchant.businessName,
+          offerTitle: offer.title,
+          redemptionCode: result.redemptionCode,
+          redeemedAt: result.redeemedAt,
+        });
         data.instructions = redemptionConfig.instructions ?? null;
       }
 
