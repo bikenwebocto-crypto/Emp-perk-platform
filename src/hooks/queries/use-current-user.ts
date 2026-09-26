@@ -9,6 +9,7 @@ export interface CurrentUser {
   userType: string;
   role: string | null;
   companyName?: string | null;
+  companyId?: string | null;
   avatarUrl: string | null;
 }
 

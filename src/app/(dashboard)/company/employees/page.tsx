@@ -6,12 +6,16 @@ import { LoadingButton } from '@/components/ui/loading-button'
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useCurrentUser } from '@/hooks/queries/use-current-user'
 import { useCompanyEmployees, useCreateCompanyEmployee, useDeactivateCompanyEmployee, useReactivateCompanyEmployee, useUpdateCompanyEmployee, useEmployeeExport } from '@/hooks/queries/use-company-employees'
 import { showToast } from '@/hooks/use-toast'
-import { Search, Download, Plus, UserX, UserCheck, Pencil } from 'lucide-react'
 import { EmployeeEditModal } from '@/components/shared/employee-edit-modal'
+import { BulkEmployeeUpload } from '@/features/employees/components/bulk-employee-upload'
+import { Search, Download, Plus, UserX, UserCheck, Pencil, Upload } from 'lucide-react'
 
 export default function CompanyEmployeesPage() {
+  const { data: currentUser } = useCurrentUser()
+  const [showUpload, setShowUpload] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [page, setPage] = useState(1)
@@ -64,9 +68,9 @@ export default function CompanyEmployeesPage() {
           <p className="mt-1 text-sm text-muted-foreground">Manage your company employees</p>
         </div>
         <div className="flex gap-2">
-          <LoadingButton variant="outline" onClick={() => { exportCsv.mutateAsync().then(() => showToast({ type: 'success', title: 'Export started' })).catch((e: any) => showToast({ type: 'error', title: 'Export failed', description: e.message })) }} loading={exportCsv.isPending} loadingText="Exporting...">
-            <Download className="mr-1 h-4 w-4" /> Export CSV
-          </LoadingButton>
+           <Button variant="outline" onClick={() => setShowUpload(true)}>
+              <Upload className="mr-1 h-4 w-4" /> Bulk Upload
+            </Button>
           <Button onClick={() => setShowForm(!showForm)}>
             <Plus className="mr-1 h-4 w-4" /> Add Employee
           </Button>
@@ -93,7 +97,7 @@ export default function CompanyEmployeesPage() {
           </CardContent>
         </Card>
       )}
-
+      
       <div className="flex items-center gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -180,7 +184,9 @@ export default function CompanyEmployeesPage() {
           <Button variant="outline" size="sm" disabled={page >= data.meta.totalPages} onClick={() => setPage(page + 1)}>Next</Button>
         </div>
       )}
-
+      {currentUser?.companyId && (
+        <BulkEmployeeUpload open={showUpload} onOpenChange={setShowUpload} companyId={currentUser.companyId} />
+      )}
       <EmployeeEditModal
         open={!!editingEmployee}
         onClose={() => setEditingEmployee(null)}
@@ -192,6 +198,7 @@ export default function CompanyEmployeesPage() {
           await updateEmployee.mutateAsync({ id: editingEmployee.id, ...data })
         }}
       />
+      
     </div>
   )
 }
