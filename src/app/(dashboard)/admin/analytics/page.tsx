@@ -18,14 +18,14 @@ interface AnalyticsResponse {
   data: {
     period: { from: string; to: string }
     summary: { totalRedemptions: number; totalDiscount: number; totalSavings: number }
-    byMerchant: { merchantId: string; businessName: string; city: string | null; state: string | null; redemptions: number; totalSavings: number }[]
+    byMerchant: { merchantId: string; businessName: string; city: string | null; state: string| null; logoUrl: string | null; redemptions: number; totalSavings: number }[]
     byCompany: { companyId: string; name: string; redemptions: number; totalSavings: number }[]
     byCity: { city: string; redemptions: number }[]
     byCategory: { name: string; redemptions: number }[]
     redemptionTrend: { date: string; total: number }[]
   }
 }
-
+  
 interface OverviewResponse {
   data: {
     summary: { totalRedemptions: number; totalDiscount: number; totalSavings: number; activeMerchants: number; activeCompanies: number; activeOffers: number; pendingActions: number }
@@ -41,6 +41,11 @@ export default function AdminAnalyticsPage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
 
+  const RANK_BADGE = [
+    'bg-gradient-to-br from-amber-300 to-yellow-500 text-amber-950',
+    'bg-gradient-to-br from-slate-200 to-slate-400 text-slate-900',
+    'bg-gradient-to-br from-orange-300 to-amber-600 text-orange-950',
+  ]
   const params = new URLSearchParams()
   if (from) params.set('from', from)
   if (to) params.set('to', to)
@@ -73,6 +78,7 @@ export default function AdminAnalyticsPage() {
   const comp = ov?.periodComparison
 
   const byMerchant = d?.byMerchant ?? []
+  const topMerchants = useMemo(() => byMerchant.slice(0, 8), [byMerchant])
   const byCompany = d?.byCompany ?? []
   const byCategory = d?.byCategory ?? []
   const trend = d?.redemptionTrend ?? []
@@ -246,21 +252,74 @@ export default function AdminAnalyticsPage() {
             ) : byMerchant.length === 0 ? (
               <p className="text-sm text-muted-foreground">No merchant data available.</p>
             ) : (
-              <ul className="space-y-1">
-                {byMerchant.slice(0, 8).map((m, i) => (
-                  <li key={m.merchantId} className="flex items-center justify-between rounded-md border p-2 text-sm">
-                    <span className="truncate">
-                      <strong>#{i + 1}</strong> {m.businessName}{' '}
-                      <span className="text-xs text-muted-foreground">
-                        ({[m.city, m.state].filter(Boolean).join(', ') || '—'})
-                      </span>
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {m.redemptions} · {formatCurrency(m.totalSavings)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+            <ul className="space-y-2">
+  {topMerchants.map((m, i) => {
+    const location = [m.city, m.state].filter(Boolean).join(', ')
+    const share = summary?.totalRedemptions ? (m.redemptions / summary.totalRedemptions) * 100 : 0
+    const barWidth = Math.min(100, share)
+
+    return (
+      <li
+        key={m.merchantId}
+        className={`flex items-center gap-3 rounded-xl border p-3 transition-all hover:border-primary/30 hover:shadow-sm ${
+          i === 0 ? 'border-amber-300/60 bg-gradient-to-r from-amber-50/70 to-transparent dark:border-amber-500/30 dark:from-amber-950/20' : 'bg-card'
+        }`}
+      >
+        {/* Rank */}
+        <span
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+            RANK_BADGE[i] ?? 'bg-muted text-muted-foreground'
+          }`}
+        >
+          {i + 1}
+        </span>
+
+        {/* Logo with initials fallback */}
+        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-gradient-to-br from-primary/10 to-primary/20 text-xs font-semibold text-primary">
+          {m.businessName.slice(0, 2).toUpperCase()}
+          {m.logoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={m.logoUrl}
+              alt={`${m.businessName} logo`}
+              loading="lazy"
+              className="absolute inset-0 h-full w-full bg-white object-contain p-1"
+              onError={(e) => { e.currentTarget.style.display = 'none' }}
+            />
+          )}
+        </div>
+
+        {/* Name, location, share bar */}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{m.businessName}</p>
+          <p className="truncate text-xs text-muted-foreground">{location || '—'}</p>
+          <div className="mt-1.5 flex items-center gap-2">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500"
+                style={{ width: `${barWidth}%` }}
+              />
+            </div>
+            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+              {share.toFixed(1)}%
+            </span>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="shrink-0 text-right">
+          <p className="text-base font-bold leading-none tabular-nums">{m.redemptions}</p>
+          <p className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+            {m.redemptions === 1 ? 'redemption' : 'redemptions'}
+          </p>
+          <p className="mt-1 text-xs font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+            {formatCurrency(m.totalSavings)}
+          </p>
+        </div>
+      </li>
+    )
+  })}
+</ul>
             )}
           </CardContent>
         </Card>

@@ -80,7 +80,7 @@ export function DashboardShell({ children, branding }: DashboardShellProps) {
       )}
 
       <div className={cn(
-        'fixed inset-y-0 left-0 z-40 w-64 -translate-x-full transition-transform md:relative md:translate-x-0',
+        'fixed inset-y-0 left-0 z-40 w-64 shrink-0 -translate-x-full transition-transform md:relative md:translate-x-0',
         sidebarOpen && 'translate-x-0'
       )}>
         <Sidebar
@@ -94,7 +94,7 @@ export function DashboardShell({ children, branding }: DashboardShellProps) {
         />
       </div>
 
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <Navbar
           title={title}
           onMenuClick={() => setSidebarOpen(true)}
@@ -102,7 +102,7 @@ export function DashboardShell({ children, branding }: DashboardShellProps) {
           userEmail={user?.email}
           userRole={user?.role}
         />
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="min-w-0 flex-1 overflow-y-auto p-6">
           {children}
         </main>
       </div>

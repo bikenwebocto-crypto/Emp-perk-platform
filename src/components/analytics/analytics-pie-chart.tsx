@@ -66,7 +66,7 @@ export function AnalyticsPieChart({
   const total = data.reduce((s, d) => s + d.value, 0)
 
   return (
-    <div>
+    <div className="[&_*:focus]:outline-none">
       <ResponsiveContainer width="100%" height={height}>
         <PieChart>
           <Pie

@@ -27,6 +27,16 @@ interface CardSpec {
   iconColor: string
   href?: string
   formatter?: (v: number) => string
+  sublabel?: () => string
+}
+
+// First day of the current month in Cyprus time, e.g. "Since 1 Sept"
+function sinceStartOfMonth(): string {
+  const month = new Intl.DateTimeFormat('en-GB', {
+    month: 'short',
+    timeZone: 'Europe/Nicosia',
+  }).format(new Date())
+  return `Since 1 ${month}`
 }
 
 const SPECS: CardSpec[] = [
@@ -88,8 +98,9 @@ const SPECS: CardSpec[] = [
   },
   {
     key: 'thisMonthRedemptions',
-    label: 'This Month',
-    icon: Receipt,
+    label: 'Redemptions This Month',
+    sublabel: sinceStartOfMonth,
+    icon: Activity,
     gradient: 'from-rose-500 to-red-600',
     bg: 'bg-rose-100 dark:bg-rose-950/40',
     iconColor: 'text-rose-600',
@@ -125,6 +136,9 @@ export function MerchantSummaryCards({ summary, isLoading }: SummaryCardsProps) 
                 <div className="space-y-0.5">
                   <p className="text-[11px] font-medium text-muted-foreground">{spec.label}</p>
                   <p className="text-2xl font-bold tracking-tight tabular-nums">{formatted}</p>
+                  {spec.sublabel && (
+                    <p className="text-[10px] text-muted-foreground">{spec.sublabel()}</p>
+                  )}
                 </div>
                 <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${spec.bg}`}>
                   <Icon className={`h-4 w-4 ${spec.iconColor}`} />

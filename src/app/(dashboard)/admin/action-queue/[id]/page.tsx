@@ -353,12 +353,13 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
           setEdits={setEdits}
         />
       )} */}
-
-      <RemarksPanel
-        queueItem={queueItem}
-        onAddRemark={handleAddRemark}
-        onRefresh={loadData}
-      />
+      {!isFinalized && canEdit && (
+        <RemarksPanel
+          queueItem={queueItem}
+          onAddRemark={handleAddRemark}
+          onRefresh={loadData}
+        />
+      )}
 
       <AuditTimeline logs={auditLogs} />
 

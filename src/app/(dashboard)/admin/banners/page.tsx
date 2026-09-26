@@ -261,24 +261,31 @@ export default function AdminBannersPage() {
       showToast({ type: "error", title: "Failed", description: e?.message }),
   });
 
-  const toggleMutation = useMutation({
-    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
-      const res = await fetch(`/api/admin/banners/${id}/activate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isActive }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? "Failed to toggle");
-      return json;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-banners"] });
-      showToast({ type: "success", title: "Banner status toggled" });
-    },
-    onError: (e: any) =>
-      showToast({ type: "error", title: "Failed", description: e?.message }),
-  });
+const toggleMutation = useMutation({
+  mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+    const res = await fetch(`/api/admin/banners/${id}/activate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isActive }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message ?? "Failed to toggle");
+    return json;
+  },
+  onSuccess: (_data, { isActive }) => {
+    queryClient.invalidateQueries({ queryKey: ["admin-banners"] });
+    showToast({
+      type: "success",
+      title: isActive ? "Banner slot activated" : "Banner slot deactivated",
+    });
+  },
+  onError: (e: any, { isActive }) =>
+    showToast({
+      type: "error",
+      title: isActive ? "Failed to activate" : "Failed to deactivate",
+      description: e?.message,
+    }),
+});
 
   const reviewMutation = useMutation({
     mutationFn: async ({ id, ...body }: Record<string, unknown>) => {
@@ -538,9 +545,11 @@ export default function AdminBannersPage() {
 
       {tab === "banners" && (
         <>
-          <Button onClick={() => setShowCreate((s) => !s)}>
-            <Plus className="mr-1 h-4 w-4" />
-            {showCreate ? "Cancel" : "Create Banner Slot"}
+          <Button
+            variant={showCreate ? 'destructive' : 'default'}
+            onClick={() => setShowCreate((s) => !s)}
+          >
+            {showCreate ? 'Cancel' : 'Create Banner Slot'}
           </Button>
 
           {showCreate && (

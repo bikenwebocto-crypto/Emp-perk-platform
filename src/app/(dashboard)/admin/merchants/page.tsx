@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PendingMerchantCard } from '@/features/merchants/components/pending-merchant-card'
-import { MerchantImportExport } from '@/features/merchants/components/merchant-import-export'
+// import { MerchantImportExport } from '@/features/merchants/components/merchant-import-export'
 import { MerchantSummaryCards } from '@/features/merchants/components/merchant-summary-cards'
 import { MerchantFiltersBar } from '@/features/merchants/components/merchant-filters-bar'
 import { MerchantOperationsTable } from '@/features/merchants/components/merchant-operations-table'
@@ -344,7 +344,7 @@ export default function MerchantsPage() {
   
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <PageHeader
         title="Merchant Operations"
         description="Manage merchants, monitor health, and curate featured & homepage placements"
@@ -364,7 +364,7 @@ export default function MerchantsPage() {
       <MerchantSummaryCards summary={summary} isLoading={dashboardLoading} />
 
       {/* ===== Tabs (preserve existing) ===== */}
-      <div className="flex items-center gap-4 border-b">
+      <div className="flex items-center gap-4 overflow-x-auto border-b [scrollbar-width:none]">
         {TABS.map((t) => {
           const isActive = activeTab === t.key
           return (
@@ -376,7 +376,7 @@ export default function MerchantsPage() {
                   // Going back to all resets pending-specific filters
                 }
               }}
-              className={`flex items-center gap-1.5 pb-2 text-sm font-medium transition-colors ${
+              className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap pb-2 text-sm font-medium transition-colors ${
                 isActive
                   ? 'border-b-2 border-primary text-primary'
                   : 'text-muted-foreground hover:text-foreground'
@@ -396,7 +396,7 @@ export default function MerchantsPage() {
 
       {/* ===== Tab content ===== */}
       {activeTab === 'all' ? (
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {/* ===== Filters ===== */}
           <MerchantFiltersBar
             search={search}
@@ -422,28 +422,33 @@ export default function MerchantsPage() {
           />
 
           {/* ===== Operations table ===== */}
-          <MerchantOperationsTable
-            data={dashboardRows}
-            isLoading={dashboardLoading && !dashboardData}
-            sortConfig={sortConfig}
-            onSortChange={handleSortChange}
-            onRowClick={navigateToMerchant}
-            onApprove={handleApprove}
-            onReject={handleReject}
-            onDelete={handleDelete}
-            onSuspend={onSuspend}
-            onActivate={onActivate}
-            onPause={onPause}
-            onResume={onResume}
-            onToggleFeatured={onToggleFeatured}
-            onToggleHomepage={onToggleHomepage}
-            onChangePriority={onChangePriority}
-            isActionProcessing={approveMutation.isPending || deleteMutation.isPending || suspendMutation.isPending || activateMutation.isPending || pauseMutation.isPending}
-          />
+          {/* ===== Operations table (horizontal scroll) ===== */}
+            <div className="w-full min-w-0">
+              <div>
+                <MerchantOperationsTable
+                  data={dashboardRows}
+                  isLoading={dashboardLoading && !dashboardData}
+                  sortConfig={sortConfig}
+                  onSortChange={handleSortChange}
+                  onRowClick={navigateToMerchant}
+                  onApprove={handleApprove}
+                  onReject={handleReject}
+                  onDelete={handleDelete}
+                  onSuspend={onSuspend}
+                  onActivate={onActivate}
+                  onPause={onPause}
+                  onResume={onResume}
+                  onToggleFeatured={onToggleFeatured}
+                  onToggleHomepage={onToggleHomepage}
+                  onChangePriority={onChangePriority}
+                  isActionProcessing={approveMutation.isPending || deleteMutation.isPending || suspendMutation.isPending || activateMutation.isPending || pauseMutation.isPending}
+                />
+              </div>
+            </div>
 
           {/* ===== Pagination ===== */}
           {dashboardMeta && dashboardMeta.totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2 border-t pt-4">
+            <div className="flex flex-wrap items-center justify-center gap-2 border-t pt-4">
               <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
                 Previous
               </Button>
