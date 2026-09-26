@@ -186,8 +186,8 @@ export async function GET(request: NextRequest) {
       ALL: allCount,
       OFFER_APPROVAL: 0,
       COMPANY_ACTIVATION: 0,
-      ISSUES: 0,
-      ALERTS: 0,
+      // ISSUES: 0,
+      // ALERTS: 0,
     };
     for (const row of typeCounts) {
       const cat = QUEUE_TYPE_MAP[row.type]?.tabCategory;
