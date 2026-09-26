@@ -262,43 +262,45 @@ export default function MerchantProfilePage() {
         </div>
 
         {/* Profile Info Bar */}
-        <div className="px-6 pb-5">
-          <div className="-mt-10 flex items-end gap-4 sm:-mt-12">
-            <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full border-[3px] border-background bg-muted shadow-xl sm:h-24 sm:w-24">
-              {profile.logoUrl ? (
-                <img
-                  src={profile.logoUrl}
-                  alt={values.businessName}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center bg-primary/10 text-xl font-bold text-primary sm:text-2xl">
-                  {values.businessName?.charAt(0)?.toUpperCase() ?? 'M'}
-                </div>
-              )}
-            </div>
-
-            <div className="mb-0.5 min-w-0 flex-1">
-              <h2 className="truncate text-lg font-bold leading-tight sm:text-xl">
-                {values.businessName ?? 'Merchant Name'}
-              </h2>
-              <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                {values.category && (
-                  <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-secondary-foreground">
-                    {values.category.name}
-                  </span>
-                )}
-                <StatusBadge status={values.status} />
-                {(values.city || values.state) && (
-                  <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <MapPin className="h-3 w-3" />
-                    {[values.city, values.state].filter(Boolean).join(', ')}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
+       <div className="px-6 pb-5">
+  <div className="flex items-end gap-4">
+    {/* Avatar: only this overlaps the cover */}
+    <div className="relative -mt-10 h-20 w-20 shrink-0 overflow-hidden rounded-full border-[3px] border-background bg-muted shadow-xl sm:-mt-12 sm:h-24 sm:w-24">
+      {profile.logoUrl ? (
+        <img
+          src={profile.logoUrl}
+          alt={values.businessName}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-primary/10 text-xl font-bold text-primary sm:text-2xl">
+          {values.businessName?.charAt(0)?.toUpperCase() ?? 'M'}
         </div>
+      )}
+    </div>
+
+    {/* Name + badges: stay below the cover */}
+    <div className="min-w-0 flex-1 pt-3">
+      <h2 className="truncate text-lg font-bold leading-tight sm:text-xl">
+        {values.businessName ?? 'Merchant Name'}
+      </h2>
+      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+        {values.category && (
+          <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-secondary-foreground">
+            {values.category.name}
+          </span>
+        )}
+        <StatusBadge status={values.status} />
+        {(values.city || values.state) && (
+          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <MapPin className="h-3 w-3" />
+            {[values.city, values.state].filter(Boolean).join(', ')}
+          </span>
+        )}
+      </div>
+    </div>
+  </div>
+</div>
       </Card>
 
       {/* ─── Business Overview ─── */}

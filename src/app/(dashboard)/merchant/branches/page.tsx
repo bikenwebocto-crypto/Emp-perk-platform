@@ -38,20 +38,23 @@ export default function MerchantBranchesPage() {
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null)
 
   const { data, isLoading, isFetching } = useMerchantBranches({
-    status: statusFilter,
+    status: 'all',                 // always fetch all; the tab filters on the client
     type: typeFilter,
     q: search.trim() || undefined,
   })
   const deleteBranch = useDeleteBranch()
+  const allBranches = (data?.data ?? []) as any[]
+  const isBranchActive = (b: any) => b.isActive && b.status === 'ACTIVE'
+    const counts = useMemo(() => {
+    const active = allBranches.filter(isBranchActive).length
+    return { all: allBranches.length, active, inactive: allBranches.length - active }
+    }, [allBranches])
 
-  const branches = (data?.data ?? []) as any[]
-
-  const counts = useMemo(() => {
-    const all = branches.length
-    const active = branches.filter((b) => b.isActive && b.status === 'ACTIVE').length
-    const inactive = branches.filter((b) => !b.isActive || b.status !== 'ACTIVE').length
-    return { all, active, inactive }
-  }, [branches])
+const branches = useMemo(() => {
+  if (statusFilter === 'active') return allBranches.filter(isBranchActive)
+  if (statusFilter === 'inactive') return allBranches.filter((b) => !isBranchActive(b))
+  return allBranches
+}, [allBranches, statusFilter])
 
   const [activating, setActivating] = useState(false)
   const [deactivating, setDeactivating] = useState(false)
@@ -104,7 +107,8 @@ export default function MerchantBranchesPage() {
     }
     setConfirmDelete(null)
   }
-
+const hasFilter =
+  statusFilter !== 'all' || typeFilter !== 'ALL' || search.trim() !== ''
   return (
     <div className="space-y-6">
       <PageHeader
@@ -164,29 +168,35 @@ export default function MerchantBranchesPage() {
         ))}
       </div>
 
-      {isLoading || isFetching ? (
-        <div className="space-y-2">
-          {[...Array(3)].map((_, i) => (
-            <Skeleton key={i} className="h-20 w-full" />
-          ))}
-        </div>
-      ) : branches.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <Building2 className="h-10 w-10 text-muted-foreground" />
-            <p className="mt-3 text-lg font-medium">No branches yet</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Add your first branch so employees can find and redeem your offers.
-            </p>
-            <Link href="/merchant/branches/new" className="mt-4">
-              <Button>
-                <Plus className="mr-1 h-4 w-4" />
-                Add Branch
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-      ) : (
+      {isLoading ? (
+  <div className="space-y-2">
+    {[...Array(3)].map((_, i) => (
+      <Skeleton key={i} className="h-20 w-full" />
+    ))}
+  </div>
+) : branches.length === 0 ? (
+  <Card>
+    <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+      <Building2 className="h-10 w-10 text-muted-foreground" />
+      <p className="mt-3 text-lg font-medium">
+        {hasFilter ? 'No branches match this filter' : 'No branches yet'}
+      </p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {hasFilter
+          ? 'Try another tab or clear the search.'
+          : 'Add your first branch so employees can find and redeem your offers.'}
+      </p>
+      {!hasFilter && (
+        <Link href="/merchant/branches/new" className="mt-4">
+          <Button>
+            <Plus className="mr-1 h-4 w-4" />
+            Add Branch
+          </Button>
+        </Link>
+      )}
+    </CardContent>
+  </Card>
+) : (
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-sm">
             <thead>
