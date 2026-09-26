@@ -350,7 +350,7 @@ export default function MerchantsPage() {
         description="Manage merchants, monitor health, and curate featured & homepage placements"
         actions={(
           <div className="flex items-center gap-2">
-            <MerchantImportExport />
+          
             <Link href="/admin/merchants/add">
               <Button className="gap-1.5">
                 <Plus className="h-4 w-4" /> Add Merchant

@@ -8,16 +8,61 @@ import { StatusBadge } from '@/components/shared/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Plus, ExternalLink, Trash2, Mail, UserCog, UserX, Users } from 'lucide-react'
+import { Plus, ExternalLink, Mail, UserCog, UserX, Users, CheckCircle2, Pause, Ban, XCircle } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useCompanies, useUpdateCompanyStatus, useDeleteCompany } from '@/hooks/queries/use-companies'
+import { useCompanies, useUpdateCompanyStatus } from '@/hooks/queries/use-companies'
 import { useTablePagination } from '@/hooks/use-table-pagination'
 import { showToast } from '@/hooks/use-toast'
 import type { ColumnDef } from '@/types'
 
 type StatusFilter = 'ALL' | 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'CANCELLED' | 'APPROVED_PENDING_PAYMENT' | 'PENDING'
 type AdminStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE'
+type StatusAction = 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'CANCELLED'
+type ConfirmActionType = StatusAction | null
+
+function getStatusActions(status: string): { primary: StatusAction | null; secondary: StatusAction[] } {
+  switch (status) {
+    case 'PENDING':
+    case 'APPROVED_PENDING_PAYMENT':
+      return { primary: 'ACTIVE', secondary: ['CANCELLED'] }
+    case 'ACTIVE':
+      return { primary: 'PAUSED', secondary: ['SUSPENDED', 'CANCELLED'] }
+    case 'PAUSED':
+      return { primary: 'ACTIVE', secondary: ['SUSPENDED', 'CANCELLED'] }
+    case 'SUSPENDED':
+      return { primary: 'ACTIVE', secondary: ['CANCELLED'] }
+    default:
+      return { primary: null, secondary: [] }
+  }
+}
+
+const STATUS_ACTION_CONFIG: Record<StatusAction, { label: string; icon: typeof CheckCircle2; className: string; confirmMessage: string }> = {
+  ACTIVE: {
+    label: 'Activate',
+    icon: CheckCircle2,
+    className: 'border-green-200 text-green-700 hover:bg-green-50 hover:text-green-800 dark:border-green-800 dark:text-green-400 dark:hover:bg-green-950/50',
+    confirmMessage: 'Mark this company as active?',
+  },
+  PAUSED: {
+    label: 'Pause',
+    icon: Pause,
+    className: 'border-amber-200 text-amber-700 hover:bg-amber-50 hover:text-amber-800 dark:border-amber-800 dark:text-amber-400 dark:hover:bg-amber-950/50',
+    confirmMessage: 'Pause this company? Employees will lose access until reactivated.',
+  },
+  SUSPENDED: {
+    label: 'Suspend',
+    icon: Ban,
+    className: 'border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/50',
+    confirmMessage: 'Suspend this company? This is a stronger action than pausing.',
+  },
+  CANCELLED: {
+    label: 'Cancel',
+    icon: XCircle,
+    className: 'border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/50',
+    confirmMessage: 'Cancel this company? This action is typically not reversible.',
+  },
+}
 
 export default function CompaniesPage() {
   const router = useRouter()
@@ -26,7 +71,7 @@ export default function CompaniesPage() {
   const [adminStatusFilter, setAdminStatusFilter] = useState<AdminStatusFilter>('ALL')
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [confirmAction, setConfirmAction] = useState<'delete' | null>(null)
+  const [confirmAction, setConfirmAction] = useState<ConfirmActionType>(null)
 
   const { page, setPage, pageSize } = useTablePagination({ defaultPageSize: 10 })
 
@@ -39,29 +84,31 @@ export default function CompaniesPage() {
   })
 
   const updateStatus = useUpdateCompanyStatus()
-  const deleteCompany = useDeleteCompany()
 
-  const handleDelete = useCallback((id: string) => {
+  const handleStatusChange = useCallback((id: string, status: StatusAction) => {
     setSelectedCompany(id)
-    setConfirmAction('delete')
+    setConfirmAction(status)
     setConfirmOpen(true)
   }, [])
 
-  const confirmDelete = useCallback(() => {
+  const confirmStatusChangeAction = useCallback((status: StatusAction) => {
     if (!selectedCompany) return
-    deleteCompany.mutate(selectedCompany, {
-      onSuccess: (res: any) => {
-        showToast({ type: 'success', title: res.message ?? 'Company deleted' })
-        setConfirmOpen(false)
-        setSelectedCompany(null)
+    updateStatus.mutate(
+      { companyId: selectedCompany, status },
+      {
+        onSuccess: (res: any) => {
+          showToast({ type: 'success', title: res.message ?? `Company ${status.toLowerCase()}` })
+          setConfirmOpen(false)
+          setSelectedCompany(null)
+        },
+        onError: (err: Error) => {
+          showToast({ type: 'error', title: 'Status update failed', description: err.message })
+          setConfirmOpen(false)
+          setSelectedCompany(null)
+        },
       },
-      onError: (err: Error) => {
-        showToast({ type: 'error', title: 'Delete failed', description: err.message })
-        setConfirmOpen(false)
-        setSelectedCompany(null)
-      },
-    })
-  }, [selectedCompany, deleteCompany])
+    )
+  }, [selectedCompany, updateStatus])
 
   const companies = data?.data ?? []
   const meta = data?.meta
@@ -160,24 +207,49 @@ export default function CompaniesPage() {
       key: 'actions',
       header: '',
       sortable: false,
-      render: (c: any) => (
-        <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="sm" asChild className="h-8 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/50">
-            <Link href={`/admin/companies/${c.id}`} onClick={(e) => e.stopPropagation()} title="View company">
-              <ExternalLink className="h-3.5 w-3.5" /> View
-            </Link>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={(e) => { e.stopPropagation(); handleDelete(c.id) }}
-            className="h-8 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/50"
-            title="Delete company"
-          >
-            <Trash2 className="h-3.5 w-3.5" /> Delete
-          </Button>
-        </div>
-      ),
+      render: (c: any) => {
+        const { primary, secondary } = getStatusActions(c.status)
+        return (
+          <div className="flex items-center gap-1.5">
+            {primary && (() => {
+              const cfg = STATUS_ACTION_CONFIG[primary]
+              const Icon = cfg.icon
+              return (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => { e.stopPropagation(); handleStatusChange(c.id, primary) }}
+                  className={`h-8 ${cfg.className}`}
+                  title={cfg.label}
+                >
+                  <Icon className="h-3.5 w-3.5" /> {cfg.label}
+                </Button>
+              )
+            })()}
+            {secondary.map((status) => {
+              const cfg = STATUS_ACTION_CONFIG[status]
+              const Icon = cfg.icon
+              return (
+                <Button
+                  key={status}
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => { e.stopPropagation(); handleStatusChange(c.id, status) }}
+                  className={`h-8 w-8 p-0 ${cfg.className}`}
+                  title={cfg.label}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </Button>
+              )
+            })}
+            <Button variant="outline" size="sm" asChild className="h-8 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/50">
+              <Link href={`/admin/companies/${c.id}`} onClick={(e) => e.stopPropagation()} title="View company">
+                <ExternalLink className="h-3.5 w-3.5" /> View
+              </Link>
+            </Button>
+          </div>
+        )
+      },
     },
   ]
 
@@ -239,13 +311,13 @@ export default function CompaniesPage() {
       />
       <ConfirmDialog
         open={confirmOpen}
-        title="Delete Company"
-        message="Are you sure you want to delete this company? All employees will also be deactivated."
-        confirmLabel="Delete"
-        loading={deleteCompany.isPending}
+        title={confirmAction ? STATUS_ACTION_CONFIG[confirmAction].label : ''}
+        message={confirmAction ? STATUS_ACTION_CONFIG[confirmAction].confirmMessage : ''}
+        confirmLabel={confirmAction ? STATUS_ACTION_CONFIG[confirmAction].label : 'Confirm'}
+        loading={updateStatus.isPending}
         onConfirm={() => {
-          if (confirmAction === 'delete' && selectedCompany) {
-            confirmDelete()
+          if (confirmAction && selectedCompany) {
+            confirmStatusChangeAction(confirmAction)
           } else {
             setConfirmOpen(false)
             setSelectedCompany(null)

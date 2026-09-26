@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Search, ExternalLink, Filter, X } from 'lucide-react'
@@ -52,7 +52,14 @@ export default function ActionQueuePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  const initialTab = (searchParams.get('tab') as QueueTabKey | null) ?? 'ALL'
+  // Deep-link fallback from the dashboard: ?type=<ActionQueueType>&id=<ActionQueueItem id>
+  const typeParam = searchParams.get('type')
+  const idParam = searchParams.get('id')
+  const tabFromType: QueueTabKey | undefined = typeParam
+    ? TAB_KEYS.find(t => t.key === typeParam)?.key ?? QUEUE_TYPE_MAP[typeParam]?.tabCategory
+    : undefined
+
+  const initialTab = (searchParams.get('tab') as QueueTabKey | null) ?? tabFromType ?? 'ALL'
   const validTab = TAB_KEYS.find(t => t.key === initialTab) ? initialTab : 'ALL'
 
   const [activeTab, setActiveTab] = useState<QueueTabKey>(validTab)
@@ -76,8 +83,29 @@ export default function ActionQueuePage() {
 )
 
   const { data, isLoading, isFetching } = useActionQueue(filters)
-  const items = data?.data ?? []
+  const items = useMemo(() => data?.data ?? [], [data])
   const meta = data?.meta
+
+  // Once items load, open the deep-linked item with the page's normal
+  // opener (its review route). The id/type params are dropped first so
+  // pressing Back from the review does not re-open it.
+  const deepLinkHandled = useRef(false)
+  useEffect(() => {
+    if (deepLinkHandled.current || !idParam || isLoading || isFetching) return
+    deepLinkHandled.current = true
+
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete('id')
+    params.delete('type')
+    if (activeTab !== 'ALL') params.set('tab', activeTab)
+    const qs = params.toString()
+    router.replace(`/admin/action-queue${qs ? `?${qs}` : ''}`, { scroll: false })
+
+    const match = items.find((item: { id: string }) => item.id === idParam)
+    if (!match) return
+    document.getElementById(`queue-item-${match.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    router.push(`/admin/action-queue/${encodeURIComponent(match.id)}`)
+  }, [idParam, isLoading, isFetching, items, activeTab, router, searchParams])
 
   const handleTabChange = (tab: QueueTabKey) => {
     setActiveTab(tab)
@@ -267,7 +295,11 @@ export default function ActionQueuePage() {
                 const entityName = getEntityName(item)
                 const priorityLabel = getPriorityLabel(item.priority)
                 return (
-                  <tr key={item.id} className="border-b last:border-0 hover:bg-muted/30">
+                  <tr
+                    key={item.id}
+                    id={`queue-item-${item.id}`}
+                    className={`border-b last:border-0 hover:bg-muted/30 ${item.id === idParam ? 'bg-primary/5' : ''}`}
+                  >
                     <td className="px-4 py-3">
                       <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium">
                         {displayType}

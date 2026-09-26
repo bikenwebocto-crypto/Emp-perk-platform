@@ -9,11 +9,11 @@ import { useDashboardStore } from '@/store/dashboard-store'
 import { useActionQueueStore } from '@/store/action-queue-store'
 import { useActionQueueStats } from '@/hooks/queries/use-action-queue'
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 import {
   Store,
   Building2,
   ShoppingBag,
-  AlertCircle,
   Clock,
   CheckCircle2,
   FileText,
@@ -22,16 +22,20 @@ import {
   Bug,
   Bell,
   ArrowRight,
-  TrendingUp,
-  TrendingDown,
   Sparkles,
   Activity,
   Zap,
   ChevronRight,
-  DollarSign,
+  Euro,
+  Repeat,
   Users,
   BarChart3,
+  type LucideIcon,
 } from 'lucide-react'
+import { PendingApprovalsList } from '@/components/admin/dashboard/PendingApprovalsList'
+import type { PendingApproval } from '@/lib/admin/approval-routes'
+import { eurCompact, eurExact, orDash } from '@/lib/format'
+import { cn } from '@/utils/cn'
 
 export default function AdminDashboard() {
   const summary = useDashboardStore((s) => s.summary)
@@ -40,7 +44,7 @@ export default function AdminDashboard() {
 
   const [loading, setLoading] = useState(true)
   const [recentActivity, setRecentActivity] = useState([])
-  const [pendingApprovals, setPendingApprovals] = useState([])
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
 
   const { data: stats } = useActionQueueStats()
 
@@ -136,8 +140,11 @@ export default function AdminDashboard() {
   ]
 
   const totalPending = queueCards.reduce((sum, c) => sum + c.value, 0)
-  const trend = summary.periodComparison?.redemptionsChange ?? 0
-  const isPositiveTrend = trend >= 0
+  const trend = summary.redemptionsTrend
+  const isPositiveTrend = trend != null && trend >= 0
+  const engagementSubtitle = summary.totalEmployees > 0
+    ? `${summary.activeEmployees.toLocaleString()} of ${summary.totalEmployees.toLocaleString()} employees · last 30 days`
+    : 'No active employees yet'
 
   return (
     <div className="space-y-6">
@@ -175,78 +182,55 @@ export default function AdminDashboard() {
 
       {/* Top stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="relative overflow-hidden border-0 shadow-sm">
-          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-500 to-indigo-600" />
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-muted-foreground">Total Redemptions</p>
-                <p className="text-3xl font-bold tracking-tight">
-                  {summary.totalRedemptions?.toLocaleString() ?? '0'}
-                </p>
-                {trend !== 0 && (
-                  <div className={`flex items-center gap-1 text-xs font-medium ${isPositiveTrend ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {isPositiveTrend ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                    <span>{Math.abs(trend)}% vs last period</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/15 to-indigo-600/15">
-                <ShoppingBag className="h-6 w-6 text-blue-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <KpiCard
+          label="Live Offers"
+          value={summary.liveOffers.toLocaleString()}
+          icon={Tag}
+          gradient="from-blue-500 to-indigo-600"
+          iconBg="from-blue-500/15 to-indigo-600/15"
+          iconColor="text-blue-600"
+        >
+          <p className="text-xs text-muted-foreground">{summary.pendingOffers.toLocaleString()} pending review</p>
+        </KpiCard>
 
-        <Card className="relative overflow-hidden border-0 shadow-sm">
-          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-600" />
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-muted-foreground">Active Merchants</p>
-                <p className="text-3xl font-bold tracking-tight">{summary.activeMerchants ?? 0}</p>
-                <p className="text-xs text-muted-foreground">
-                  {summary.activeOffers ?? 0} active offers
-                </p>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/15 to-teal-600/15">
-                <Store className="h-6 w-6 text-emerald-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <KpiCard
+          label="Registered Employees"
+          value={summary.totalEmployees.toLocaleString()}
+          icon={Users}
+          gradient="from-emerald-500 to-teal-600"
+          iconBg="from-emerald-500/15 to-teal-600/15"
+          iconColor="text-emerald-600"
+        >
+          <p className="text-xs text-muted-foreground">+{summary.newEmployeesThisMonth.toLocaleString()} this month</p>
+        </KpiCard>
 
-        <Card className="relative overflow-hidden border-0 shadow-sm">
-          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-violet-500 to-purple-600" />
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-muted-foreground">Active Companies</p>
-                <p className="text-3xl font-bold tracking-tight">{summary.activeCompanies ?? 0}</p>
-                <p className="text-xs text-muted-foreground">Subscribed organizations</p>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/15 to-purple-600/15">
-                <Building2 className="h-6 w-6 text-violet-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <KpiCard
+          label="Engagement Rate"
+          value={orDash(summary.engagementRate, (v) => `${v}%`)}
+          icon={Activity}
+          gradient="from-violet-500 to-purple-600"
+          iconBg="from-violet-500/15 to-purple-600/15"
+          iconColor="text-violet-600"
+        >
+          <p className="text-xs text-muted-foreground">{engagementSubtitle}</p>
+        </KpiCard>
 
-        <Card className="relative overflow-hidden border-0 shadow-sm">
-          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-500 to-orange-600" />
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-muted-foreground">Pending Reviews</p>
-                <p className="text-3xl font-bold tracking-tight">{totalPending}</p>
-                <p className="text-xs text-muted-foreground">Across all queues</p>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/15 to-orange-600/15">
-                <AlertCircle className="h-6 w-6 text-amber-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <KpiCard
+          label="Redemptions This Month"
+          value={summary.redemptionsThisMonth.toLocaleString()}
+          icon={ShoppingBag}
+          gradient="from-amber-500 to-orange-600"
+          iconBg="from-amber-500/15 to-orange-600/15"
+          iconColor="text-amber-600"
+        >
+          {trend != null && (
+            <p className={cn('text-xs font-medium', isPositiveTrend ? 'text-emerald-600' : 'text-rose-600')}>
+              <span aria-hidden="true">{isPositiveTrend ? '▲' : '▼'}</span>{' '}
+              <span className="sr-only">{isPositiveTrend ? 'Up' : 'Down'}</span>
+              {Math.abs(trend)}% vs last month
+            </p>
+          )}
+        </KpiCard>
       </div>
 
       {/* Action Queue Summary */}
@@ -325,68 +309,7 @@ export default function AdminDashboard() {
             </div>
           </CardHeader>
           <CardContent className="p-2">
-            {pendingApprovals.length > 0 ? (
-              <div className="space-y-1">
-                {pendingApprovals.map((item: any) => {
-                  const isHigh = item.priority >= 4
-                  return (
-                    <Link
-                      key={item.id}
-                      href="/admin/action-queue"
-                      className="flex items-center gap-3 rounded-lg p-3 transition-colors hover:bg-muted/50"
-                    >
-                      <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${
-                        isHigh
-                          ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/40'
-                          : 'bg-blue-100 text-blue-600 dark:bg-blue-950/40'
-                      }`}>
-                        {isHigh ? (
-                          <AlertCircle className="h-5 w-5" />
-                        ) : (
-                          <Clock className="h-5 w-5" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold">
-                          {item.title ?? item.merchantName ?? 'Untitled'}
-                        </p>
-                        <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                          <span className="font-medium uppercase tracking-wide">
-                            {item.type?.replace(/_/g, ' ')}
-                          </span>
-                          <span>·</span>
-                          <span>
-                            {item.createdAt
-                              ? new Date(item.createdAt).toLocaleDateString('en-US', {
-                                  month: 'short',
-                                  day: 'numeric',
-                                })
-                              : ''}
-                          </span>
-                          {isHigh && (
-                            <>
-                              <span>·</span>
-                              <Badge variant="destructive" className="h-4 px-1.5 text-[9px]">
-                                HIGH
-                              </Badge>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground/40" />
-                    </Link>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40">
-                  <CheckCircle2 className="h-6 w-6" />
-                </div>
-                <p className="mt-3 text-sm font-medium">All caught up!</p>
-                <p className="mt-1 text-xs text-muted-foreground">No pending approvals at the moment</p>
-              </div>
-            )}
+            <PendingApprovalsList items={pendingApprovals} />
           </CardContent>
         </Card>
 
@@ -400,20 +323,28 @@ export default function AdminDashboard() {
           </CardHeader>
           <CardContent className="space-y-1 p-2">
             <MetricRow
-              icon={DollarSign}
+              icon={Euro}
               iconBg="bg-emerald-100 dark:bg-emerald-950/40"
               iconColor="text-emerald-600"
               label="Total Savings"
-              value={`€${summary.totalSavings ? (summary.totalSavings / 1000).toFixed(1) : 0}K`}
+              value={orDash(summary.totalSavings, eurCompact.format)}
               sublabel="Delivered to employees"
             />
             <MetricRow
               icon={Tag}
               iconBg="bg-violet-100 dark:bg-violet-950/40"
               iconColor="text-violet-600"
-              label="Avg Discount"
-              value={`€${summary.totalDiscount && summary.totalRedemptions ? (summary.totalDiscount / summary.totalRedemptions).toFixed(2) : '0.00'}`}
+              label="Avg Savings"
+              value={orDash(summary.avgSavingsPerRedemption, eurExact.format)}
               sublabel="Per redemption"
+            />
+            <MetricRow
+              icon={Repeat}
+              iconBg="bg-sky-100 dark:bg-sky-950/40"
+              iconColor="text-sky-600"
+              label="Redemptions / Employee"
+              value={orDash(summary.avgRedemptionsPerActiveEmployee, String)}
+              sublabel="Active employees · 30 days"
             />
             <MetricRow
               icon={Store}
@@ -421,7 +352,7 @@ export default function AdminDashboard() {
               iconColor="text-blue-600"
               label="Merchants"
               value={summary.activeMerchants ?? 0}
-              sublabel="Currently active"
+              sublabel={summary.pausedMerchants > 0 ? `${summary.pausedMerchants} paused` : 'Currently active'}
             />
             <MetricRow
               icon={Building2}
@@ -436,8 +367,8 @@ export default function AdminDashboard() {
                 <Users className="h-4 w-4 text-primary" />
                 <p className="text-xs font-medium text-primary">Engagement Rate</p>
               </div>
-              <p className="mt-1.5 text-2xl font-bold">—</p>
-              <p className="mt-0.5 text-[10px] text-muted-foreground">Available in detailed analytics</p>
+              <p className="mt-1.5 text-2xl font-bold">{orDash(summary.engagementRate, (v) => `${v}%`)}</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">{engagementSubtitle}</p>
             </div>
           </CardContent>
         </Card>
@@ -499,6 +430,42 @@ export default function AdminDashboard() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function KpiCard({
+  label,
+  value,
+  icon: Icon,
+  gradient,
+  iconBg,
+  iconColor,
+  children,
+}: {
+  label: string
+  value: string
+  icon: LucideIcon
+  gradient: string
+  iconBg: string
+  iconColor: string
+  children?: ReactNode
+}) {
+  return (
+    <Card className="relative overflow-hidden border-0 shadow-sm">
+      <div className={cn('absolute inset-x-0 top-0 h-1 bg-gradient-to-r', gradient)} />
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-muted-foreground">{label}</p>
+            <p className="text-3xl font-bold tracking-tight">{value}</p>
+            {children}
+          </div>
+          <div className={cn('flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br', iconBg)}>
+            <Icon className={cn('h-6 w-6', iconColor)} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

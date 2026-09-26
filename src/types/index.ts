@@ -184,11 +184,32 @@ export interface DashboardFilter {
 export interface AnalyticsSummary {
   totalRedemptions: number;
   totalDiscount: number;
+  /** Sum of Redemption.savingsAmount over redeemed rows (EUR). */
   totalSavings: number;
   activeMerchants: number;
   activeCompanies: number;
   activeOffers: number;
   pendingActions: number;
+  /** LIVE offers whose end date is still in the future. */
+  liveOffers: number;
+  /** Offers waiting for an admin decision. */
+  pendingOffers: number;
+  /** Employees with status ACTIVE. */
+  totalEmployees: number;
+  /** Employees created since the start of the month (Europe/Nicosia). */
+  newEmployeesThisMonth: number;
+  /** Distinct active employees with ≥1 redemption in the last 30 days. */
+  activeEmployees: number;
+  /** activeEmployees / totalEmployees × 100, 1 decimal; null when there are no employees. */
+  engagementRate: number | null;
+  /** Redemptions since the start of the month (Europe/Nicosia). */
+  redemptionsThisMonth: number;
+  /** % change vs the previous calendar month, 1 decimal; null when last month had none. */
+  redemptionsTrend: number | null;
+  avgSavingsPerRedemption: number | null;
+  /** Last-30-day redemptions per active employee, 1 decimal. */
+  avgRedemptionsPerActiveEmployee: number | null;
+  pausedMerchants: number;
   periodComparison?: {
     redemptionsChange: number;
     discountChange: number;
