@@ -20,28 +20,22 @@ export async function GET(request: NextRequest) {
     const auth = await getAuthenticatedMobileEmployee(request);
     if (!auth.ok) return auth.response;
 
-    const [countOfRedemption, merchantRedemptions, address, savedOffers] =
+    const [redemptionStats, merchantRedemptions, address, savedOffers] =
       await Promise.all([
-        prisma.redemption.count({
-          where: {
-            employeeId: auth.employee.id,
-          },
+        prisma.redemption.aggregate({
+          where: { employeeId: auth.employee.id },
+          _count: { _all: true },
+          _sum: { loggedSavingAmount: true },
         }),
 
         prisma.redemption.findMany({
-          where: {
-            employeeId: auth.employee.id,
-          },
-          select: {
-            merchantId: true,
-          },
+          where: { employeeId: auth.employee.id },
+          select: { merchantId: true },
           distinct: ["merchantId"],
         }),
 
         prisma.employeeAddress.findUnique({
-          where: {
-            employeeId: auth.employee.id,
-          },
+          where: { employeeId: auth.employee.id },
         }),
 
         prisma.notificationEvent.count({
@@ -51,8 +45,12 @@ export async function GET(request: NextRequest) {
           },
         }),
       ]);
-    console.log("AUTH EMPLOYEE ID:", auth.employee.id);
-    console.log("SAVED OFFERS:", savedOffers);
+
+    const countOfRedemption = redemptionStats._count._all;
+    const totalRedemptionAmount = Number(
+      redemptionStats._sum.loggedSavingAmount ?? 0,
+    );
+
     return NextResponse.json({
       success: true,
       data: {
@@ -68,6 +66,7 @@ export async function GET(request: NextRequest) {
         count_of_redemption: countOfRedemption,
         count_of_merchant_itredeemed: merchantRedemptions.length,
         offerSavedCount: savedOffers,
+        TotalRedemptionAmount: totalRedemptionAmount,
         address: address
           ? {
               addressLine1: address.addressLine1,

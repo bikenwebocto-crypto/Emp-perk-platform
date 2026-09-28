@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       prisma.notificationEvent.count({ where }),
     ])
 
-    // Merchant offer IDs on this page (inline, no helper)
+    // Merchant offer IDs on this page
     const offerIds = [
       ...new Set(
         rows
@@ -49,26 +49,45 @@ export async function GET(request: NextRequest) {
       ),
     ]
 
-    const contents = offerIds.length
-      ? await prisma.offerContent.findMany({
-          where: { offerId: { in: offerIds } },
-          select: { offerId: true, imageUrls: true },
-        })
-      : []
-
-    console.log('DEBUG offerIds', offerIds.length, 'contents', contents.length)
+    // Fetch offer images + merchant info in parallel
+    const [contents, offers] = offerIds.length
+      ? await Promise.all([
+          prisma.offerContent.findMany({
+            where: { offerId: { in: offerIds } },
+            select: { offerId: true, imageUrls: true },
+          }),
+          prisma.merchantOffer.findMany({
+            where: { id: { in: offerIds } },
+            select: {
+              id: true,
+              merchant: {
+                select: {
+                  id: true,
+                  businessName: true,
+                  logoUrl: true, // adjust to your Merchant logo field name
+                },
+              },
+            },
+          }),
+        ])
+      : [[], []]
 
     const imageByOfferId = new Map(
       contents.map((c) => [c.offerId, c.imageUrls[0] ?? null])
     )
+    const merchantByOfferId = new Map(offers.map((o) => [o.id, o.merchant]))
 
-    const data = rows.map((r) => ({
-      ...r,
-      offerImageUrl:
-        r.referenceType === 'merchant_offer' && r.referenceId
-          ? imageByOfferId.get(r.referenceId) ?? null
-          : null,
-    }))
+    const data = rows.map((r) => {
+      const isOffer = r.referenceType === 'merchant_offer' && !!r.referenceId
+      const merchant = isOffer ? merchantByOfferId.get(r.referenceId as string) : undefined
+
+      return {
+        ...r,
+        offerImageUrl: isOffer ? imageByOfferId.get(r.referenceId as string) ?? null : null,
+        merchantName: merchant?.businessName ?? null,
+        merchantLogoUrl: merchant?.logoUrl ?? null,
+      }
+    })
 
     return NextResponse.json({
       success: true,
