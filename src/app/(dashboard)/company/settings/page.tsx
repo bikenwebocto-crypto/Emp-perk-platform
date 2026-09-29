@@ -17,6 +17,8 @@ import { AlertTriangle, Pencil, Camera, Globe, ExternalLink, Eye, EyeOff, Check,
 import { ImageUploader } from '@/components/shared/ImageUploader'
 import type { DeferredFile } from '@/components/shared/ImageUploader'
 import { uploadImage, COMPANY_LOGO_OPTIONS } from '@/lib/upload/image'
+import { PhoneInput } from '@/components/ui/phone-input'
+import { isValidPhone, formatPhone } from '@/lib/phone'
 
 type Company = Record<string, any> | undefined
 type SaveFn = (data: Record<string, unknown>) => Promise<void>
@@ -203,6 +205,7 @@ function EditableCard({
 }) {
   const [editing, setEditing] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
   const initial = useMemo(
     () => Object.fromEntries(fields.map((f) => [f.name, company?.[f.name] ?? ''])) as Record<string, string>,
@@ -214,6 +217,15 @@ function EditableCard({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!isDirty) return
+
+    const nextErrors: Record<string, string> = {}
+    for (const f of changed) {
+      const v = (values[f.name] ?? '').trim()
+      if (f.type === 'tel' && v && !isValidPhone(v)) nextErrors[f.name] = 'Invalid phone number'
+    }
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) return
+
     // only changed fields; emptied field → null so it actually clears
     const data = Object.fromEntries(changed.map((f) => [f.name, (values[f.name] ?? '').trim() || null]))
     try {
@@ -235,6 +247,7 @@ function EditableCard({
                 size="sm"
                 onClick={() => {
                   setValues(initial)
+                  setErrors({})
                   setEditing(true)
                 }}
               >
@@ -259,6 +272,10 @@ function EditableCard({
                         >
                           {String(v).replace(/^https?:\/\//, '')} <ExternalLink className="h-3 w-3" />
                         </a>
+                      ) : f.type === 'tel' ? (
+                        <a href={`tel:${v}`} className="hover:underline">
+                          {formatPhone(v)}
+                        </a>
                       ) : (
                         v
                       )}
@@ -276,13 +293,24 @@ function EditableCard({
                   <label htmlFor={`f-${f.name}`} className="text-xs font-medium text-muted-foreground">
                     {f.label}
                   </label>
-                  <Input
-                    id={`f-${f.name}`}
-                    type={f.type ?? 'text'}
-                    placeholder={f.placeholder}
-                    value={values[f.name] ?? ''}
-                    onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
-                  />
+                  {f.type === 'tel' ? (
+                    <PhoneInput
+                      id={`f-${f.name}`}
+                      value={values[f.name] ?? ''}
+                      onChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}
+                      invalid={!!errors[f.name]}
+                      placeholder="99 123456"
+                    />
+                  ) : (
+                    <Input
+                      id={`f-${f.name}`}
+                      type={f.type ?? 'text'}
+                      placeholder={f.placeholder}
+                      value={values[f.name] ?? ''}
+                      onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
+                    />
+                  )}
+                  {errors[f.name] && <p className="text-xs text-destructive">{errors[f.name]}</p>}
                 </div>
               ))}
             </div>

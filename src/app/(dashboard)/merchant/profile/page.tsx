@@ -14,6 +14,8 @@ import type { DeferredFile } from '@/components/shared/ImageUploader'
 import { uploadImage, MERCHANT_LOGO_OPTIONS, MERCHANT_COVER_OPTIONS } from '@/lib/upload/image'
 import type { UploadImageOptions } from '@/lib/upload/image'
 import { BusinessOverview } from '@/components/shared/business-overview'
+import { PhoneInput } from '@/components/ui/phone-input'
+import { isValidPhone } from '@/lib/phone'
 
 interface Category {
   id: string
@@ -375,15 +377,13 @@ export default function MerchantProfilePage() {
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
                   Contact Phone
                 </label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={values.contactPhone ?? ''}
-                    onChange={(e) => setField('contactPhone', e.target.value)}
-                    placeholder="+1 555-0100"
-                    className="pl-9"
-                  />
-                </div>
+                <PhoneInput
+                  value={values.contactPhone ?? ''}
+                  onChange={(v) => setField('contactPhone', v)}
+                  invalid={!!errors.contactPhone}
+                  placeholder="99 123456"
+                />
+                {errors.contactPhone && <p className="mt-1 text-xs text-destructive">{errors.contactPhone}</p>}
               </div>
             </div>
 

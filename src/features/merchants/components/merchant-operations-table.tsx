@@ -29,6 +29,8 @@ import { StatusBadge } from '@/components/shared/status-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MerchantActionsMenu } from './merchant-actions-menu'
 import type { MerchantDashboardRow, MerchantHealth, TableSortConfig } from '@/types'
+import flags from 'react-phone-number-input/flags'
+import { formatPhone, phoneCountry } from '@/lib/phone'
 
 interface MerchantOperationsTableProps {
   data: MerchantDashboardRow[]
@@ -50,6 +52,22 @@ interface MerchantOperationsTableProps {
 }
 
 // ---- Helpers ----------------------------------------------------------------
+
+function PhoneCell({ value }: { value: string | null | undefined }) {
+  if (!value) return <span className="text-muted-foreground/40">—</span>
+  const country = phoneCountry(value)
+  const Flag = country ? flags[country] : undefined
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {Flag && country && (
+        <span className="inline-block w-4 shrink-0 [&>svg]:h-auto [&>svg]:w-full">
+          <Flag title={country} />
+        </span>
+      )}
+      {formatPhone(value)}
+    </span>
+  )
+}
 
 function formatRelative(date: string | null | undefined): string {
   if (!date) return '—'
@@ -253,6 +271,7 @@ export function MerchantOperationsTable({
               <SortHeader label="Priority" sortKey="priority" currentSort={sortConfig} onSort={onSortChange} align="center" />
               <th className="px-2 pb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Flags</th>
               <SortHeader label="City" sortKey="city" currentSort={sortConfig} onSort={onSortChange} />
+              <th className="px-2 pb-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Phone</th>
               <th className="px-2 pb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Offers</th>
               <SortHeader label="Engagement" sortKey="views" currentSort={sortConfig} onSort={onSortChange} align="center" />
               <SortHeader label="Redeemed" sortKey="redemptions" currentSort={sortConfig} onSort={onSortChange} align="center" />
@@ -325,6 +344,11 @@ export function MerchantOperationsTable({
                 {/* City */}
                 <td className="py-3 text-xs text-muted-foreground">
                   {row.city ?? <span className="text-muted-foreground/40">—</span>}
+                </td>
+
+                {/* Phone */}
+                <td className="py-3 text-xs text-muted-foreground">
+                  <PhoneCell value={row.contactPhone} />
                 </td>
 
                 {/* Offers (Live / Pending / Archived / Rejected) */}

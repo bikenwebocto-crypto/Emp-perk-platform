@@ -15,6 +15,8 @@ import { useCompanies, useUpdateCompanyStatus } from '@/hooks/queries/use-compan
 import { useTablePagination } from '@/hooks/use-table-pagination'
 import { showToast } from '@/hooks/use-toast'
 import type { ColumnDef } from '@/types'
+import flags from 'react-phone-number-input/flags'
+import { formatPhone, phoneCountry } from '@/lib/phone'
 
 type StatusFilter = 'ALL' | 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'CANCELLED' | 'APPROVED_PENDING_PAYMENT' | 'PENDING'
 type AdminStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE'
@@ -35,6 +37,22 @@ function getStatusActions(status: string): { primary: StatusAction | null; secon
     default:
       return { primary: null, secondary: [] }
   }
+}
+
+function PhoneCell({ value }: { value: string | null | undefined }) {
+  if (!value) return <span className="text-muted-foreground">—</span>
+  const country = phoneCountry(value)
+  const Flag = country ? flags[country] : undefined
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm">
+      {Flag && country && (
+        <span className="inline-block w-4 shrink-0 [&>svg]:h-auto [&>svg]:w-full">
+          <Flag title={country} />
+        </span>
+      )}
+      {formatPhone(value)}
+    </span>
+  )
 }
 
 const STATUS_ACTION_CONFIG: Record<StatusAction, { label: string; icon: typeof CheckCircle2; className: string; confirmMessage: string }> = {
@@ -118,6 +136,7 @@ export default function CompaniesPage() {
       id: c.id,
       name: c.name,
       companyEmail: c.email,
+      phone: c.phone ?? null,
       companyContact: c.companyContact ?? null,
       primaryAdmin: c.primaryAdmin ?? null,
       admins: c.admins ?? [],
@@ -153,6 +172,11 @@ export default function CompaniesPage() {
           <span>{c.companyEmail || '—'}</span>
         </div>
       ),
+    },
+    {
+      key: 'phone',
+      header: 'Phone',
+      render: (c: any) => <PhoneCell value={c.phone} />,
     },
     {
       key: 'primaryAdmin',

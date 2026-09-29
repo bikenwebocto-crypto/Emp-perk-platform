@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
+import { toE164 } from '@/lib/phone';
 import { createAuditLog, buildAuditData, fromCurrentUser } from '@/services/audit-log.service';
 import { sendCompanyAdminInvitation } from '@/services/company-admin-invitation.service';
 import { getCurrentUser } from '@/lib/supabase/server';
@@ -233,7 +234,15 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    const { name, email, firstName, lastName, phone, website, employeeCount, addressLine1, addressLine2, city, state, postalCode, country, taxId } = parsed.data;
+    const { name, email, firstName, lastName, phone: rawPhone, website, employeeCount, addressLine1, addressLine2, city, state, postalCode, country, taxId } = parsed.data;
+
+    const phone = toE164(rawPhone);
+    if (rawPhone && !phone) {
+      return NextResponse.json(
+        { success: false, error: { code: 'VALIDATION', message: 'Invalid phone number' } },
+        { status: 400 },
+      );
+    }
 
     timer.point('validateUserEmail')
     const validation = await validateUserEmail(email);
