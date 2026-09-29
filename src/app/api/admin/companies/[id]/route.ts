@@ -48,6 +48,7 @@ export async function GET(
         _count: { select: { employees: true, redemptions: true, csvUploads: true } },
         companyAdmins: {
           orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+          include: { account: { select: { email: true, status: true } } },
         },
       },
     });
@@ -59,8 +60,20 @@ export async function GET(
       );
     }
 
-    const admins = summarizeAdmins(company.companyAdmins)
-    const primaryAdmin = derivePrimaryAdmin(company.companyAdmins)
+ // Email lives on the linked account; fill it in after summarizing
+const emailByAdminId = new Map(
+  company.companyAdmins.map((a) => [a.id, a.account?.email ?? '']),
+)
+
+const admins = summarizeAdmins(company.companyAdmins).map((a) => ({
+  ...a,
+  email: a.email || emailByAdminId.get(a.id) || '',
+}))
+
+const derived = derivePrimaryAdmin(company.companyAdmins)
+const primaryAdmin = derived
+  ? { ...derived, email: derived.email || emailByAdminId.get(derived.id) || '' }
+  : null
     const activeAdminCount = admins.filter((a) => a.isActive).length
 
     const data = {

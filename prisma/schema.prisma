@@ -36,18 +36,19 @@ model AdminUser {
 }
 
 model Account {
-  authUserId  String        @id @default(uuid()) @db.Uuid
-  email       String        @unique @db.VarChar(255)
-  role        AccountRole
-  profileType ProfileType
-  status      AccountStatus @default(PENDING)
-  createdBy   String?       @db.VarChar(255)
-  changedBy   String?       @db.VarChar(255)
-  lastLoginAt DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  employees   Employee[]    @relation("EmployeeAccount")
-  merchants   Merchant[]
+  authUserId    String         @id @default(uuid()) @db.Uuid
+  email         String         @unique @db.VarChar(255)
+  role          AccountRole
+  profileType   ProfileType
+  status        AccountStatus  @default(PENDING)
+  createdBy     String?        @db.VarChar(255)
+  changedBy     String?        @db.VarChar(255)
+  lastLoginAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  employees     Employee[]     @relation("EmployeeAccount")
+  merchants     Merchant[]
+  companyAdmins CompanyAdmin[] @relation("CompanyAdminAccount")
 
   @@index([role])
   @@index([status])
@@ -139,6 +140,7 @@ model CompanyAdmin {
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
   accountId        String?               @db.Uuid
+  account          Account?              @relation("CompanyAdminAccount", fields: [accountId], references: [authUserId])
   company          Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
   loginSessions    LoginSession[]
   notifications    NotificationEvent[]   @relation("CompanyAdminNotification")
@@ -154,37 +156,37 @@ model Employee {
   id        String @id @default(uuid()) @db.Uuid
   companyId String @db.Uuid
 
-  firstName          String                   @db.VarChar(100)
-  lastName           String                   @db.VarChar(100)
-  employeeId         String?                  @db.VarChar(100)
-  department         String?                  @db.VarChar(100)
-  jobTitle           String?                  @db.VarChar(100)
-  phone              String?                  @db.VarChar(50)
-  avatarUrl          String?                  @db.VarChar(500)
-  status             EmployeeStatus           @default(INVITED)
-  invitedAt          DateTime?
-  invitedBy          String?                  @db.Uuid
-  lastLoginAt        DateTime?
-  deletedAt          DateTime?
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
-  joinMethod         String?                  @db.VarChar(50)
-  approvedById       String?                  @db.Uuid
-  deletedById        String?                  @db.Uuid
-  accountId          String?                  @db.Uuid
-  company            Company                  @relation(fields: [companyId], references: [id])
-  reports            IssueReport[]
-  loginSessions      LoginSession[]
-  notifications      NotificationEvent[]      @relation("EmployeeNotification")
-  redemptions        Redemption[]
-  offerViews         OfferView[]
-  auditLogs          AuditLog[]               @relation("EmployeeAuditLogs")
-  complaints         Complaint[]
-  complaintActions   ComplaintAction[]        @relation("EmployeeComplaintActions")
-  reviews            MerchantReview[]
-  account            Account?                 @relation("EmployeeAccount", fields: [accountId], references: [authUserId])
-  redemptionAttempts OfferRedemptionAttempt[]
-  address            EmployeeAddress?
+  firstName           String                   @db.VarChar(100)
+  lastName            String                   @db.VarChar(100)
+  employeeId          String?                  @db.VarChar(100)
+  department          String?                  @db.VarChar(100)
+  jobTitle            String?                  @db.VarChar(100)
+  phone               String?                  @db.VarChar(50)
+  avatarUrl           String?                  @db.VarChar(500)
+  status              EmployeeStatus           @default(INVITED)
+  invitedAt           DateTime?
+  invitedBy           String?                  @db.Uuid
+  lastLoginAt         DateTime?
+  deletedAt           DateTime?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  joinMethod          String?                  @db.VarChar(50)
+  approvedById        String?                  @db.Uuid
+  deletedById         String?                  @db.Uuid
+  accountId           String?                  @db.Uuid
+  company             Company                  @relation(fields: [companyId], references: [id])
+  reports             IssueReport[]
+  loginSessions       LoginSession[]
+  notifications       NotificationEvent[]      @relation("EmployeeNotification")
+  redemptions         Redemption[]
+  offerViews          OfferView[]
+  auditLogs           AuditLog[]               @relation("EmployeeAuditLogs")
+  complaints          Complaint[]
+  complaintActions    ComplaintAction[]        @relation("EmployeeComplaintActions")
+  reviews             MerchantReview[]
+  account             Account?                 @relation("EmployeeAccount", fields: [accountId], references: [authUserId])
+  redemptionAttempts  OfferRedemptionAttempt[]
+  address             EmployeeAddress?
   merchantSuggestions MerchantSuggestion[]
 
   @@index([companyId])
@@ -300,10 +302,10 @@ model Merchant {
   weeklyPicks         WeeklyPick[]
 
   complaints       Complaint[]
-  complaintActions ComplaintAction[] @relation("MerchantComplaintActions")
+  complaintActions ComplaintAction[]   @relation("MerchantComplaintActions")
   reviews          MerchantReview[]
   bannerBookings   BannerBooking[]
-  account          Account?          @relation(fields: [accountId], references: [authUserId])
+  account          Account?            @relation(fields: [accountId], references: [authUserId])
   sourceSuggestion MerchantSuggestion?
 
   @@index([status])
@@ -1229,10 +1231,10 @@ enum BranchStatus {
 
 model Complaint {
   id              String            @id @default(uuid()) @db.Uuid
-  offerId         String?            @db.Uuid
-  employeeId      String?            @db.Uuid
-  merchantId      String?            @db.Uuid
-  companyId       String?            @db.Uuid
+  offerId         String?           @db.Uuid
+  employeeId      String?           @db.Uuid
+  merchantId      String?           @db.Uuid
+  companyId       String?           @db.Uuid
   complaintType   ComplaintType
   category        String?           @db.VarChar(50)
   description     String
@@ -1245,10 +1247,10 @@ model Complaint {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
-  offer       MerchantOffer?         @relation(fields: [offerId], references: [id])
-  employee    Employee?              @relation(fields: [employeeId], references: [id])
-  merchant    Merchant?              @relation(fields: [merchantId], references: [id])
-  company     Company?               @relation(fields: [companyId], references: [id])
+  offer       MerchantOffer?        @relation(fields: [offerId], references: [id])
+  employee    Employee?             @relation(fields: [employeeId], references: [id])
+  merchant    Merchant?             @relation(fields: [merchantId], references: [id])
+  company     Company?              @relation(fields: [companyId], references: [id])
   escalations ComplaintEscalation[]
   actions     ComplaintAction[]
 
@@ -1260,7 +1262,6 @@ model Complaint {
   @@index([companyId, status])
   @@map("complaints")
 }
-
 
 model ComplaintEscalation {
   id             String    @id @default(uuid()) @db.Uuid
@@ -1354,7 +1355,7 @@ model BannerBooking {
   id             String        @id @default(uuid()) @db.Uuid
   bannerId       String        @db.Uuid
   merchantId     String        @db.Uuid
-  slotNumber     Int?          // NEW — persisted, 1..banner.slotCount, null on legacy rows
+  slotNumber     Int? // NEW — persisted, 1..banner.slotCount, null on legacy rows
   startDate      DateTime      @db.Date
   endDate        DateTime      @db.Date
   totalPrice     Decimal       @default(0) @db.Decimal(12, 2)
@@ -1374,7 +1375,7 @@ model BannerBooking {
   @@index([merchantId])
   @@index([status])
   @@index([status, paid, startDate, endDate])
-  @@index([bannerId, slotNumber, startDate, endDate])  // NEW
+  @@index([bannerId, slotNumber, startDate, endDate]) // NEW
   @@map("banner_bookings")
 }
 
