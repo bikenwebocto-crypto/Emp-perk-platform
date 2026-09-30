@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
         prisma.redemption.aggregate({
           where: { employeeId: auth.employee.id },
           _count: { _all: true },
-          _sum: { savingsAmount: true },
+          _sum: { loggedSavingAmount: true },
         }),
 
         prisma.redemption.findMany({
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
 
     const countOfRedemption = redemptionStats._count._all;
     const totalRedemptionAmount = Number(
-      redemptionStats._sum.savingsAmount ?? 0,
+      redemptionStats._sum.loggedSavingAmount ?? 0,
     );
 
     return NextResponse.json({

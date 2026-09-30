@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
       prisma.redemption.aggregate({
         where,
         _sum: {
-          savingsAmount: true,
+          loggedSavingAmount: true,
           discountAmount: true,
         },
       }),
@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
         total,
         totalPages: Math.ceil(total / pageSize),
         merchantsRedeemedCount: merchantGroups.length,
-        totalSavingsAmount: Number(totals._sum.savingsAmount ?? 0),
+        totalSavingsAmount: Number(totals._sum.loggedSavingAmount ?? 0),
         totalDiscountAmount: Number(totals._sum.discountAmount ?? 0),
       },
     })
