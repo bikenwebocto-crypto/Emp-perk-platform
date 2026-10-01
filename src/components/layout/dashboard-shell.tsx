@@ -15,6 +15,7 @@ const pageTitles: Record<string, string> = {
   '/admin/action-queue': 'Action Queue',
   '/admin/offers/replacements': 'Replacement Reviews',
   '/admin/merchants': 'Merchants',
+  '/admin/categories': 'Categories',
   '/admin/companies': 'Companies',
   '/admin/employees': 'Employees',
   '/admin/csv-uploads': 'CSV Uploads',
