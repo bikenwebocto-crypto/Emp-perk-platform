@@ -312,13 +312,20 @@ async function buildBanners(now: Date): Promise<MobileHomeBanner[]> {
           paid: true,
           startDate: { lte: now },
           endDate: { gte: now },
+          banner: {
+            isActive: true,
+            OR: [
+              { expiresAt: null },
+              { expiresAt: { gt: now } },
+            ],
+          },
         },
         include: {
           content: true,
           banner: { select: { name: true, position: true } },
           merchant: { select: { businessName: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { banner: { displayOrder: 'asc' } },
         take: SECTION_LIMITS.banner,
       }),
     [],
@@ -328,6 +335,7 @@ async function buildBanners(now: Date): Promise<MobileHomeBanner[]> {
     id: row.id,
     imageUrl: row.content?.imageUrl ?? '',
     altText: row.content?.altText ?? null,
+    urlType: row.content?.urlType ?? null,
     redirectUrl: row.content?.redirectUrl ?? null,
     businessName: row.merchant?.businessName ?? '',
     bannerName: row.banner?.name ?? '',
@@ -402,6 +410,7 @@ async function buildForYou(employeeId: string, now: Date): Promise<MobileHomeOff
       select: {
         offerId: true,
         merchantId: true,
+      
         offer: { select: { categoryId: true } },
       },
       take: 50,
@@ -550,13 +559,13 @@ async function buildMostRequested(now: Date): Promise<MobileHomeOffer[]> {
 }
 
 // Most Redeemed — ranked by completed redemption count.
-// Uses currentRedemptions from offer_redemptions (the cached counter that
-// increments on each successful Redemption record).
+// Uses redeemedCount from offer_redemption_capacity (the atomically
+// maintained counter that increments on each successful Redemption record).
 async function buildMostRedeemed(now: Date): Promise<MobileHomeOffer[]> {
   const rows = await prisma.merchantOffer.findMany({
     where: liveOfferWhere(now),
     orderBy: [
-      { redemption: { currentRedemptions: 'desc' } },
+      { capacity: { redeemedCount: 'desc' } },
       { isFeatured: 'desc' },
       { createdAt: 'desc' },
     ],
@@ -624,49 +633,172 @@ export interface GetMobileHomeInput {
   location?: Location | null
 }
 
-export async function getMobileHome({ employee, location }: GetMobileHomeInput): Promise<MobileHomeData> {
-  const now = new Date()
+/**
+ * Lightweight home data.
+ *
+ * Keep queries here that are relatively cheap and don't require
+ * expensive aggregation, personalization, or location calculations.
+ */
+export async function getMobileHomeLight({
+  employee,
+  location,
+}: GetMobileHomeInput) {
+  const now = new Date();
 
-  // Run all nine sections AND the company-name lookup concurrently. The
-  // company lookup is independent of the section builders, so it can sit
-  // in the same Promise.all without serializing.
-  const [company, banner, discover, nearBrands, forYou, nearbyOffers, newArrivals, mostRequested, mostRedeemed, today] =
-    await Promise.all([
-      prisma.company.findUnique({
-        where: { id: employee.companyId },
-        select: { name: true },
-      }),
-      buildBanners(now),
-      buildDiscover(now),
-      buildBrandsNearYou(location ?? null),
-      buildForYou(employee.id, now),
-      buildNearbyOffers(now, location ?? null),
-      buildNewArrivals(now),
-      buildMostRequested(now),
-      buildMostRedeemed(now),
-      buildTodaysPicks(now),
-    ])
+  const [
+    company,
+    banner,
+    discover,
+    newArrivals,
+    today,
+  ] = await Promise.all([
+    prisma.company.findUnique({
+      where: {
+        id: employee.companyId,
+      },
+      select: {
+        name: true,
+      },
+    }),
 
-  const user: MobileHomeUser = {
-    id: employee.id,
-    firstName: employee.firstName,
-    lastName: employee.lastName,
-    company: company?.name ?? '',
-    avatarUrl: employee.avatarUrl,
-  }
+    buildBanners(now),
+    buildDiscover(now),
+    buildNewArrivals(now),
+    buildTodaysPicks(now),
+  ]);
 
   return {
-    user,
+    user: {
+      id: employee.id,
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      company: company?.name ?? "",
+      avatarUrl: employee.avatarUrl,
+    },
+
     sections: [
-      { id: 'banner', title: 'Sponsored', type: 'banner', items: banner },
-      { id: 'discover', title: 'Discover Now', type: 'hero', items: discover },
-      { id: 'nearBrands', title: 'Brands Near You', type: 'merchant', items: nearBrands },
-      { id: 'forYou', title: 'Recommended For You', type: 'offer', items: forYou },
-      { id: 'nearbyOffers', title: 'Nearby Offers', type: 'offer', items: nearbyOffers },
-      { id: 'newArrivals', title: 'New Arrivals', type: 'offer', items: newArrivals },
-      { id: 'mostRequested', title: 'Most Requested', type: 'most_requested', items: mostRequested },
-      { id: 'mostRedeemed', title: 'Most Redeemed', type: 'most_redeemed', items: mostRedeemed },
-      { id: 'today', title: "Today's Hot Picks", type: 'offer', items: today },
+      {
+        id: "banner",
+        title: "Sponsored",
+        type: "banner",
+        items: banner,
+      },
+      {
+        id: "discover",
+        title: "Discover Now",
+        type: "hero",
+        items: discover,
+      },
+      {
+        id: "newArrivals",
+        title: "New Arrivals",
+        type: "offer",
+        items: newArrivals,
+      },
+      {
+        id: "today",
+        title: "Today's Hot Picks",
+        type: "offer",
+        items: today,
+      },
     ],
-  }
+  };
+}
+
+
+/**
+ * Heavy home data.
+ *
+ * These sections may involve location, personalization,
+ * aggregation, ranking, or more expensive database queries.
+ */
+export async function getMobileHomeHeavy({
+  employee,
+  location,
+}: GetMobileHomeInput) {
+  const now = new Date();
+
+  const [
+    nearBrands,
+    forYou,
+    nearbyOffers,
+    mostRequested,
+    mostRedeemed,
+  ] = await Promise.all([
+    buildBrandsNearYou(location ?? null),
+    buildForYou(employee.id, now),
+    buildNearbyOffers(now, location ?? null),
+    buildMostRequested(now),
+    buildMostRedeemed(now),
+  ]);
+
+  // All offers from all offer-based sections
+  const offerIds = [
+    ...forYou,
+    ...nearbyOffers,
+    ...mostRequested,
+    ...mostRedeemed,
+  ].map((offer) => offer.id);
+
+  const uniqueOfferIds = [...new Set(offerIds)];
+
+  // Find which of these offers are saved by the current employee
+  const savedOffers = uniqueOfferIds.length
+    ? await prisma.notificationEvent.findMany({
+        where: {
+          employeeId: employee.id,
+          referenceType: "saved_offer",
+          referenceId: {
+            in: uniqueOfferIds,
+          },
+        },
+        select: {
+          referenceId: true,
+        },
+      })
+    : [];
+
+  const savedOfferIds = new Set(
+    savedOffers.map((saved) => saved.referenceId),
+  );
+
+  // Always return isSaved: true OR false
+  const withSavedStatus = <T extends { id: string }>(offers: T[]) =>
+    offers.map((offer) => ({
+      ...offer,
+      isSaved: savedOfferIds.has(offer.id),
+    }));
+
+  return [
+    {
+      id: "nearBrands",
+      title: "Brands Near You",
+      type: "merchant",
+      items: nearBrands,
+    },
+    {
+      id: "forYou",
+      title: "Recommended For You",
+      type: "offer",
+      items: withSavedStatus(forYou),
+    },
+    {
+      id: "nearbyOffers",
+      title: "Nearby Offers",
+      type: "offer",
+      items: withSavedStatus(nearbyOffers),
+    },
+    {
+      id: "mostRequested",
+      title: "Most Requested",
+      type: "most_requested",
+      items: withSavedStatus(mostRequested),
+    },
+    {
+      id: "mostRedeemed",
+      title: "Most Redeemed",
+      type: "most_redeemed",
+      items: withSavedStatus(mostRedeemed),
+    },
+  ];
 }

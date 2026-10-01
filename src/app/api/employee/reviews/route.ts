@@ -60,6 +60,19 @@ export async function POST(request: NextRequest) {
       intRating,
     );
 
+    // Recalculate the merchant's denormalized averageRating from all reviews.
+    // This is the only review write path, so this is the single point that
+    // keeps merchants."averageRating" in sync.
+    const agg = await prisma.merchantReview.aggregate({
+      where: { merchantId },
+      _avg: { rating: true },
+      _count: { _all: true },
+    });
+    await prisma.merchant.update({
+      where: { id: merchantId },
+      data: { averageRating: agg._avg.rating ?? 0 },
+    });
+
     const rows = await prisma.$queryRawUnsafe<
       { id: string; rating: number; created_at: string; updated_at: string }[]
     >(
@@ -68,7 +81,15 @@ export async function POST(request: NextRequest) {
       merchantId,
     );
 
-    return NextResponse.json({ success: true, data: rows[0] }, { status: 200 });
+    return NextResponse.json(
+      {
+        success: true,
+        data: rows[0],
+        merchantAverageRating: agg._avg.rating ?? 0,
+        merchantReviewCount: agg._count._all,
+      },
+      { status: 200 },
+    );
   } catch (error) {
     return internalError(error);
   }

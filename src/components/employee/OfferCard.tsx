@@ -3,14 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  MapPin,
-  Star,
-  Store,
-  Sparkles,
-  Gift,
-  Tag,
-} from "lucide-react";
+import { MapPin, Star, Store, Sparkles, Gift, Tag } from "lucide-react";
 import { SaveButton } from "./SaveButton";
 import { type EmployeeOffer } from "./offers/employee-offer";
 
@@ -90,7 +83,7 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
       case "flat_rate":
       case "fixed_amount":
       case "FLAT":
-        return `£${Number(flatOffer.discountValue).toFixed(2)} OFF`;
+        return `€${Number(flatOffer.discountValue).toFixed(2)} OFF`;
       default:
         return "";
     }
@@ -136,12 +129,18 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
           {(offer?.isFeatured || offer?.isExclusive) && (
             <>
               {offer.isFeatured && (
-                <Badge variant="default" className="text-[10px] leading-none shadow-md px-1.5 py-0.5">
+                <Badge
+                  variant="default"
+                  className="text-[10px] leading-none shadow-md px-1.5 py-0.5"
+                >
                   <Star className="mr-0.5 h-2.5 w-2.5" /> Featured
                 </Badge>
               )}
               {offer.isExclusive && (
-                <Badge variant="secondary" className="text-[10px] leading-none shadow-md px-1.5 py-0.5">
+                <Badge
+                  variant="secondary"
+                  className="text-[10px] leading-none shadow-md px-1.5 py-0.5"
+                >
                   <Sparkles className="mr-0.5 h-2.5 w-2.5" /> Exclusive
                 </Badge>
               )}
@@ -174,7 +173,9 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
                   ? "Online"
                   : offer.redemptionType === "BOOKING_LINK"
                     ? "Booking"
-                    : offer.redemptionType}
+                    : offer.redemptionType === "VIRTUAL_CARD_AUTO_VERIFY"
+                      ? "Virtual Card"
+                      : offer.redemptionType}
             </Badge>
           </div>
         )}
@@ -218,7 +219,7 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
             <p className="truncate text-xs font-semibold">
               {offer.merchant?.businessName ?? "—"}
             </p>
-            <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            {/* <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
               <Star className="h-2.5 w-2.5 fill-yellow-400 text-yellow-400" />
               <span>
                 {Number(offer.merchant?.averageRating ?? 0).toFixed(1)}
@@ -229,7 +230,7 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
                 {offer.merchant?.city ?? "—"}
                 {offer.merchant?.state ? `, ${offer.merchant.state}` : ""}
               </span>
-            </div>
+            </div> */}
           </div>
         </div>
 
@@ -251,22 +252,41 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
             Expires {new Date(offer.endDate).toLocaleDateString()}
           </span>
           {offer.isRedeemed ? (
-            <Button size="sm" variant="outline" disabled className="h-7 text-[11px] px-2.5">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled
+              className="h-7 text-[11px] px-2.5"
+            >
               Already Redeemed
+            </Button>
+          ) : offer.redemptionType === "IN_STORE_QR" && onOpen ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpen(offer);
+              }}
+              className="h-7 text-[11px] px-2.5"
+            >
+              <MapPin className="mr-1 h-2.5 w-2.5" /> View Location
             </Button>
           ) : onRedeem ? (
             <Button
               size="sm"
               onClick={(e) => {
-                e.stopPropagation()
-                onRedeem(offer)
+                e.stopPropagation();
+                onRedeem(offer);
               }}
               className="h-7 text-[11px] px-2.5"
             >
               <Tag className="mr-1 h-2.5 w-2.5" /> Redeem
             </Button>
           ) : (
-            <span className="text-[11px] text-primary font-medium">View details →</span>
+            <span className="text-[11px] text-primary font-medium">
+              View details →
+            </span>
           )}
         </div>
       </CardContent>

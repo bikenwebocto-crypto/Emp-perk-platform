@@ -19,7 +19,7 @@ function formatDiscount(offer: any): string {
   const percent = config?.percent as number | undefined
   const amount = config?.amount as number | undefined
   if (percent) return `${percent}% OFF`
-  if (amount) return `£${Number(amount).toFixed(2)} OFF`
+  if (amount) return `€${Number(amount).toFixed(2)} OFF`
   return 'N/A'
 }
 
@@ -191,9 +191,9 @@ function CompareTable({ current, next }: { current: any; next: any }) {
     {
       key: 'maxRedemptions',
       label: 'Max Redemptions',
-      current: current.redemption?.maxRedemptions,
-      next: next.redemption?.maxRedemptions,
-      changed: (current.redemption?.maxRedemptions ?? 0) !== (next.redemption?.maxRedemptions ?? 0),
+      current: current.capacity?.maxRedemptions,
+      next: next.capacity?.maxRedemptions,
+      changed: (current.capacity?.maxRedemptions ?? 0) !== (next.capacity?.maxRedemptions ?? 0),
     },
   ]
 

@@ -11,7 +11,7 @@ function formatDiscount(offer: any): string {
   const percent = config?.percent as number | undefined
   const amount = config?.amount as number | undefined
   if (percent) return `${percent}% OFF`
-  if (amount) return `£${Number(amount).toFixed(2)} OFF`
+  if (amount) return `€${Number(amount).toFixed(2)} OFF`
   return 'N/A'
 }
 
@@ -68,7 +68,7 @@ export function OfferReview({ entity }: ReviewComponentProps) {
             </div>
             <div className="rounded-md bg-muted/30 p-2">
               <p className="text-xs text-muted-foreground">Max Redemptions</p>
-              <p className="font-medium">{entity.redemption?.maxRedemptions ?? 'Unlimited'}</p>
+              <p className="font-medium">{entity.capacity?.maxRedemptions ?? 'Unlimited'}</p>
             </div>
             {pricingConfig.maximumDiscount != null && Number(pricingConfig.maximumDiscount) > 0 && (
               <div className="rounded-md bg-muted/30 p-2">
@@ -78,7 +78,7 @@ export function OfferReview({ entity }: ReviewComponentProps) {
             )}
             <div className="rounded-md bg-muted/30 p-2">
               <p className="text-xs text-muted-foreground">Current</p>
-              <p className="font-medium">{entity.redemption?.currentRedemptions ?? 0}</p>
+              <p className="font-medium">{entity.capacity?.redeemedCount ?? 0}</p>
             </div>
           </div>
 

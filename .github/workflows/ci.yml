@@ -183,6 +183,37 @@ jobs:
             next_public_firebase_app_id=${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
             next_public_firebase_measurement_id=${{ secrets.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
             next_public_firebase_vapid_key=${{ secrets.NEXT_PUBLIC_FIREBASE_VAPID_KEY }}
+      # ----------------------------------------------------------
+      # ECS - Get Current Task Definition
+      # ----------------------------------------------------------
+      - name: Download current ECS task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ vars.ECS_TASK_DEFINITION_STAGING }}" \
+            --query taskDefinition \
+            --output json > task-definition.json
+
+      # ----------------------------------------------------------
+      # ECS - Replace Container Image
+      # ----------------------------------------------------------
+      - name: Render ECS task definition
+        id: render-task
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ vars.ECS_CONTAINER_NAME_STAGING }}
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_STAGING }}:${{ github.sha }}
+
+      # ----------------------------------------------------------
+      # ECS - Deploy
+      # ----------------------------------------------------------
+      - name: Deploy to ECS - Staging
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task.outputs.task-definition }}
+          service: ${{ vars.ECS_SERVICE_STAGING }}
+          cluster: ${{ vars.ECS_CLUSTER_STAGING }}
+          wait-for-service-stability: true
 
   # ============================================================
   # DOCKER BUILD & PUSH - PRODUCTION
@@ -219,7 +250,7 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-
+ 
       - name: Build & push Docker image
         uses: docker/build-push-action@v6
         with:

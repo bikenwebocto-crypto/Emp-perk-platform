@@ -45,7 +45,6 @@ export default function EditOfferPage({ params }: { params: Promise<{ id: string
         shortDescription: offer.content?.shortDescription ?? '',
         termsAndConditions: offer.content?.termsAndConditions ?? '',
         imageUrls: Array.isArray(offer.content?.imageUrls) ? offer.content.imageUrls : [],
-        categoryId: offer.categoryId ?? '',
         offerType: frontendType,
         discountValue: pricingConfig.amount != null ? String(pricingConfig.amount) : '',
         discountMax: pricingConfig.maximumDiscount != null ? String(pricingConfig.maximumDiscount) : '',
@@ -56,7 +55,12 @@ export default function EditOfferPage({ params }: { params: Promise<{ id: string
         getQuantity: pricingConfig.getQuantity != null ? String(pricingConfig.getQuantity) : '',
         freeItem: pricingConfig.freeItem ? String(pricingConfig.freeItem) : '',
         maxFreeItems: pricingConfig.maxFreeItems != null ? String(pricingConfig.maxFreeItems) : '',
-        maxRedemptions: offer.redemption?.maxRedemptions != null ? String(offer.redemption.maxRedemptions) : '',
+        maxRedemptions:
+          offer.capacity?.maxRedemptions != null
+            ? String(offer.capacity.maxRedemptions)
+            : offer.redemption?.maxRedemptions != null
+              ? String(offer.redemption.maxRedemptions)
+              : '',
         startDate: toDateTimeLocal(offer.startDate),
         endDate: toDateTimeLocal(offer.endDate),
         daysOfWeek: Array.isArray(offer.redemption?.daysOfWeek) ? offer.redemption.daysOfWeek.join(',') : '0,1,2,3,4,5,6',

@@ -132,6 +132,11 @@ export const MERCHANT_LOGO_OPTIONS: UploadImageOptions = {
   folder: 'Brand_logo',
 }
 
+export const COMPANY_LOGO_OPTIONS  : UploadImageOptions = {
+  bucket: 'offer-images',
+  folder: 'Brand_logo',
+}
+
 // ---------------------------------------------------------------------------
 // Preset: Merchant Cover Image
 // ---------------------------------------------------------------------------
@@ -162,4 +167,13 @@ export const BANNER_IMAGE_OPTIONS: UploadImageOptions = {
 export const EMPLOYEE_AVATAR_OPTIONS: UploadImageOptions = {
   bucket: 'offer-images',
   folder: 'employee-avatars',
+}
+
+// ---------------------------------------------------------------------------
+// Preset: Ticket/Complaint Evidence (employee complaint screenshots)
+// ---------------------------------------------------------------------------
+
+export const TICKET_EVIDENCE_OPTIONS: UploadImageOptions = {
+  bucket: 'offer-images',
+  folder: 'tickets',
 }

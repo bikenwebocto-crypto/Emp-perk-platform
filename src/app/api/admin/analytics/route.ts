@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
       }),
       prisma.$queryRaw<{ date: string; total: number }[]>`
         SELECT DATE("redeemedAt") as date, COUNT(*)::int as total
-        FROM "Redemption"
+        FROM "redemptions"
         WHERE "redeemedAt" >= ${dateFrom} AND "redeemedAt" <= ${dateTo}
         GROUP BY DATE("redeemedAt")
         ORDER BY DATE("redeemedAt") ASC
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
     const merchantMeta = merchantIds.length
       ? await prisma.merchant.findMany({
           where: { id: { in: merchantIds } },
-          select: { id: true, businessName: true, city: true, state: true },
+          select: { id: true, businessName: true, city: true, state: true, logoUrl: true },
         })
       : []
     const merchantMap = new Map(merchantMeta.map((m) => [m.id, m]))
@@ -144,6 +144,7 @@ export async function GET(request: NextRequest) {
           businessName: merchantMap.get(m.merchantId)?.businessName ?? 'Unknown',
           city: merchantMap.get(m.merchantId)?.city ?? null,
           state: merchantMap.get(m.merchantId)?.state ?? null,
+          logoUrl: merchantMap.get(m.merchantId)?.logoUrl ?? null,
           redemptions: m._count._all,
           totalSavings: Number(m._sum.savingsAmount ?? 0),
         })),

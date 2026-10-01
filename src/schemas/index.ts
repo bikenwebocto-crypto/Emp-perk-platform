@@ -293,6 +293,7 @@ export const adminEmployeeUpdateSchema = z.object({
   jobTitle: z.string().max(100).optional().nullable(),
   phone: phoneSchema,
   status: z.enum(['ACTIVE', 'INACTIVE', 'INVITED', 'SUSPENDED', 'INELIGIBLE']).optional(),
+  avatarUrl: z.string().max(500).optional().nullable(),
 });
 
 export const companyEmployeeUpdateSchema = z.object({
@@ -302,7 +303,8 @@ export const companyEmployeeUpdateSchema = z.object({
   department: z.string().max(100).optional().nullable(),
   jobTitle: z.string().max(100).optional().nullable(),
   phone: phoneSchema,
-  email:  emailSchema
+  email: emailSchema.optional(),
+  avatarUrl: z.string().max(500).optional().nullable(),
 }).strict();
 
 export const issueReportSchema = z.object({

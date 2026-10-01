@@ -70,10 +70,14 @@ export async function GET() {
     })
     if (!profile) return notFound()
 
+    // averageRating intentionally removed from this response (deferred decision).
+    // Business metrics live in the dedicated /business-overview endpoint.
+    const { averageRating: _removedRating, ...profileData } = profile
+
     timer.section('Serialization')
     timer.point('NextResponse.json')
     timer.end()
-    return NextResponse.json({ success: true, data: profile })
+    return NextResponse.json({ success: true, data: profileData })
   } catch (error) {
     timer.end()
     return internalError(error)
@@ -215,8 +219,10 @@ export async function PATCH(request: NextRequest) {
     timer.section('Serialization')
     timer.point('NextResponse.json')
     timer.end()
+    if (!updated) return notFound()
+    const { averageRating: _patchRemovedRating, ...updatedData } = updated
     return NextResponse.json({
-      success: true, data: updated, requiresApproval: hasApprovalChanges,
+      success: true, data: updatedData, requiresApproval: hasApprovalChanges,
       message: hasApprovalChanges
         ? 'Profile updated. Sensitive changes are pending admin approval.'
         : 'Profile updated successfully.',

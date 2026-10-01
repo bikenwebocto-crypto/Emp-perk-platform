@@ -36,7 +36,7 @@ export async function GET() {
             maxDays: true,
             description: true,
           },
-          orderBy: { name: 'asc' },
+          orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
         }),
       [],
       { context: 'Banner.findMany:positions-active' },

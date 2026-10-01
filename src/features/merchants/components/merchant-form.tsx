@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PhoneInput } from '@/components/ui/phone-input'
+import { isValidPhone, toE164 } from '@/lib/phone'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { ArrowLeft, Save, Upload, Image as ImageIcon } from 'lucide-react'
@@ -91,7 +93,7 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
     // else if (form.password && form.password.length < 8) errs.password = 'Password must be at least 8 characters'
     if (!form.contactName.trim()) errs.contactName = 'Contact name is required'
     if (!form.contactPhone.trim()) errs.contactPhone = 'Phone number is required'
-    else if (!/^\+?[\d\s\-()]{7,20}$/.test(form.contactPhone)) errs.contactPhone = 'Invalid phone number'
+    else if (!isValidPhone(form.contactPhone)) errs.contactPhone = 'Invalid phone number'
     if (!form.addressLine1.trim()) errs.addressLine1 = 'Address is required'
     if (!form.city.trim()) errs.city = 'City is required'
     if (!form.postalCode.trim()) errs.postalCode = 'Postal code is required'
@@ -201,7 +203,7 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
               email: row.email,
               password: row.password,
               contactName: row.contactname,
-              contactPhone: row.contactphone || '',
+              contactPhone: toE164(row.contactphone) ?? row.contactphone ?? '',
               categoryId: row.categoryid || '',
               description: row.description || '',
               website: row.website || '',
@@ -283,7 +285,7 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Contact Phone <span className="text-destructive">*</span></label>
-              <Input type="tel" className={inputClass('contactPhone')} value={form.contactPhone} onChange={(e) => setField('contactPhone', e.target.value)} placeholder="+1 555-123-4567" />
+              <PhoneInput value={form.contactPhone} onChange={(v) => setField('contactPhone', v)} invalid={!!errors.contactPhone} />
               {errors.contactPhone && <p className="mt-1 text-xs text-destructive">{errors.contactPhone}</p>}
             </div>
             <div>

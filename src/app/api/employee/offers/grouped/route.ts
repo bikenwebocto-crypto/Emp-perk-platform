@@ -9,8 +9,26 @@ export async function GET(_request: NextRequest) {
     const employee = await getEmployeeFromSession()
     if (!employee) return unauthorized()
     if ('inactive' in employee) return companyInactive(employee.companyStatus)
-
+    console.log('** employee', employee)
     const now = new Date()
+
+    // --- NEW: resolve a safe city filter, falling back to company city ---
+    let effectiveCity = employee.city ?? null
+    if (!effectiveCity && employee.companyId) {
+      const company = await safeQuery(
+        () =>
+          prisma.company.findUnique({
+            where: { id: employee.companyId },
+            select: { city: true },
+          }),
+        null,
+        { context: 'Company.findUnique:offers-grouped-city-fallback' },
+      )
+      effectiveCity = company?.city ?? null
+    }
+    // If still null, city filter is omitted below instead of passing `null`
+    // into Prisma (which throws a validation error on a required String field).
+    // --- END NEW ---
 
     const [bannerRows, categories, offerRows] = await Promise.all([
       safeQuery(
@@ -21,13 +39,20 @@ export async function GET(_request: NextRequest) {
               paid: true,
               startDate: { lte: now },
               endDate: { gte: now },
+              banner: {
+                isActive: true,
+                OR: [
+                  { expiresAt: null },
+                  { expiresAt: { gt: now } },
+                ],
+              },
             },
             include: {
               content: true,
               banner: { select: { name: true, position: true } },
               merchant: { select: { businessName: true } },
             },
-            orderBy: { createdAt: 'desc' },
+            orderBy: { banner: { displayOrder: 'asc' } },
           }),
         [],
         { context: 'BannerBooking.findMany:offers-grouped' },
@@ -50,7 +75,15 @@ export async function GET(_request: NextRequest) {
           merchant: {
             status: 'ACTIVE',
             deletedAt: null,
-            branches: { some: { isActive: true, status: 'ACTIVE', deletedAt: null, city: employee.city } },
+            branches: {
+              some: {
+                isActive: true,
+                status: 'ACTIVE',
+                deletedAt: null,
+                // CHANGED: was `city: employee.city` (threw when null)
+                ...(effectiveCity ? { city: effectiveCity } : {}),
+              },
+            },
           },
         },
         orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
@@ -79,9 +112,13 @@ export async function GET(_request: NextRequest) {
             select: {
               redemptionType: true,
               configuration: true,
-              maxRedemptions: true,
-              currentRedemptions: true,
               daysOfWeek: true,
+            },
+          },
+          capacity: {
+            select: {
+              maxRedemptions: true,
+              redeemedCount: true,
             },
           },
           merchant: {

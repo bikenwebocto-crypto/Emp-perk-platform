@@ -20,6 +20,7 @@ import {
   Check,
   X,
   Loader2,
+  Receipt,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -42,12 +43,22 @@ interface RedemptionRow {
     title: string;
     offerType: string;
     pricing?: { configuration?: Record<string, unknown> };
-    redemption?: { redemptionType?: string | null; configuration?: Record<string, unknown> };
+    redemption?: {
+      redemptionType?: string | null;
+      configuration?: Record<string, unknown>;
+      maxRedemptions?: number | null;
+      currentRedemptions?: number;
+    };
+    capacity?: { maxRedemptions: number | null; redeemedCount: number } | null;
   };
   branch: { id: string; name: string; branchType: string } | null;
   status: RedemptionStatus;
   method: RedemptionMethod | null;
   merchantNotes: string | null;
+  offerLimit: number | null;
+  offerRedeemed: number;
+  offerRemaining: number | null;
+  offerCapacityStatus: 'ACTIVE' | 'ENDED';
 }
 
 interface Metrics {
@@ -90,7 +101,7 @@ async function fetchRedemptions(params: URLSearchParams): Promise<ApiResponse> {
 }
 
 function formatCurrency(n: number | string) {
-  return `£${Number(n).toFixed(2)}`;
+  return `€${Number(n).toFixed(2)}`;
 }
 
 function formatDateTime(s: string) {
@@ -116,6 +127,21 @@ const STATUS_STYLES: Record<RedemptionStatus, string> = {
   REDEEMED:
     "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
 };
+
+const CAPACITY_STATUS_STYLES: Record<'ACTIVE' | 'ENDED', string> = {
+  ACTIVE: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+  ENDED: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+};
+
+function formatLimit(r: RedemptionRow) {
+  if (r.offerLimit == null) return "Unlimited";
+  return String(r.offerLimit);
+}
+
+function formatRemaining(r: RedemptionRow) {
+  if (r.offerRemaining == null) return "Unlimited";
+  return String(r.offerRemaining);
+}
 
 function formatExpiryDate(iso: string | null) {
   if (!iso) return "No expiry";
@@ -345,7 +371,7 @@ export default function MerchantRedemptionsPage() {
             <ShoppingBag className="h-8 w-8 text-blue-600" />
             <div>
               <p className="text-xs text-muted-foreground">Today</p>
-              <p className="text-2xl font-bold">{data?.metrics.today ?? 0}</p>
+              <p className="text-2xl font-bold">{data?.metrics?.today ?? 0}</p>
             </div>
           </CardContent>
         </Card>
@@ -355,7 +381,7 @@ export default function MerchantRedemptionsPage() {
             <div>
               <p className="text-xs text-muted-foreground">This Week</p>
               <p className="text-2xl font-bold">
-                {data?.metrics.thisWeek ?? 0}
+                {data?.metrics?.thisWeek ?? 0}
               </p>
             </div>
           </CardContent>
@@ -366,7 +392,7 @@ export default function MerchantRedemptionsPage() {
             <div>
               <p className="text-xs text-muted-foreground">This Month</p>
               <p className="text-2xl font-bold">
-                {data?.metrics.thisMonth ?? 0}
+                {data?.metrics?.thisMonth ?? 0}
               </p>
             </div>
           </CardContent>
@@ -377,10 +403,10 @@ export default function MerchantRedemptionsPage() {
             <div>
               <p className="text-xs text-muted-foreground">Top Branch</p>
               <p className="truncate text-sm font-semibold">
-                {data?.metrics.topBranch?.name ?? "—"}
+                {data?.metrics?.topBranch?.name ?? "—"}
               </p>
               <p className="text-xs text-muted-foreground">
-                {data?.metrics.topBranch?.redemptions ?? 0} redemptions
+                {data?.metrics?.topBranch?.redemptions ?? 0} redemptions
               </p>
             </div>
           </CardContent>
@@ -620,9 +646,33 @@ export default function MerchantRedemptionsPage() {
               Failed to load redemptions.
             </p>
           ) : !data?.data || data.data.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No redemptions found.
-            </p>
+            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-12 text-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                <Receipt className="h-5 w-5 text-muted-foreground/60" />
+              </div>
+              <p className="text-sm font-medium">No offer redemptions found</p>
+              <p className="max-w-sm text-xs text-muted-foreground">
+                {search || status || from || to
+                  ? "No redemptions match the current filters. Try adjusting your search or clearing filters."
+                  : "Once employees redeem your offers, they will appear here."}
+              </p>
+              {(search || status || from || to) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-1"
+                  onClick={() => {
+                    setSearch("");
+                    setStatus("");
+                    setFrom("");
+                    setTo("");
+                    setPage(1);
+                  }}
+                >
+                  Clear filters
+                </Button>
+              )}
+            </div>
           ) : (
             <>
               <div className="overflow-x-auto">
@@ -635,6 +685,10 @@ export default function MerchantRedemptionsPage() {
                       <th className="p-2">Offer</th>
                       <th className="p-2">Branch</th>
                       <th className="p-2">Method</th>
+                      <th className="p-2 text-right">Limit</th>
+                      <th className="p-2 text-right">Redeemed</th>
+                      <th className="p-2 text-right">Remaining</th>
+                      <th className="p-2">Offer Status</th>
                       <th className="p-2">Status</th>
                       <th className="p-2 text-right">Discount</th>
                       <th className="p-2 text-right">Savings</th>
@@ -671,6 +725,27 @@ export default function MerchantRedemptionsPage() {
                         <td className="p-2">
                           <span className="rounded-full bg-muted px-2 py-0.5 text-xs">
                             {methodLabel(r)}
+                          </span>
+                        </td>
+                        <td className="p-2 text-right tabular-nums">
+                          {formatLimit(r)}
+                        </td>
+                        <td className="p-2 text-right tabular-nums">
+                          {r.offerRedeemed}
+                        </td>
+                        <td className="p-2 text-right tabular-nums">
+                          {formatRemaining(r)}
+                        </td>
+                        <td className="p-2">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${CAPACITY_STATUS_STYLES[r.offerCapacityStatus]}`}
+                            title={
+                              r.offerCapacityStatus === 'ENDED'
+                                ? 'Redemption limit reached'
+                                : 'Offer is active and redeemable'
+                            }
+                          >
+                            {r.offerCapacityStatus === 'ENDED' ? 'Ended' : 'Active'}
                           </span>
                         </td>
                         <td className="p-2">

@@ -3,6 +3,15 @@ import { prisma } from '@/lib/prisma'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { verifyOfferQRToken, checkRedemptionEligibility } from '@/lib/offer-visibility'
 import { encodeMethod } from '@/lib/redemption-status'
+import {
+  AlreadyRedeemedError,
+  OfferLimitReachedError,
+  claimAttempt,
+  ensureCapacityRow,
+  linkAttemptToRedemption,
+  releaseCapacity,
+  reserveCapacity,
+} from '@/lib/redemption-tracking'
 import { createAuditLog } from '@/services/audit-log.service'
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification } from '@/services/business-notification.service'
 
@@ -50,7 +59,7 @@ export async function POST(
           },
         },
         pricing: { select: { configuration: true } },
-        redemption: { select: { redemptionType: true, configuration: true } },
+        redemption: { select: { redemptionType: true, configuration: true, maxRedemptions: true } },
       },
     })
 
@@ -165,96 +174,129 @@ export async function POST(
     const branch = offer.merchant.branches.find((b) => b.id === validBranchId)!
 
     const pricingConfig = (offer.pricing?.configuration as Record<string, unknown>) ?? {}
+    const isPercentageOffer =
+      offer.offerType === 'PERCENTAGE' || offer.offerType === 'percentage'
     const discountValue = Number(pricingConfig.amount ?? pricingConfig.percent ?? 0)
+    const savingsValue = isPercentageOffer ? 0 : discountValue
 
-    const redemption = await prisma.$transaction(async (tx) => {
-      const created = await tx.redemption.create({
-        data: {
+    let reservationToken: string | null = null
+    try {
+      const redemption = await prisma.$transaction(async (tx) => {
+        const claim = await claimAttempt(tx, offer.id, auth.employee.id)
+        if (!claim.ok) throw new AlreadyRedeemedError()
+
+        await ensureCapacityRow(tx, offer.id, offer.redemption?.maxRedemptions ?? null)
+        const reserve = await reserveCapacity(tx, offer.id)
+        if (!reserve.ok) throw new OfferLimitReachedError()
+
+        const created = await tx.redemption.create({
+          data: {
+            merchantId: offer.merchantId,
+            offerId: offer.id,
+            employeeId: auth.employee.id,
+            companyId: auth.employee.companyId,
+            branchId: validBranchId,
+            discountAmount: discountValue,
+            spentAmount: null,
+            savingsAmount: savingsValue,
+            merchantNotes: encodeMethod('IN_STORE'),
+            employeeNotes: null,
+            isVerified: true,
+            verifiedAt: new Date(),
+            redeemedAt: new Date(),
+          },
+        })
+
+        await linkAttemptToRedemption(tx, claim.attemptId!, created.id)
+
+        await tx.offerRedemption.update({
+          where: { offerId },
+          data: { currentRedemptions: { increment: 1 } },
+        })
+
+        reservationToken = claim.attemptId ?? null
+        return created
+      })
+
+      await createAuditLog({
+        actorType: 'employee',
+        actorId: auth.employee.id,
+        action: 'QR_SCAN_REDEMPTION',
+        entityType: 'redemption',
+        entityId: redemption.id,
+        metadata: {
+          offerId,
           merchantId: offer.merchantId,
-          offerId: offer.id,
-          employeeId: auth.employee.id,
-          companyId: auth.employee.companyId,
           branchId: validBranchId,
-          discountAmount: discountValue,
-          spentAmount: null,
-          savingsAmount: discountValue,
-          merchantNotes: encodeMethod('IN_STORE'),
-          employeeNotes: null,
-          isVerified: true,
-          verifiedAt: new Date(),
-          redeemedAt: new Date(),
+          employeeId: auth.employee.id,
+          redemptionType: 'IN_STORE_QR',
+          scanMethod: 'QR',
         },
       })
 
-      await tx.offerRedemption.update({
-        where: { offerId },
-        data: { currentRedemptions: { increment: 1 } },
-      })
-
-      return created
-    })
-
-    await createAuditLog({
-      actorType: 'employee',
-      actorId: auth.employee.id,
-      action: 'QR_SCAN_REDEMPTION',
-      entityType: 'redemption',
-      entityId: redemption.id,
-      metadata: {
-        offerId,
-        merchantId: offer.merchantId,
-        branchId: validBranchId,
-        employeeId: auth.employee.id,
-        redemptionType: 'IN_STORE_QR',
-        scanMethod: 'QR',
-      },
-    })
-
-    const template = BUSINESS_NOTIFICATION_TEMPLATES.redemptionSuccessful(offer.merchant.businessName)
-    await publishBusinessNotification({
-      ...template,
-      recipients: [{ role: 'merchant', id: offer.merchantId }],
-      channels: channels('IN_APP', 'PUSH'),
-      referenceType: 'redemption',
-      referenceId: redemption.id,
-      metadata: {
-        employeeId: auth.employee.id,
-        offerId: offer.id,
-        branchId: validBranchId,
-        redeemedAt: redemption.redeemedAt.toISOString(),
-      },
-    })
-
-    return NextResponse.json(
-      {
-        success: true,
-        data: {
-          redemptionId: redemption.id,
+      const template = BUSINESS_NOTIFICATION_TEMPLATES.redemptionSuccessful(offer.merchant.businessName)
+      await publishBusinessNotification({
+        ...template,
+        recipients: [{ role: 'merchant', id: offer.merchantId }],
+        channels: channels('IN_APP', 'PUSH'),
+        referenceType: 'redemption',
+        referenceId: redemption.id,
+        metadata: {
+          employeeId: auth.employee.id,
           offerId: offer.id,
-          merchant: {
-            id: offer.merchant.id,
-            businessName: offer.merchant.businessName,
-            logoUrl: offer.merchant.logoUrl,
-          },
-          branch: {
-            id: branch.id,
-            name: branch.name,
-            addressLine1: branch.addressLine1,
-            addressLine2: branch.addressLine2,
-            city: branch.city,
-            state: branch.state,
-            postalCode: branch.postalCode,
-            phone: branch.phone,
-            latitude: branch.latitude ? Number(branch.latitude) : null,
-            longitude: branch.longitude ? Number(branch.longitude) : null,
-          },
-          redeemedAt: redemption.redeemedAt.toISOString(),
-          verified: true,
-          message: 'Offer redeemed successfully.',
+          branchId: validBranchId,
+            redeemedAt: redemption.redeemedAt?.toISOString() ?? new Date().toISOString(),
         },
-      },
-      { status: 201 },
-    )
+      })
+
+      return NextResponse.json(
+        {
+          success: true,
+          data: {
+            redemptionId: redemption.id,
+            offerId: offer.id,
+            merchant: {
+              id: offer.merchant.id,
+              businessName: offer.merchant.businessName,
+              logoUrl: offer.merchant.logoUrl,
+            },
+            branch: {
+              id: branch.id,
+              name: branch.name,
+              addressLine1: branch.addressLine1,
+              addressLine2: branch.addressLine2,
+              city: branch.city,
+              state: branch.state,
+              postalCode: branch.postalCode,
+              phone: branch.phone,
+              latitude: branch.latitude ? Number(branch.latitude) : null,
+              longitude: branch.longitude ? Number(branch.longitude) : null,
+            },
+          redeemedAt: redemption.redeemedAt?.toISOString() ?? new Date().toISOString(),
+            verified: true,
+            message: 'Offer redeemed successfully.',
+          },
+        },
+        { status: 201 },
+      )
+    } catch (err: unknown) {
+      if (err instanceof AlreadyRedeemedError) {
+        return NextResponse.json(
+          { success: false, error: { code: 'ALREADY_REDEEMED', message: err.message } },
+          { status: 409 },
+        )
+      }
+      if (err instanceof OfferLimitReachedError) {
+        return NextResponse.json(
+          { success: false, error: { code: 'LIMIT_REACHED', message: err.message } },
+          { status: 409 },
+        )
+      }
+      if (reservationToken) {
+        await releaseCapacity(prisma, offer.id).catch(() => {})
+      }
+      throw err
+    }
   } catch (error) {
     console.error('[POST /api/mobile/offers/[id]/scan]', error)
     return NextResponse.json(

@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PhoneInput } from '@/components/ui/phone-input'
+import { isValidPhone, toE164 } from '@/lib/phone'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { ArrowLeft, Save, Upload } from 'lucide-react'
@@ -78,6 +80,7 @@ export function CompanyForm() {
     // else if (form.password.length < 8) errs.password = 'Password must be at least 8 characters'
     if (!form.firstName.trim()) errs.firstName = 'First name is required'
     if (!form.lastName.trim()) errs.lastName = 'Last name is required'
+    if (form.phone.trim() && !isValidPhone(form.phone)) errs.phone = 'Invalid phone number'
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -144,7 +147,7 @@ export function CompanyForm() {
               password: row.password,
               firstName: row.firstname,
               lastName: row.lastname,
-              phone: row.phone || '',
+              phone: toE164(row.phone) ?? row.phone ?? '',
               website: row.website || '',
               employeeCount: row.employeecount ? parseInt(row.employeecount) : 0,
               addressLine1: row.addressline1 || '',
@@ -220,7 +223,8 @@ export function CompanyForm() {
             </div> */}
             <div>
               <label className="mb-1 block text-sm font-medium">Phone</label>
-              <Input type="tel" value={form.phone} onChange={(e) => setField('phone', e.target.value)} placeholder="+1 555-123-4567" />
+              <PhoneInput value={form.phone} onChange={(v) => setField('phone', v)} invalid={!!errors.phone} />
+              {errors.phone && <p className="mt-1 text-xs text-destructive">{errors.phone}</p>}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Website</label>

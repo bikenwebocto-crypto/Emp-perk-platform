@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
       safeQuery(
         () =>
           prisma.banner.findMany({
-            orderBy: { createdAt: 'desc' },
+            orderBy: [{ displayOrder: 'asc' }, { createdAt: 'desc' }],
             skip: (page - 1) * pageSize,
             take: pageSize,
             include: { _count: { select: { bookings: true } } },
@@ -49,9 +49,17 @@ export async function GET(request: NextRequest) {
       safeQuery(() => prisma.banner.count(), 0, { context: 'Banner.count:admin-list' }),
     ])
 
-    return NextResponse.json({
+    const now = Date.now()
+    const bannersWithExpiry = banners.map((banner) => ({
+      ...banner,
+      daysUntilExpiry: banner.expiresAt
+        ? Math.ceil((new Date(banner.expiresAt).getTime() - now) / (1000 * 60 * 60 * 24))
+        : null,
+    }))
+
+  return NextResponse.json({
       success: true,
-      data: banners,
+      data: bannersWithExpiry,
       meta: {
         page,
         pageSize,
@@ -72,23 +80,69 @@ export async function POST(request: NextRequest) {
     if (!user || user.userType !== 'admin') return unauthorized()
 
     const body = await request.json()
-    const { name, description, position, pricePerDay, minDays, maxDays } = body
+    const { name, position, pricePerDay, minDays, maxDays, slotCount, expiresAt, displayOrder } = body
 
-    if (!name || !position || pricePerDay === undefined) {
+    if (!position || pricePerDay === undefined || !slotCount) {
       return NextResponse.json(
-        { success: false, error: { code: 'VALIDATION', message: 'name, position, and pricePerDay are required' } },
+        { success: false, error: { code: 'VALIDATION', message: 'position, pricePerDay, and slotCount are required' } },
         { status: 400 }
+      )
+    }
+
+    const parsedSlotCount = parseInt(slotCount)
+    if (!Number.isInteger(parsedSlotCount) || parsedSlotCount < 1 || parsedSlotCount > 20) {
+      return NextResponse.json(
+        { success: false, error: { code: 'VALIDATION', message: 'slotCount must be a whole number between 1 and 20' } },
+        { status: 400 }
+      )
+    }
+
+    const parsedMinDays = minDays !== undefined ? parseInt(minDays) : 7
+    const parsedMaxDays = maxDays !== undefined ? parseInt(maxDays) : 30
+
+    if (parsedMaxDays < parsedMinDays) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'VALIDATION',
+            message: `Max days (${parsedMaxDays}) cannot be less than min days (${parsedMinDays}).`,
+          },
+        },
+        { status: 400 },
+      )
+    }
+
+    // One Banner row now represents an entire position (its capacity lives in
+    // slotCount), so a position should have at most one active row.
+    const existingSamePosition = await prisma.banner.findFirst({
+      where: { position, isActive: true },
+      select: { id: true, pricePerDay: true },
+    })
+
+    if (existingSamePosition) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'POSITION_EXISTS',
+            message: `An active banner already exists for the "${position}" position (id: ${existingSamePosition.id}). Edit its slot count instead of creating a new one.`,
+          },
+        },
+        { status: 422 },
       )
     }
 
     const banner = await prisma.banner.create({
       data: {
-        name,
-        description,
+        name: name || `${position} Slots`,
         position,
+        displayOrder: displayOrder !== undefined ? parseInt(displayOrder) : 0,
         pricePerDay: parseFloat(pricePerDay),
-        minDays: minDays ?? 7,
-        maxDays: maxDays ?? 30,
+        slotCount: parsedSlotCount,
+        minDays: parsedMinDays,
+        maxDays: parsedMaxDays,
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
       },
     })
 

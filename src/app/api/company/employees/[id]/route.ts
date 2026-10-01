@@ -6,6 +6,7 @@ import { companyEmployeeUpdateSchema } from "@/schemas";
 import { validateUserEmail } from "@/services/user-validation.service";
 import { createAuditLog, fromCurrentUser } from "@/services/audit-log.service";
 import { emailService } from "@/lib/email/email";
+import { deleteImage } from "@/lib/upload/image";
 
 export async function GET(
   _request: NextRequest,
@@ -541,39 +542,123 @@ export async function PATCH(
     // ✅ Now TypeScript knows employee exists
     const existingEmployee = employeeValidation.employee;
 
-    // Step 6: Check if email is provided and detect change
+    // Step 6: Handle profile field updates (firstName, lastName, etc. + avatarUrl)
+    const profileUpdate: Record<string, unknown> = {};
+    const changedFields: string[] = [];
+
+    if (body.firstName !== undefined && body.firstName !== existingEmployee.firstName) {
+      if (!String(body.firstName).trim()) {
+        return NextResponse.json(
+          { success: false, error: { code: "VALIDATION", message: "First name cannot be empty" } },
+          { status: 400 },
+        );
+      }
+      profileUpdate.firstName = String(body.firstName).trim();
+      changedFields.push("firstName");
+    }
+    if (body.lastName !== undefined && body.lastName !== existingEmployee.lastName) {
+      if (!String(body.lastName).trim()) {
+        return NextResponse.json(
+          { success: false, error: { code: "VALIDATION", message: "Last name cannot be empty" } },
+          { status: 400 },
+        );
+      }
+      profileUpdate.lastName = String(body.lastName).trim();
+      changedFields.push("lastName");
+    }
+    if (body.employeeId !== undefined) {
+      const next = body.employeeId?.trim() || null;
+      if (next !== existingEmployee.employeeId) {
+        if (next) {
+          const dupe = await prisma.employee.findFirst({
+            where: { companyId: existingEmployee.companyId, employeeId: next, id: { not: id }, deletedAt: null },
+          });
+          if (dupe) {
+            return NextResponse.json(
+              { success: false, error: { code: "VALIDATION", message: `Employee ID "${next}" already exists in this company` } },
+              { status: 400 },
+            );
+          }
+        }
+        profileUpdate.employeeId = next;
+        changedFields.push("employeeId");
+      }
+    }
+    if (body.department !== undefined) {
+      const next = body.department?.trim() || null;
+      if (next !== existingEmployee.department) {
+        profileUpdate.department = next;
+        changedFields.push("department");
+      }
+    }
+    if (body.jobTitle !== undefined) {
+      const next = body.jobTitle?.trim() || null;
+      if (next !== existingEmployee.jobTitle) {
+        profileUpdate.jobTitle = next;
+        changedFields.push("jobTitle");
+      }
+    }
+    if (body.phone !== undefined) {
+      const next = body.phone?.trim() || null;
+      if (next !== existingEmployee.phone) {
+        profileUpdate.phone = next;
+        changedFields.push("phone");
+      }
+    }
+    if (body.avatarUrl !== undefined && body.avatarUrl !== existingEmployee.avatarUrl) {
+      profileUpdate.avatarUrl = body.avatarUrl;
+      changedFields.push("avatarUrl");
+      if (existingEmployee.avatarUrl) {
+        void deleteImage(existingEmployee.avatarUrl, { bucket: "offer-images" }).catch(() => {});
+      }
+    }
+
+    if (Object.keys(profileUpdate).length > 0) {
+      await prisma.employee.update({ where: { id }, data: profileUpdate as any });
+      try {
+        await createAuditLog(
+          fromCurrentUser(user, "EMPLOYEE_UPDATED", "employee", id, { changes: { changedFields } }),
+        );
+      } catch (auditError) {
+        console.log("[PATCH] ⚠️ Profile audit log creation failed:", auditError);
+      }
+    }
+
+    // Step 7: Check if email is provided and detect change
     const currentEmail = existingEmployee.account?.email ?? null;
     const emailCheck = detectEmailChange(body, currentEmail);
 
-    // Handle validation errors from email check
     if (emailCheck.error) {
       return NextResponse.json(emailCheck.error.error, {
         status: emailCheck.error.status || 400,
       });
     }
 
-    // If no email provided, return early
-    if (!emailCheck.emailProvided) {
-      console.log("[PATCH] No email provided in request, returning early");
+    // No email change — return updated employee if profile was changed, else "no changes"
+    if (!emailCheck.emailProvided || !emailCheck.emailChanged) {
+      if (changedFields.length === 0) {
+        return NextResponse.json({
+          success: true,
+          message: "No changes",
+          data: existingEmployee,
+        });
+      }
+      const updated = await prisma.employee.findUnique({
+        where: { id },
+        include: {
+          company: { select: { id: true, name: true, slug: true } },
+          account: { select: { email: true, status: true } },
+        },
+      });
       return NextResponse.json({
         success: true,
-        message: "No email change requested",
-        data: existingEmployee,
+        data: updated,
+        message: "Employee updated successfully",
       });
     }
 
-    // If email is the same, return early
-    if (!emailCheck.emailChanged) {
-      console.log("[PATCH] Email is the same, no change needed");
-      return NextResponse.json({
-        success: true,
-        message: "Email is the same, no changes made",
-        data: existingEmployee,
-      });
-    }
-
-    // Step 7: Validate email uniqueness
-    const nextEmail = emailCheck.nextEmail!; // ✅ Safe to use ! because we checked emailChanged
+    // Step 8: Validate email uniqueness
+    const nextEmail = emailCheck.nextEmail!;
     const emailValidation = await validateEmailUniqueness(
       nextEmail,
       existingEmployee.account?.authUserId ?? null,
@@ -585,41 +670,34 @@ export async function PATCH(
       });
     }
 
-    // Step 8: Update email in account table
+    // Step 9: Update email in account table
     const result = await updateEmployeeEmail(
       id,
       existingEmployee,
       nextEmail,
-      user, // ✅ User is guaranteed non-null here
+      user,
       company,
     );
 
-    // Step 9: Create audit log
-    await createEmailAuditLog(
-      user, // ✅ User is guaranteed non-null here
-      id,
-      currentEmail,
-      nextEmail,
-    );
+    // Step 10: Create audit log for email change
+    await createEmailAuditLog(user, id, currentEmail, nextEmail);
 
-    // Step 10: Send email notifications
-    const companyName =
-      result?.company?.name ?? company?.name ?? "your company";
+    // Step 11: Send email notifications
+    const companyName = result?.company?.name ?? company?.name ?? "your company";
     const employeeName = existingEmployee.firstName ?? "Employee";
 
-    // Send notification to new email
     await sendEmailChangeNotification(nextEmail, companyName, employeeName);
-
-    // Send notification to old email (if it exists)
     if (currentEmail) {
       await sendOldEmailNotification(currentEmail, companyName, employeeName);
     }
 
-    console.log("[PATCH] ✅ Email update completed successfully");
+    console.log("[PATCH] ✅ Update completed successfully");
     return NextResponse.json({
       success: true,
       data: result,
-      message: `Employee email successfully changed from ${currentEmail} to ${nextEmail}`,
+      message: changedFields.length > 0
+        ? `Employee updated and email changed from ${currentEmail} to ${nextEmail}`
+        : `Employee email successfully changed from ${currentEmail} to ${nextEmail}`,
     });
   } catch (error) {
     console.log("[PATCH] ❌ Unhandled error:", error);

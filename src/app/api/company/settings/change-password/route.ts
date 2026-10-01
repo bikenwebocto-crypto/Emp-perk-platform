@@ -5,7 +5,7 @@ import { getCompanyAdmin, handleApiError } from '../../helpers'
 
 export async function POST(request: NextRequest) {
   try {
-    const { company, companyAdmin } = await getCompanyAdmin()
+    const { companyAdmin, user } = await getCompanyAdmin()
     const body = await request.json()
     const { currentPassword, newPassword } = body
 
@@ -24,6 +24,28 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient()
+
+    if (!user?.email) {
+      return NextResponse.json(
+        { success: false, error: { code: 'VALIDATION', message: 'Unable to verify current password: no session email' } },
+        { status: 400 },
+      )
+    }
+
+    // Re-authenticate with the provided current password before allowing
+    // the change; otherwise anyone with an active session could change
+    // the password without knowing the old one.
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email: user.email,
+      password: currentPassword,
+    })
+    if (verifyError) {
+      return NextResponse.json(
+        { success: false, error: { code: 'INVALID_CURRENT_PASSWORD', message: 'Current password is incorrect' } },
+        { status: 400 },
+      )
+    }
+
     const { error } = await supabase.auth.updateUser({ password: newPassword })
     if (error) {
       return NextResponse.json(

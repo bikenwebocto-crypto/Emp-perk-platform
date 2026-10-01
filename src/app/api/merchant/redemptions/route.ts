@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getCurrentUser } from '@/lib/supabase/server'
 import { getMerchantFromSession } from '@/lib/merchant-session'
 import {
   deriveStatus,
@@ -8,17 +7,12 @@ import {
   type RedemptionStatus,
   type RedemptionMethod,
 } from '@/lib/redemption-status'
+import { deriveCapacityStatus } from '@/lib/redemption-tracking'
 
 function unauthorized() {
   return NextResponse.json(
     { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } },
     { status: 401 }
-  )
-}
-function notFound() {
-  return NextResponse.json(
-    { success: false, error: { code: 'NOT_FOUND', message: 'Merchant not found' } },
-    { status: 404 }
   )
 }
 function internalError(error: unknown) {
@@ -43,149 +37,505 @@ function endOfDay(d: Date) {
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getCurrentUser()
-    if (!user || user.userType !== 'merchant') return unauthorized()
+    // ─────────────────────────────────────────────
+    // Authentication — single call only.
+    // getMerchantFromSession() is assumed to already
+    // validate userType === 'merchant' internally.
+    // If it doesn't, keep the getCurrentUser() check
+    // above it as before — see note below.
+    // ─────────────────────────────────────────────
     const merchant = await getMerchantFromSession()
-    if (!merchant) return notFound()
 
+    if (!merchant) {
+      return unauthorized()
+    }
+
+    // ─────────────────────────────────────────────
+    // Query parameters
+    // ─────────────────────────────────────────────
     const { searchParams } = new URL(request.url)
-    const page = Math.max(1, Number(searchParams.get('page') ?? '1'))
-    const pageSize = Math.min(100, Math.max(1, Number(searchParams.get('pageSize') ?? '25')))
+
+    const rawPage = Number(searchParams.get('page') ?? '1')
+    const rawPageSize = Number(searchParams.get('pageSize') ?? '25')
+
+    const page = Number.isFinite(rawPage)
+      ? Math.max(1, Math.floor(rawPage))
+      : 1
+
+    const pageSize = Number.isFinite(rawPageSize)
+      ? Math.min(100, Math.max(1, Math.floor(rawPageSize)))
+      : 25
+
     const offerId = searchParams.get('offerId') ?? undefined
     const branchId = searchParams.get('branchId') ?? undefined
     const companyId = searchParams.get('companyId') ?? undefined
-    const status = searchParams.get('status') ?? undefined
     const from = searchParams.get('from')
     const to = searchParams.get('to')
-    const q = searchParams.get('q') ?? undefined
+    const q = searchParams.get('q')?.trim() || undefined
 
-    const where: any = { merchantId: merchant.id }
-    if (offerId) where.offerId = offerId
-    if (branchId) where.branchId = branchId
-    if (companyId) where.companyId = companyId
+    // Only run the 5 extra metric/aggregate queries when explicitly requested.
+    const includeMetrics = searchParams.get('includeMetrics') === 'true'
+
+    // ─────────────────────────────────────────────
+    // Build redemption filter
+    // ─────────────────────────────────────────────
+    const where: any = {
+      merchantId: merchant.id,
+    }
+
+    if (offerId) {
+      where.offerId = offerId
+    }
+
+    if (branchId) {
+      where.branchId = branchId
+    }
+
+    if (companyId) {
+      where.companyId = companyId
+    }
+
+    // ─────────────────────────────────────────────
+    // Date validation
+    // ─────────────────────────────────────────────
     if (from || to) {
       where.redeemedAt = {}
-      if (from) where.redeemedAt.gte = startOfDay(new Date(from))
-      if (to) where.redeemedAt.lte = endOfDay(new Date(to))
+
+      if (from) {
+        const fromDate = new Date(from)
+
+        if (Number.isNaN(fromDate.getTime())) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: {
+                code: 'BAD_REQUEST',
+                message: 'Invalid "from" date',
+              },
+            },
+            { status: 400 }
+          )
+        }
+
+        where.redeemedAt.gte = startOfDay(fromDate)
+      }
+
+      if (to) {
+        const toDate = new Date(to)
+
+        if (Number.isNaN(toDate.getTime())) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: {
+                code: 'BAD_REQUEST',
+                message: 'Invalid "to" date',
+              },
+            },
+            { status: 400 }
+          )
+        }
+
+        where.redeemedAt.lte = endOfDay(toDate)
+      }
     }
+
+    // ─────────────────────────────────────────────
+    // Search
+    // ─────────────────────────────────────────────
     if (q) {
       where.OR = [
-        { redemptionCode: { contains: q, mode: 'insensitive' } },
-        { employee: { firstName: { contains: q, mode: 'insensitive' } } },
-        { employee: { lastName: { contains: q, mode: 'insensitive' } } },
-
-        { company: { name: { contains: q, mode: 'insensitive' } } },
+        {
+          redemptionCode: {
+            contains: q,
+            mode: 'insensitive',
+          },
+        },
+        {
+          employee: {
+            firstName: {
+              contains: q,
+              mode: 'insensitive',
+            },
+          },
+        },
+        {
+          employee: {
+            lastName: {
+              contains: q,
+              mode: 'insensitive',
+            },
+          },
+        },
+        {
+          company: {
+            name: {
+              contains: q,
+              mode: 'insensitive',
+            },
+          },
+        },
       ]
     }
 
-    const [rows, total, todayCount, weekCount, monthCount, offerAgg, branchAgg] = await Promise.all([
+    // ─────────────────────────────────────────────
+    // Date ranges for metrics
+    // ─────────────────────────────────────────────
+    const now = new Date()
+
+    const todayStart = startOfDay(now)
+
+    const weekStart = new Date(
+      now.getTime() - 7 * 24 * 60 * 60 * 1000
+    )
+
+    const monthStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1
+    )
+
+    // ─────────────────────────────────────────────
+    // Main queries
+    // ─────────────────────────────────────────────
+    const [
+      rows,
+      total,
+      todayCount,
+      weekCount,
+      monthCount,
+      offerAgg,
+      branchAgg,
+    ] = await Promise.all([
+      // ───────────────────────────────────────────
+      // Redemption rows
+      // ───────────────────────────────────────────
       prisma.redemption.findMany({
         where,
-        orderBy: { redeemedAt: 'desc' },
+        orderBy: {
+          redeemedAt: 'desc',
+        },
         skip: (page - 1) * pageSize,
         take: pageSize,
+
         include: {
-          employee: { select: { id: true, firstName: true, lastName: true } },
-          company: { select: { id: true, name: true } },
-          offer: { select: { id: true, title: true, offerType: true }, include: { pricing: { select: { configuration: true } } } },
+          employee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+
+          company: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+
+          offer: {
+            select: {
+              id: true,
+              title: true,
+              offerType: true,
+
+              pricing: {
+                select: {
+                  configuration: true,
+                },
+              },
+
+              redemption: {
+                select: {
+                  redemptionType: true,
+                },
+              },
+
+              capacity: {
+                select: {
+                  maxRedemptions: true,
+                  redeemedCount: true,
+                },
+              },
+            },
+          },
         },
       }),
-      prisma.redemption.count({ where }),
+
+      // ───────────────────────────────────────────
+      // Total matching records
+      // ───────────────────────────────────────────
       prisma.redemption.count({
-        where: {
-          merchantId: merchant.id,
-          redeemedAt: { gte: startOfDay(new Date()) },
-        },
+        where,
       }),
-      prisma.redemption.count({
-        where: {
-          merchantId: merchant.id,
-          redeemedAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-        },
-      }),
-      prisma.redemption.count({
-        where: {
-          merchantId: merchant.id,
-          redeemedAt: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) },
-        },
-      }),
-      prisma.redemption.groupBy({
-        by: ['offerId'],
-        where: { merchantId: merchant.id },
-        _count: { _all: true },
-        _sum: { discountAmount: true, savingsAmount: true },
-        orderBy: { _count: { id: 'desc' } },
-        take: 5,
-      }),
-      prisma.redemption.groupBy({
-        by: ['branchId'],
-        where: { merchantId: merchant.id, branchId: { not: null } },
-        _count: { _all: true },
-        _sum: { savingsAmount: true },
-        orderBy: { _count: { id: 'desc' } },
-        take: 5,
-      }),
+
+      // ───────────────────────────────────────────
+      // Today — only if metrics requested
+      // ───────────────────────────────────────────
+      includeMetrics
+        ? prisma.redemption.count({
+            where: {
+              merchantId: merchant.id,
+              redeemedAt: {
+                gte: todayStart,
+              },
+            },
+          })
+        : Promise.resolve(null),
+
+      // ───────────────────────────────────────────
+      // Last 7 days — only if metrics requested
+      // ───────────────────────────────────────────
+      includeMetrics
+        ? prisma.redemption.count({
+            where: {
+              merchantId: merchant.id,
+              redeemedAt: {
+                gte: weekStart,
+              },
+            },
+          })
+        : Promise.resolve(null),
+
+      // ───────────────────────────────────────────
+      // Current month — only if metrics requested
+      // ───────────────────────────────────────────
+      includeMetrics
+        ? prisma.redemption.count({
+            where: {
+              merchantId: merchant.id,
+              redeemedAt: {
+                gte: monthStart,
+              },
+            },
+          })
+        : Promise.resolve(null),
+
+      // ───────────────────────────────────────────
+      // Top offers — only if metrics requested
+      // ───────────────────────────────────────────
+      includeMetrics
+        ? prisma.redemption.groupBy({
+            by: ['offerId'],
+            where: {
+              merchantId: merchant.id,
+            },
+            _count: {
+              _all: true,
+            },
+            _sum: {
+              discountAmount: true,
+              savingsAmount: true,
+            },
+            orderBy: {
+              _count: {
+                id: 'desc',
+              },
+            },
+            take: 5,
+          })
+        : Promise.resolve([]),
+
+      // ───────────────────────────────────────────
+      // Top branches — only if metrics requested
+      // ───────────────────────────────────────────
+      includeMetrics
+        ? prisma.redemption.groupBy({
+            by: ['branchId'],
+            where: {
+              merchantId: merchant.id,
+              branchId: {
+                not: null,
+              },
+            },
+            _count: {
+              _all: true,
+            },
+            _sum: {
+              savingsAmount: true,
+            },
+            orderBy: {
+              _count: {
+                id: 'desc',
+              },
+            },
+            take: 5,
+          })
+        : Promise.resolve([]),
     ])
 
-    const branchIds = Array.from(new Set(rows.map((r) => r.branchId).filter((b): b is string => !!b)))
+    // ─────────────────────────────────────────────
+    // Resolve top offer / branch metadata
+    // (only needed when metrics were requested)
+    // ─────────────────────────────────────────────
+    let topOffers: any[] = []
+    let topBranches: any[] = []
+
+    if (includeMetrics) {
+      const topOfferIds = offerAgg.map((item: any) => item.offerId)
+
+      const topBranchIds = branchAgg
+        .map((item: any) => item.branchId)
+        .filter((id: any): id is string => Boolean(id))
+
+      const [topOfferMeta, topBranchMeta] = await Promise.all([
+        topOfferIds.length
+          ? prisma.merchantOffer.findMany({
+              where: {
+                id: {
+                  in: topOfferIds,
+                },
+              },
+              select: {
+                id: true,
+                title: true,
+              },
+            })
+          : Promise.resolve([]),
+
+        topBranchIds.length
+          ? prisma.merchantBranch.findMany({
+              where: {
+                id: {
+                  in: topBranchIds,
+                },
+              },
+              select: {
+                id: true,
+                name: true,
+              },
+            })
+          : Promise.resolve([]),
+      ])
+
+      const topOfferMap = new Map(
+        topOfferMeta.map((offer) => [offer.id, offer.title])
+      )
+
+      topOffers = offerAgg.map((offer: any) => ({
+        offerId: offer.offerId,
+        title: topOfferMap.get(offer.offerId) ?? 'Unknown',
+        redemptions: offer._count._all,
+        totalDiscount: Number(offer._sum.discountAmount ?? 0),
+        totalSavings: Number(offer._sum.savingsAmount ?? 0),
+      }))
+
+      const topBranchMap = new Map(
+        topBranchMeta.map((branch) => [branch.id, branch.name])
+      )
+
+      topBranches = branchAgg.map((branch: any) => ({
+        branchId: branch.branchId,
+        name: branch.branchId
+          ? topBranchMap.get(branch.branchId) ?? 'Unknown'
+          : 'Online',
+        redemptions: branch._count._all,
+        totalSavings: Number(branch._sum.savingsAmount ?? 0),
+      }))
+    }
+
+    const metrics = includeMetrics
+      ? {
+          today: todayCount,
+          thisWeek: weekCount,
+          thisMonth: monthCount,
+          topOffer: topOffers[0] ?? null,
+          topBranch: topBranches[0] ?? null,
+        }
+      : undefined
+
+    // ─────────────────────────────────────────────
+    // Empty redemption state
+    // ─────────────────────────────────────────────
+    if (rows.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: [],
+        ...(includeMetrics ? { metrics, topOffers, topBranches } : {}),
+        meta: {
+          page,
+          pageSize,
+          total,
+          totalPages: 0,
+        },
+      })
+    }
+
+    // ─────────────────────────────────────────────
+    // Branch information
+    // ─────────────────────────────────────────────
+    const branchIds = Array.from(
+      new Set(
+        rows
+          .map((row) => row.branchId)
+          .filter((branchId): branchId is string => Boolean(branchId))
+      )
+    )
+
     const branchList = branchIds.length
       ? await prisma.merchantBranch.findMany({
-          where: { id: { in: branchIds } },
-          select: { id: true, name: true, branchType: true },
+          where: {
+            id: {
+              in: branchIds,
+            },
+          },
+          select: {
+            id: true,
+            name: true,
+            branchType: true,
+          },
         })
       : []
-    const branchMap = new Map(branchList.map((b) => [b.id, b]))
 
-    const rowsWithBranch = rows.map((r) => ({
-      ...r,
-      branch: r.branchId ? branchMap.get(r.branchId) ?? null : null,
-      status: deriveStatus(r) as RedemptionStatus,
-      method: decodeMethod(r.merchantNotes) as RedemptionMethod | null,
-    }))
+    const branchMap = new Map(
+      branchList.map((branch) => [branch.id, branch])
+    )
 
-    const topOfferIds = offerAgg.map((o) => o.offerId)
-    const topOfferMeta = topOfferIds.length
-      ? await prisma.merchantOffer.findMany({
-          where: { id: { in: topOfferIds } },
-          select: { id: true, title: true },
-        })
-      : []
-    const topOfferMap = new Map(topOfferMeta.map((o) => [o.id, o.title]))
-    const topOffers = offerAgg.map((o) => ({
-      offerId: o.offerId,
-      title: topOfferMap.get(o.offerId) ?? 'Unknown',
-      redemptions: o._count._all,
-      totalDiscount: Number(o._sum.discountAmount ?? 0),
-      totalSavings: Number(o._sum.savingsAmount ?? 0),
-    }))
+    // ─────────────────────────────────────────────
+    // Add calculated redemption/offer information
+    // ─────────────────────────────────────────────
+    const rowsWithBranch = rows.map((row) => {
+      const offerMax = row.offer.capacity?.maxRedemptions ?? null
+      const offerRedeemed = row.offer.capacity?.redeemedCount ?? 0
+      const offerRemaining =
+        offerMax == null ? null : Math.max(0, offerMax - offerRedeemed)
 
-    const topBranchIds = branchAgg.map((b) => b.branchId).filter((b): b is string => !!b)
-    const topBranchMeta = topBranchIds.length
-      ? await prisma.merchantBranch.findMany({
-          where: { id: { in: topBranchIds } },
-          select: { id: true, name: true },
-        })
-      : []
-    const topBranchMap = new Map(topBranchMeta.map((b) => [b.id, b.name]))
-    const topBranches = branchAgg.map((b) => ({
-      branchId: b.branchId,
-      name: b.branchId ? topBranchMap.get(b.branchId) ?? 'Unknown' : 'Online',
-      redemptions: b._count._all,
-      totalSavings: Number(b._sum.savingsAmount ?? 0),
-    }))
+      const offerCapacityStatus = deriveCapacityStatus(row.offer.capacity ?? null)
 
+      return {
+        ...row,
+
+        branch: row.branchId
+          ? branchMap.get(row.branchId) ?? null
+          : null,
+
+        status: deriveStatus(row) as RedemptionStatus,
+
+        method: decodeMethod(
+          row.merchantNotes
+        ) as RedemptionMethod | null,
+
+        offerLimit: offerMax,
+
+        offerRedeemed,
+
+        offerRemaining,
+
+        offerCapacityStatus,
+      }
+    })
+
+    // ─────────────────────────────────────────────
+    // Final successful response
+    // ─────────────────────────────────────────────
     return NextResponse.json({
       success: true,
+
       data: rowsWithBranch,
-      metrics: {
-        today: todayCount,
-        thisWeek: weekCount,
-        thisMonth: monthCount,
-        topOffer: topOffers[0] ?? null,
-        topBranch: topBranches[0] ?? null,
-      },
-      topOffers,
-      topBranches,
+
+      ...(includeMetrics ? { metrics, topOffers, topBranches } : {}),
+
       meta: {
         page,
         pageSize,

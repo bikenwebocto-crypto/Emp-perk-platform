@@ -34,17 +34,14 @@ function internalError(error: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getCurrentUser()
-    if (!user || user.userType !== 'merchant') return unauthorized()
     const merchant = await getMerchantFromSession()
+
     if (!merchant) {
-      return NextResponse.json(
-        { success: false, error: { code: 'NOT_FOUND', message: 'Merchant not found' } },
-        { status: 404 }
-      )
+      return unauthorized()
     }
 
     const { searchParams } = new URL(request.url)
+
     const status = searchParams.get('status')
     const type = searchParams.get('type')
     const q = searchParams.get('q')
@@ -54,27 +51,78 @@ export async function GET(request: NextRequest) {
       merchantId: merchant.id,
       deletedAt: null,
     }
-    if (status === 'active') where.isActive = true
-    if (status === 'inactive') where.isActive = false
-    if (type && type !== 'ALL') where.branchType = type as 'IN_STORE' | 'ONLINE'
+
+    if (status === 'active') {
+      where.isActive = true
+    }
+
+    if (status === 'inactive') {
+      where.isActive = false
+    }
+
+    if (type && type !== 'ALL') {
+      where.branchType = type as 'IN_STORE' | 'ONLINE'
+    }
+
     if (!includeClosed) {
       where.status = { not: 'CLOSED' }
     }
+
     if (q) {
       where.OR = [
-        { name: { contains: q, mode: 'insensitive' } },
-        { city: { contains: q, mode: 'insensitive' } },
-        { state: { contains: q, mode: 'insensitive' } },
-        { addressLine1: { contains: q, mode: 'insensitive' } },
+        {
+          name: {
+            contains: q,
+            mode: 'insensitive',
+          },
+        },
+        {
+          city: {
+            contains: q,
+            mode: 'insensitive',
+          },
+        },
+        {
+          state: {
+            contains: q,
+            mode: 'insensitive',
+          },
+        },
+        {
+          addressLine1: {
+            contains: q,
+            mode: 'insensitive',
+          },
+        },
       ]
     }
 
     const branches = await prisma.merchantBranch.findMany({
       where,
-      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        id: true,
+        name: true,
+        branchType: true,
+        isNationwide: true,
+        deliveryRadiusKm: true,
+        city: true,
+        state: true,
+        country: true,
+        isPrimary: true,
+        isActive: true,
+        status: true,
+        createdAt: true,
+      },
+      orderBy: [
+        { isPrimary: 'desc' },
+        { createdAt: 'desc' },
+      ],
     })
 
-    return NextResponse.json({ success: true, data: branches })
+    return NextResponse.json({
+      success: true,
+      data: branches,
+    })
   } catch (error) {
     return internalError(error)
   }
@@ -82,16 +130,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getCurrentUser()
-    if (!user || user.userType !== 'merchant') return unauthorized()
-    const merchant = await getMerchantFromSession()
+     const merchant = await getMerchantFromSession()
     if (!merchant) {
-      return NextResponse.json(
-        { success: false, error: { code: 'NOT_FOUND', message: 'Merchant not found' } },
-        { status: 404 }
-      )
+      return unauthorized()
     }
-
     const body = await request.json()
     const {
       name,

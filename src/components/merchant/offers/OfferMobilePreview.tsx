@@ -33,6 +33,7 @@ const redemptionTypeConfig: Record<string, { label: string; bg: string }> = {
   IN_STORE_QR: { label: 'In-Store', bg: 'bg-amber-100 text-amber-800 border-amber-200' },
   ONLINE_CODE: { label: 'Online', bg: 'bg-sky-100 text-sky-800 border-sky-200' },
   BOOKING_LINK: { label: 'Booking', bg: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+  VIRTUAL_CARD_AUTO_VERIFY: { label: 'Virtual Card', bg: 'bg-violet-100 text-violet-800 border-violet-200' },
 }
 
 export function OfferMobilePreview({
@@ -74,7 +75,7 @@ export function OfferMobilePreview({
     if (offerType === 'BUY_X_GET_Y' || offerType === 'buy_x_get_y') {
       return { text: 'BOGO', suffix: 'FREE' }
     }
-    return { text: `£${val.toFixed(0)}`, suffix: 'OFF' }
+    return { text: `€${val.toFixed(0)}`, suffix: 'OFF' }
   }
 
   const discount = discountLabel()

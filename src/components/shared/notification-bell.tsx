@@ -63,7 +63,7 @@ export function NotificationBell({
         json.unread ?? json.unreadCount ?? json.meta?.unreadCount ?? json.meta?.unread ?? 0
       return { data: (json.data ?? []) as Notification[], unread: unread as number }
     },
-    refetchInterval: 30000,
+    refetchInterval: 180000,
   })
 
   const markOne = useMutation({

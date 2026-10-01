@@ -12,6 +12,7 @@ import { StatusBadge } from '@/components/shared/status-badge'
 import { PageHeader } from '@/components/shared/page-header'
 import { useTablePagination } from '@/hooks/use-table-pagination'
 import { Plus, AlertTriangle } from 'lucide-react'
+import { PRIORITY_STYLES } from '@/features/complaints/constants'
 
 console.log(`[RENDER] EmployeeComplaintsPage module loaded: ${(performance.now() - pageModuleLoad).toFixed(1)}ms`)
 
@@ -49,12 +50,6 @@ const STATUS_STYLES: Record<string, string> = {
   ESCALATED: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-500',
   RESOLVED: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-500',
   REJECTED: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-500',
-}
-
-const PRIORITY_STYLES: Record<string, string> = {
-  HIGH: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-500',
-  MEDIUM: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-500',
-  LOW: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-500',
 }
 
 function ComplaintStatusBadge({ status }: { status: string }) {

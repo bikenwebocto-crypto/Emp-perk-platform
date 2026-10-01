@@ -64,6 +64,12 @@ export const BUSINESS_NOTIFICATION_TEMPLATES = {
     message: 'An employee successfully redeemed an offer.',
     priority: 'NORMAL',
   }),
+  redemptionPending: (merchantName: string): BusinessNotificationTemplate => ({
+    type: 'OFFER_REDEEMED',
+    title: `New redemption awaiting confirmation at ${merchantName}`,
+    message: 'An employee redeemed an offer and it is awaiting your confirmation.',
+    priority: 'NORMAL',
+  }),
   complaintCreated: (title: string): BusinessNotificationTemplate => ({
     type: 'COMPLAINT_CREATED',
     title: `New complaint: ${title}`,

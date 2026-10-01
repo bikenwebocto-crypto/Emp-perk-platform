@@ -68,14 +68,19 @@ export async function POST(request: NextRequest) {
 
     const trimmedCode = code.trim().toUpperCase()
 
+    // Lookup scoped to this merchant's own redemptions directly in the
+    // query — codes are unique per redemption, and the scoping ensures a
+    // code can never match another merchant's record even in theory.
+    // (The post-fetch ownership check below is kept as defense-in-depth.)
     const redemption = await prisma.redemption.findFirst({
-      where: { redemptionCode: trimmedCode },
+      where: { redemptionCode: trimmedCode, merchantId: merchant.id },
       include: {
         offer: {
           include: {
             merchant: {
               select: { id: true, businessName: true, accountId: true },
             },
+            redemption: { select: { redemptionType: true } },
           },
         },
         employee: {
@@ -104,6 +109,32 @@ export async function POST(request: NextRequest) {
     ])
     const empEmail = empAccount?.email
     const merchEmail = merchantAccount?.email
+
+    // IN_STORE_QR redemptions are auto-confirmed at employee redemption
+    // time (the code is a receipt/proof-of-redemption, not a state
+    // transition trigger). Return a read-only success response — no
+    // state change, no emails, no audit log.
+    if (
+      redemption.offer.redemption?.redemptionType === 'IN_STORE_QR' &&
+      redemption.isVerified &&
+      redemption.verifiedAt
+    ) {
+      return NextResponse.json({
+        success: true,
+        alreadyConfirmed: true,
+        message: 'This in-store redemption was already confirmed at the time of employee redemption.',
+        redemption: {
+          id: redemption.id,
+          code: redemption.redemptionCode,
+          isVerified: true,
+          verifiedAt: redemption.verifiedAt.toISOString(),
+          employeeName: `${redemption.employee.firstName} ${redemption.employee.lastName}`,
+          companyName: redemption.company.name,
+          offerTitle: redemption.offer.title,
+          merchantName: redemption.offer.merchant.businessName,
+        },
+      })
+    }
 
     if (redemption.isVerified && redemption.verifiedAt) {
       return conflict('ALREADY_REDEEMED', 'This redemption has already been processed')

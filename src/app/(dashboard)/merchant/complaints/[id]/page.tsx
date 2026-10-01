@@ -7,7 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { showToast } from '@/hooks/use-toast'
-import { ArrowLeft, FileText, Loader2, Link2, Clock, XCircle, MessageSquare } from 'lucide-react'
+import { ArrowLeft, FileText, Loader2, Clock, XCircle, MessageSquare } from 'lucide-react'
+import { PRIORITY_STYLES } from '@/features/complaints/constants'
+import { TicketAttachmentsButton } from '@/components/ui/ticket-attachments-button'
+import { TicketStatusStepper } from '@/components/ui/ticket-status-stepper'
 
 interface ComplaintAction {
   id: string
@@ -19,6 +22,7 @@ interface ComplaintAction {
 interface ComplaintDetail {
   id: string
   complaintType: string
+  category: string | null
   status: string
   priority: string
   description: string
@@ -43,10 +47,11 @@ const STATUS_STYLES: Record<string, string> = {
   REJECTED: 'bg-red-100 text-red-800',
 }
 
-const PRIORITY_STYLES: Record<string, string> = {
-  HIGH: 'bg-red-100 text-red-800',
-  MEDIUM: 'bg-yellow-100 text-yellow-800',
-  LOW: 'bg-gray-100 text-gray-800',
+const CATEGORY_LABELS: Record<string, string> = {
+  BILLING: 'Billing',
+  TECHNICAL: 'Technical',
+  ACCOUNT: 'Account',
+  OTHER: 'Other',
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -76,7 +81,7 @@ export default function MerchantComplaintDetailPage({ params }: { params: Promis
   })
 
   const respondMutation = useMutation({
-    mutationFn: async (body: { note: string }) => {
+    mutationFn: async (body: { response: string }) => {
       const res = await fetch(`/api/complaints/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -99,7 +104,7 @@ export default function MerchantComplaintDetailPage({ params }: { params: Promis
       showToast({ type: 'error', title: 'Required', description: 'Please enter your response.' })
       return
     }
-    respondMutation.mutate({ note: response.trim() })
+    respondMutation.mutate({ response: response.trim() })
   }
 
   if (isLoading) {
@@ -148,6 +153,8 @@ export default function MerchantComplaintDetailPage({ params }: { params: Promis
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <TicketStatusStepper status={c.status} />
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <p className="text-xs font-medium text-muted-foreground">Employee</p>
@@ -161,6 +168,12 @@ export default function MerchantComplaintDetailPage({ params }: { params: Promis
               <p className="text-xs font-medium text-muted-foreground">Complaint Type</p>
               <p className="mt-0.5 text-sm capitalize">{c.complaintType.replace(/_/g, ' ').toLowerCase()}</p>
             </div>
+            {c.category && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Category</p>
+                <p className="mt-0.5 text-sm">{CATEGORY_LABELS[c.category] ?? c.category}</p>
+              </div>
+            )}
             <div>
               <p className="text-xs font-medium text-muted-foreground">Offer</p>
               <p className="mt-0.5 text-sm font-medium">{c.offer?.title ?? '—'}</p>
@@ -176,18 +189,7 @@ export default function MerchantComplaintDetailPage({ params }: { params: Promis
             <p className="mt-1 whitespace-pre-wrap rounded-lg bg-muted/30 p-3 text-sm">{c.description}</p>
           </div>
 
-          {c.evidenceUrls && c.evidenceUrls.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Evidence</p>
-              <div className="mt-1 space-y-1">
-                {c.evidenceUrls.map((url, i) => (
-                  <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                    <Link2 className="h-3 w-3" /> {url}
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
+          <TicketAttachmentsButton urls={c.evidenceUrls} />
 
           {c.escalationNote && (
             <div className="rounded-lg border border-orange-200 bg-orange-50 p-3">

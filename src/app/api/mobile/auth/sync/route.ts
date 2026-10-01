@@ -1,12 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import {
   getAuthenticatedMobileEmployee,
   buildMobileAuthProfile,
-} from '@/lib/mobile-auth'
-import { activateDeviceToken } from '@/lib/device-token.service'
-import { createAuditLog } from '@/services/audit-log.service'
-import { internalError } from '@/lib/employee-helpers'
+} from "@/lib/mobile-auth";
+import { activateDeviceToken } from "@/lib/device-token.service";
+import { createAuditLog } from "@/services/audit-log.service";
+import { internalError } from "@/lib/employee-helpers";
 
 // POST /api/mobile/auth/sync
 //
@@ -24,25 +24,36 @@ import { internalError } from '@/lib/employee-helpers'
 // Supabase's access_token is the only token the mobile app needs.
 export async function POST(request: NextRequest) {
   try {
+    const requestId = crypto.randomUUID();
+
+    console.log("[mobile/auth/sync] START", requestId);
     // 1. Read optional body (best-effort — never fail on empty body).
-    let deviceId: string | null = null
-    let fcmToken: string | null = null
+    let deviceId: string | null = null;
+    let fcmToken: string | null = null;
     try {
-      const body = await request.json()
-      if (body && typeof body.deviceId === 'string' && body.deviceId.length > 0) {
-        deviceId = body.deviceId
+      const body = await request.json();
+      if (
+        body &&
+        typeof body.deviceId === "string" &&
+        body.deviceId.length > 0
+      ) {
+        deviceId = body.deviceId;
       }
-      if (body && typeof body.fcmToken === 'string' && body.fcmToken.length > 0) {
-        fcmToken = body.fcmToken
+      if (
+        body &&
+        typeof body.fcmToken === "string" &&
+        body.fcmToken.length > 0
+      ) {
+        fcmToken = body.fcmToken;
       }
     } catch {
       // Empty body is fine.
     }
 
     // 2. Authenticate + load Account / Employee / Company.
-    const auth = await getAuthenticatedMobileEmployee(request)
-    if (!auth.ok) return auth.response
-    const { account, employee, company } = auth
+    const auth = await getAuthenticatedMobileEmployee(request);
+    if (!auth.ok) return auth.response;
+    const { account, employee, company } = auth;
 
     // 3. Refresh login timestamps + persist the device token (best-effort,
     // never block the login).
@@ -66,14 +77,14 @@ export async function POST(request: NextRequest) {
             deviceId,
           }).catch(() => null)
         : Promise.resolve(null),
-    ])
+    ]);
 
     // 4. Audit log — fire-and-forget, never blocks the response.
     void createAuditLog({
-      actorType: 'employee',
+      actorType: "employee",
       actorId: employee.id,
-      action: 'MOBILE_AUTH_SYNC',
-      entityType: 'employee',
+      action: "MOBILE_AUTH_SYNC",
+      entityType: "employee",
       entityId: employee.id,
       metadata: {
         employeeId: employee.id,
@@ -81,16 +92,16 @@ export async function POST(request: NextRequest) {
         accountId: account.authUserId,
         deviceId,
         hasFcmToken: !!fcmToken,
-        loginSource: 'mobile',
+        loginSource: "mobile",
       },
-    })
+    });
 
     // 5. Return the mobile profile. No JWT, no redirect URL.
     return NextResponse.json({
       success: true,
       data: buildMobileAuthProfile(account, employee, company),
-    })
+    });
   } catch (error) {
-    return internalError(error)
+    return internalError(error);
   }
 }

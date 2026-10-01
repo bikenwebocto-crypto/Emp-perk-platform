@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { createServerClient } from '@supabase/ssr';
 import { cookies, headers } from 'next/headers';
 import { prisma } from '@/lib/prisma';
@@ -64,13 +65,14 @@ function currentUserFromContext(ctx: any): CurrentUser {
     COMPANY_ADMIN: 'company_admin',
     EMPLOYEE: 'employee',
   }
+
   return {
     id: ctx.user.id,
     email: ctx.user.email!,
     role: ctx.account.role,
     userType: userTypeMap[ctx.account.role] ?? 'employee',
     companyId: ctx.companyId,
-    city: ctx.city,
+    city: ctx.profile?.city ?? null,
     companyName: getCompanyName(ctx),
     companyStatus: ctx.companyStatus,
     profileType: ctx.profileType,
@@ -79,7 +81,9 @@ function currentUserFromContext(ctx: any): CurrentUser {
   }
 }
 
-export async function getCurrentUser(timer?: PerfTimer): Promise<CurrentUser | null> {
+async function _getCurrentUser(timer?: PerfTimer): Promise<CurrentUser | null> {
+    console.log('>>> _getCurrentUser REAL EXECUTION', new Date().toISOString())  // ← move it HERE, first line inside the function
+
   const start = performance.now()
 
   try {
@@ -132,6 +136,21 @@ export async function getCurrentUser(timer?: PerfTimer): Promise<CurrentUser | n
     console.error(error)
     return null
   }
+}
+
+// React cache() memoizes the zero-argument core per request in Route Handlers,
+// Server Components, and Server Actions, so repeated calls (e.g. inside
+// getMerchantFromSession / getEmployeeFromSession / requireRole) reuse the first
+// result instead of re-running the Supabase session check + accounts query.
+// The timer argument is deliberately NOT forwarded: call sites pass different
+// timer objects, which would otherwise split the cache key and defeat dedup.
+const getCurrentUserCached = cache(async (): Promise<CurrentUser | null> => {
+  return _getCurrentUser()
+})
+
+export async function getCurrentUser(timer?: PerfTimer): Promise<CurrentUser | null> {
+  void timer
+  return getCurrentUserCached()
 }
 
 export interface ResolvedUser {

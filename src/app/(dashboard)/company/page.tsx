@@ -112,7 +112,7 @@ export default function CompanyDashboard() {
         <StatCard title="Enrolled Employees" value={String(stats.enrolledEmployees)} icon={Users} />
         <StatCard title="Active This Month" value={String(stats.activeThisMonth)} trend={stats.activationRate ? { value: stats.activationRate, isUp: stats.activationRate >= 50 } : undefined} icon={TrendingUp} />
         <StatCard title="This Month Redemptions" value={String(stats.redemptionsThisMonth)} icon={ShoppingBag} />
-        <StatCard title="Next Billing" value={`£${stats.estimatedRenewalAmount.toLocaleString()}`} description={stats.nextBillingDate ? new Date(stats.nextBillingDate).toLocaleDateString() : 'N/A'} icon={CreditCard} />
+        <StatCard title="Next Billing" value={`€${stats.estimatedRenewalAmount.toLocaleString()}`} description={stats.nextBillingDate ? new Date(stats.nextBillingDate).toLocaleDateString() : 'N/A'} icon={CreditCard} />
       </div>
 
       {/* Content */}

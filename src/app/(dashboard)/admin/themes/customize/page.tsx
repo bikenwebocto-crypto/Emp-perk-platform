@@ -65,6 +65,8 @@ const DEFAULT_SETTINGS: ThemeSettings = {
 }
 
 function hslToHex(hsl: string): string {
+  if (!hsl) return '#000000'
+
   const match = hsl.match(/^([\d.]+)\s+([\d.]+)%\s+([\d.]+)%$/)
   if (!match || !match[1] || !match[2] || !match[3]) return '#000000'
   const h = parseFloat(match[1]) / 360
@@ -172,7 +174,7 @@ export default function ThemeCustomizerPage() {
 
   useEffect(() => {
     if (selectedTheme) {
-      setSettings(selectedTheme.settings)
+      setSettings({ ...DEFAULT_SETTINGS, ...selectedTheme.settings })
     }
   }, [selectedTheme])
 

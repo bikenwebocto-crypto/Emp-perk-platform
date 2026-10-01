@@ -20,9 +20,11 @@ export interface OfferRow {
   redemption: {
     redemptionType: string | null
     configuration: unknown
-    maxRedemptions: number | null
-    currentRedemptions: number
     daysOfWeek: number[] | null
+  } | null
+  capacity: {
+    maxRedemptions: number | null
+    redeemedCount: number
   } | null
   merchant: {
     id: string
@@ -101,8 +103,8 @@ export function mapOfferRow(
     bookingUrl: (redemptionConfig.bookingUrl as string | null) ?? null,
     qrCodeUrl: (redemptionConfig.qrCodeUrl as string | null) ?? null,
     daysOfWeek: o.redemption?.daysOfWeek ?? null,
-    maxRedemptions: o.redemption?.maxRedemptions ?? null,
-    currentRedemptions: o.redemption?.currentRedemptions ?? 0,
+    maxRedemptions: o.capacity?.maxRedemptions ?? null,
+    currentRedemptions: o.capacity?.redeemedCount ?? 0,
     isFeatured: o.isFeatured,
     isExclusive: o.isExclusive,
     startDate: o.startDate.toISOString(),

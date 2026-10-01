@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
+import { toE164 } from '@/lib/phone';
 import { validateUserEmail, createAccountForProfile } from '@/services/user-validation.service';
 import { publishBusinessToAdmins } from '@/services/business-notification.service';
 
@@ -19,11 +20,20 @@ export async function POST(request: NextRequest) {
       categoryId, description, website,
       logoUrl, coverImageUrl,
       addressLine1, addressLine2, city, state, postalCode, country,
+      requiresApproval,
     } = body;
 
     if (!businessName || !email ||  !contactName) {
       return NextResponse.json(
         { success: false, error: { code: 'VALIDATION', message: 'Missing required fields: businessName, email, password, contactName' } },
+        { status: 400 },
+      );
+    }
+
+    const phone = toE164(contactPhone);
+    if (typeof contactPhone === 'string' && contactPhone.trim() && !phone) {
+      return NextResponse.json(
+        { success: false, error: { code: 'VALIDATION', message: 'Invalid phone number' } },
         { status: 400 },
       );
     }
@@ -66,7 +76,7 @@ export async function POST(request: NextRequest) {
           businessName,
           slug,
           contactName,
-          contactPhone: contactPhone || null,
+          contactPhone: phone,
           categoryId: categoryId || null,
           description: description || null,
           website: website || null,
@@ -84,19 +94,37 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      if (requiresApproval) {
+        await tx.actionQueueItem.create({
+          data: {
+            type: 'NEW_MERCHANT_APPLICATION',
+            title: `New merchant application: ${merchant.businessName}`,
+            description: `Merchant application submitted for ${merchant.businessName} and requires board approval.`,
+            referenceId: merchant.id,
+            referenceType: 'merchant',
+            status: 'PENDING',
+            priority: 3,
+            metadata: { queueType: 'NEW_MERCHANT_APPLICATION' },
+          },
+        });
+      }
+
       return merchant;
     });
 
-    await publishBusinessToAdmins({
-      type: 'SYSTEM',
-      title: `New merchant registration: ${result.businessName}`,
-      message: 'A merchant registration is waiting for review.',
-      priority: 'HIGH',
-      channels: ['IN_APP', 'PUSH'],
-      referenceType: 'merchant',
-      referenceId: result.id,
-      metadata: { merchantId: result.id },
-    });
+    // Admin-created merchants (requiresApproval not set) are live immediately and need no board review.
+    if (requiresApproval) {
+      await publishBusinessToAdmins({
+        type: 'SYSTEM',
+        title: `New merchant application: ${result.businessName}`,
+        message: 'A merchant application is waiting for board approval.',
+        priority: 'HIGH',
+        channels: ['IN_APP', 'PUSH'],
+        referenceType: 'merchant',
+        referenceId: result.id,
+        metadata: { merchantId: result.id },
+      });
+    }
 
     return NextResponse.json(
       { success: true, data: result, message: 'Merchant created successfully' },

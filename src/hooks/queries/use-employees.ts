@@ -1,6 +1,8 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { companyEmployeeKeys } from '@/hooks/queries/use-company-employees';
+import type { BulkRowInput, ValidatedBulkRow } from '@/lib/employees/bulk-validate';
 
 export const employeeKeys = {
   all: ['employees'] as const,
@@ -89,6 +91,57 @@ export function useUpdateEmployee() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: employeeKeys.lists() });
+    },
+  });
+}
+
+export interface BulkValidateResponse {
+  rows: ValidatedBulkRow[];
+  summary: { total: number; valid: number; invalid: number };
+  seatsRemaining?: number;
+}
+
+export interface BulkCreateResponse {
+  summary: { total: number; created: number; failed: number };
+  results: {
+    clientId: string;
+    sourceRow?: number;
+    email: string;
+    status: 'CREATED' | 'FAILED';
+    reason?: string;
+    employeeId?: string;
+    emailSent?: boolean;
+  }[];
+}
+
+async function postJson<T>(url: string, body: unknown, fallback: string): Promise<T> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error?.message ?? fallback);
+  return json.data as T;
+}
+
+/** Parse + validate a bulk upload (no writes). Pass either `csv` or `rows`. */
+export function useValidateBulkEmployees() {
+  return useMutation({
+    mutationFn: (data: { companyId: string; csv?: string; rows?: BulkRowInput[] }) =>
+      postJson<BulkValidateResponse>('/api/admin/employees/bulk/validate', data, 'Failed to validate rows'),
+  });
+}
+
+export function useCreateBulkEmployees() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: { companyId: string; rows: BulkRowInput[] }) =>
+      postJson<BulkCreateResponse>('/api/admin/employees/bulk', data, 'Failed to upload employees'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: employeeKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: companyEmployeeKeys.all });
     },
   });
 }

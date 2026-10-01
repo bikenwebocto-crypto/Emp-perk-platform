@@ -17,7 +17,7 @@ export async function GET(_request: NextRequest) {
         prisma.banner.findMany({
           where: { isActive: true },
           select: { id: true, name: true, position: true, description: true },
-          orderBy: { name: 'asc' },
+          orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
         }),
       [],
       { context: 'Banner.findMany:public-active' },

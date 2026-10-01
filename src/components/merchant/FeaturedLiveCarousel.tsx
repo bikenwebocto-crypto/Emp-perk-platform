@@ -23,7 +23,7 @@ interface LiveOffer {
   offerType: string;
   endDate: string;
   pricing?: { configuration?: Record<string, unknown> };
-  redemption?: { currentRedemptions?: number; maxRedemptions?: number };
+  capacity?: { redeemedCount?: number; maxRedemptions?: number };
   views?: number;
   bannerGradient?: string;
   content?: { imageUrls?: string[] };
@@ -45,7 +45,7 @@ function formatOfferValue(offer: LiveOffer): string {
     return "Buy X Get Y";
   }
   const amount = Number(cfg.amount ?? 0);
-  return `£${amount.toFixed(2)} OFF`;
+  return `€${amount.toFixed(2)} OFF`;
 }
 
 function formatExpiry(dateStr: string): string {
@@ -326,7 +326,7 @@ export function FeaturedLiveCarousel({
                           "text-[8px] xs:text-[10px] sm:text-xs lg:text-sm",
                         )}
                       >
-                        {offer.redemption?.currentRedemptions ?? 0}
+                        {offer.capacity?.redeemedCount ?? 0}
                       </span>
                       <span className="hidden xs:inline text-white/70 text-[8px] xs:text-[10px] sm:text-xs lg:text-sm">
                         redemptions

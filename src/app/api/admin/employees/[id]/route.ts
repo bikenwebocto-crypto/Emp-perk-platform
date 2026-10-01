@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { adminEmployeeUpdateSchema } from "@/schemas";
 import { buildAuditData, fromCurrentUser } from "@/services/audit-log.service";
+import { deleteImage } from "@/lib/upload/image";
 function unauthorized() {
   return NextResponse.json(
     {
@@ -208,6 +209,15 @@ export async function PATCH(
       after.status = data.status;
       update.status = data.status;
       changedFields.push("status");
+    }
+    if (data.avatarUrl !== undefined && data.avatarUrl !== existing.avatarUrl) {
+      before.avatarUrl = existing.avatarUrl;
+      after.avatarUrl = data.avatarUrl;
+      update.avatarUrl = data.avatarUrl;
+      changedFields.push("avatarUrl");
+      if (existing.avatarUrl) {
+        void deleteImage(existing.avatarUrl, { bucket: "offer-images" }).catch(() => {});
+      }
     }
 
     if (Object.keys(update).length === 0) {

@@ -214,6 +214,7 @@ export async function GET(request: NextRequest) {
     const lastRedemptionAtByMerchant: Record<string, Date | null> = {}
     for (const id of merchantIds) lastRedemptionAtByMerchant[id] = null
     for (const r of lastRedemptions) {
+      if (!r.redeemedAt) continue
       if (!lastRedemptionAtByMerchant[r.merchantId] || r.redeemedAt > lastRedemptionAtByMerchant[r.merchantId]!) lastRedemptionAtByMerchant[r.merchantId] = r.redeemedAt
     }
 

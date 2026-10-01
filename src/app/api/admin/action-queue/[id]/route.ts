@@ -106,6 +106,7 @@ async function loadEntity(queueItem: {
             content: true,
             pricing: true,
             redemption: true,
+            capacity: true,
             review: true,
             analytics: true,
             replacesOffer: true,
@@ -136,6 +137,7 @@ async function loadEntity(queueItem: {
               content: { select: { shortDescription: true, description: true, imageUrls: true } },
               pricing: { select: { configuration: true } },
               redemption: { select: { redemptionType: true, configuration: true } },
+              capacity: { select: { maxRedemptions: true, redeemedCount: true } },
             },
           });
 
@@ -1158,10 +1160,28 @@ async function performEditAndApprove(
         updateData[key] = edits[key];
       }
     }
-    if (Object.keys(updateData).length > 0) {
-      await prisma.merchantOffer.update({
-        where: { id: offerId },
-        data: { ...updateData } as any,
+    const { maxRedemptions, ...merchantOfferEdits } = updateData;
+    if (Object.keys(merchantOfferEdits).length > 0 || maxRedemptions !== undefined) {
+      await prisma.$transaction(async (tx) => {
+        if (Object.keys(merchantOfferEdits).length > 0) {
+          await tx.merchantOffer.update({
+            where: { id: offerId },
+            data: { ...merchantOfferEdits } as any,
+          });
+        }
+        if (maxRedemptions !== undefined) {
+          const normalized = Number(maxRedemptions);
+          await tx.offerRedemption.upsert({
+            where: { offerId },
+            create: { offerId, maxRedemptions: normalized, currentRedemptions: 0 },
+            update: { maxRedemptions: normalized },
+          });
+          await tx.offerRedemptionCapacity.upsert({
+            where: { offerId },
+            create: { offerId, maxRedemptions: normalized, redeemedCount: 0 },
+            update: { maxRedemptions: normalized },
+          });
+        }
       });
     }
   } else if (kind === "MERCHANT") {

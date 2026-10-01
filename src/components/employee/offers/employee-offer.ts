@@ -60,6 +60,7 @@ export interface EmployeeOffer {
       id: string
       name: string
       branchType: string
+      isActive: boolean
       addressLine1: string
       city: string
       state: string | null

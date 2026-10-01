@@ -1,12 +1,17 @@
-'use client'
+"use client";
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import {
   AlertCircle,
   Calendar,
   CheckCircle2,
   Copy,
+  CreditCard,
   ExternalLink,
   Gift,
   Info,
@@ -17,12 +22,12 @@ import {
   Store,
   Tag,
   X,
-} from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { showToast } from '@/hooks/use-toast'
-import { type EmployeeOffer } from './offers/employee-offer'
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { showToast } from "@/hooks/use-toast";
+import { type EmployeeOffer } from "./offers/employee-offer";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                                */
@@ -34,27 +39,37 @@ import { type EmployeeOffer } from './offers/employee-offer'
  * subset relevant to the current offer.
  */
 interface RedemptionResult {
-  id: string
-  type: 'ONLINE_CODE' | 'BOOKING_LINK' | 'IN_STORE_QR'
-  status: 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED'
-  offerCode?: string | null
-  bookingUrl?: string | null
-  merchantWebsite?: string | null
-  instructions?: string | null
-  merchant?: { businessName: string; website?: string | null }
+  id: string;
+  type: "ONLINE_CODE" | "BOOKING_LINK" | "IN_STORE_QR" | "VIRTUAL_CARD_AUTO_VERIFY";
+  status: "PENDING" | "CONFIRMED" | "REJECTED" | "CANCELLED";
+  offerCode?: string | null;
+  bookingUrl?: string | null;
+  merchantWebsite?: string | null;
+  instructions?: string | null;
+  merchant?: { businessName: string; website?: string | null };
   branch?: {
-    name: string
-    addressLine1: string
-    addressLine2?: string | null
-    city: string
-    state?: string | null
-    postalCode?: string | null
-    phone?: string | null
-    latitude?: number | null
-    longitude?: number | null
-    openingHours?: string | null
-    googleMapsUrl?: string | null
-  }
+    name: string;
+    addressLine1: string;
+    addressLine2?: string | null;
+    city: string;
+    state?: string | null;
+    postalCode?: string | null;
+    phone?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    openingHours?: string | null;
+    googleMapsUrl?: string | null;
+  };
+  virtualCard?: {
+    code: string | null;
+    holderName: string;
+    employeeNumber: string | null;
+    companyName: string | null;
+    merchantName: string;
+    offerTitle: string;
+    issuedAt: string;
+    verified: true;
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -62,37 +77,38 @@ interface RedemptionResult {
 /* ------------------------------------------------------------------ */
 
 const TYPE_LABELS: Record<string, string> = {
-  FLAT: 'Flat',
-  PERCENTAGE: '% Off',
-  BUY_X_GET_Y: 'BOGO',
-  fixed_amount: 'Fixed',
-  percentage: '% Off',
-  flat_rate: 'Flat',
-  buy_x_get_y: 'BOGO',
-}
+  FLAT: "Flat",
+  PERCENTAGE: "% Off",
+  BUY_X_GET_Y: "BOGO",
+  fixed_amount: "Fixed",
+  percentage: "% Off",
+  flat_rate: "Flat",
+  buy_x_get_y: "BOGO",
+};
 
 const REDEMPTION_METHOD_LABELS: Record<string, string> = {
-  ONLINE_CODE: 'Online Code',
-  BOOKING_LINK: 'Booking Link',
-  IN_STORE_QR: 'In-Store (QR Code)',
-}
+  ONLINE_CODE: "Online Code",
+  BOOKING_LINK: "Booking Link",
+  IN_STORE_QR: "In-Store (QR Code)",
+  VIRTUAL_CARD_AUTO_VERIFY: "Virtual Card",
+};
 
-const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 function formatDiscount(o: EmployeeOffer): string {
   switch (o.offerType) {
-    case 'PERCENTAGE':
-    case 'percentage':
-      return `${o.discountPercent ?? Math.round(Number(o.discountValue))}% OFF`
-    case 'BUY_X_GET_Y':
-    case 'buy_x_get_y':
-      return 'Buy 1 Get 1 Free'
-    case 'FLAT':
-    case 'flat_rate':
-    case 'fixed_amount':
-      return `£${Number(o.discountValue).toFixed(2)} OFF`
+    case "PERCENTAGE":
+    case "percentage":
+      return `${o.discountPercent ?? Math.round(Number(o.discountValue))}% OFF`;
+    case "BUY_X_GET_Y":
+    case "buy_x_get_y":
+      return "Buy 1 Get 1 Free";
+    case "FLAT":
+    case "flat_rate":
+    case "fixed_amount":
+      return `€${Number(o.discountValue).toFixed(2)} OFF`;
     default:
-      return `${o.discountValue ?? ''}`
+      return `${o.discountValue ?? ""}`;
   }
 }
 
@@ -112,16 +128,16 @@ function patchOffersListCache(
   patch: { isRedeemed?: boolean; currentRedemptions?: number },
 ) {
   queryClient.setQueriesData<{ data: any[]; meta?: any }>(
-    { queryKey: ['employee-offers'] },
+    { queryKey: ["employee-offers"] },
     (prev) => {
-      if (!prev?.data) return prev
-      const idx = prev.data.findIndex((o) => o.id === offerId)
-      if (idx < 0) return prev
-      const next = [...prev.data]
-      next[idx] = { ...next[idx], ...patch }
-      return { ...prev, data: next }
+      if (!prev?.data) return prev;
+      const idx = prev.data.findIndex((o) => o.id === offerId);
+      if (idx < 0) return prev;
+      const next = [...prev.data];
+      next[idx] = { ...next[idx], ...patch };
+      return { ...prev, data: next };
     },
-  )
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -134,16 +150,16 @@ export interface RedeemModalProps {
    * component: it does NOT fetch offer details. Pass `null` to keep
    * the modal closed.
    */
-  offer: EmployeeOffer | null
+  offer: EmployeeOffer | null;
   /** Whether the modal is open. The host owns this flag. */
-  open: boolean
+  open: boolean;
   /** Called when the modal requests to open or close. */
-  onOpenChange: (open: boolean) => void
+  onOpenChange: (open: boolean) => void;
   /**
    * Optional callback fired when the user toggles the saved state.
    * The host is expected to perform the API call + cache update.
    */
-  onSavedChange?: (offerId: string, isSaved: boolean) => void
+  onSavedChange?: (offerId: string, isSaved: boolean) => void;
 }
 
 /**
@@ -169,46 +185,45 @@ export function RedeemModal({
   onOpenChange,
   onSavedChange,
 }: RedeemModalProps) {
-  const queryClient = useQueryClient()
+  const queryClient = useQueryClient();
 
   // ── Local state ────────────────────────────────────────────
   // `hasRedeemed` is initialised from the offer so an already-
   // redeemed offer shows the details immediately when the modal
   // opens. `redemptionResult` holds the response from the POST so
   // we can render offer code / booking link / branch info.
-  const [hasRedeemed, setHasRedeemed] = useState<boolean>(
-    !!offer?.isRedeemed,
-  )
+  const [hasRedeemed, setHasRedeemed] = useState<boolean>(!!offer?.isRedeemed);
   const [redemptionResult, setRedemptionResult] =
-    useState<RedemptionResult | null>(null)
-  const [copied, setCopied] = useState(false)
+    useState<RedemptionResult | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
 
   // ── Review state ───────────────────────────────────────────
   const [existingReview, setExistingReview] = useState<{
-    id: string
-    rating: number
-  } | null>(null)
-  const [reviewRating, setReviewRating] = useState<number>(0)
-  const [hoverRating, setHoverRating] = useState<number>(0)
-  const [savingReview, setSavingReview] = useState(false)
+    id: string;
+    rating: number;
+  } | null>(null);
+  const [reviewRating, setReviewRating] = useState<number>(0);
+  const [hoverRating, setHoverRating] = useState<number>(0);
+  const [savingReview, setSavingReview] = useState(false);
 
   // After redemption, fetch existing review for this merchant
-  useEffect(() => {
-    if (!hasRedeemed || !offer?.merchant.id) return
-    fetch(`/api/employee/reviews?merchantId=${offer.merchant.id}`)
-      .then((r) => r.json())
-      .then((json) => {
-        if (json?.data) {
-          setExistingReview(json.data)
-          setReviewRating(json.data.rating)
-        }
-      })
-      .catch(() => {})
-  }, [hasRedeemed, offer?.merchant.id])
+  // useEffect(() => {
+  //   if (!hasRedeemed || !offer?.merchant.id) return
+  //   fetch(`/api/employee/reviews?merchantId=${offer.merchant.id}`)
+  //     .then((r) => r.json())
+  //     .then((json) => {
+  //       if (json?.data) {
+  //         setExistingReview(json.data)
+  //         setReviewRating(json.data.rating)
+  //       }
+  //     })
+  //     .catch(() => {})
+  // }, [hasRedeemed, offer?.merchant.id])
 
   // Tracks whether we've already fired the view analytics request
   // for the current offer. Reset when the offer changes.
-  const viewRecordedRef = useRef(false)
+  const viewRecordedRef = useRef(false);
 
   // ── Offer view tracking ───────────────────────────────────
   // Fire POST /api/employee/offers/view once per (offerId, employee).
@@ -216,119 +231,125 @@ export function RedeemModal({
   // offerAnalytics.upsert, so repeated calls are safe (no-ops).
   // This is fire-and-forget — never blocks the UI.
   const recordView = useCallback((offerId: string) => {
-    if (viewRecordedRef.current) return
-    viewRecordedRef.current = true
-    console.log('recordView', offerId)
-    fetch('/api/employee/offers/view', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    if (viewRecordedRef.current) return;
+    viewRecordedRef.current = true;
+    console.log("recordView", offerId);
+    fetch("/api/employee/offers/view", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ offerId }),
     }).catch(() => {
       // Silently ignore — analytics must never block the UI.
-    })
-  }, [])
+    });
+  }, []);
 
   // Reset local state every time the host hands us a different
   // offer, so reopening the modal for offer A does not leak the
   // redemption state of offer B.
   useEffect(() => {
-    setHasRedeemed(!!offer?.isRedeemed)
-    setRedemptionResult(null)
-    setCopied(false)
-    setExistingReview(null)
-    setReviewRating(0)
-    setHoverRating(0)
-    viewRecordedRef.current = false
-  }, [offer?.id, offer?.isRedeemed])
+    setHasRedeemed(!!offer?.isRedeemed);
+    setRedemptionResult(null);
+    setCopied(false);
+    setExistingReview(null);
+    setReviewRating(0);
+    setHoverRating(0);
+    viewRecordedRef.current = false;
+    // Auto-select the sole branch for single-branch IN_STORE_QR offers;
+    // require explicit selection for multi-branch (or reset to none).
+    const active = (offer?.merchant.branches ?? []).filter((b) => b.isActive);
+    if (offer?.redemptionType === "IN_STORE_QR" && active.length === 1) {
+      setSelectedBranchId(active[0]!.id);
+    } else {
+      setSelectedBranchId(null);
+    }
+  }, [offer?.id, offer?.isRedeemed]);
 
   // Record a view when the modal opens (employee sees offer details)
   useEffect(() => {
     if (open && offer?.id) {
-      recordView(offer.id)
+      recordView(offer.id);
     }
-  }, [open, offer?.id, recordView])
+  }, [open, offer?.id, recordView]);
 
   // ── Derived data ───────────────────────────────────────────
-  const canRedeem = !!offer?.isVisible && !hasRedeemed
+  const canRedeem = !!offer?.isVisible && !hasRedeemed;
+  const activeBranches = (offer?.merchant.branches ?? []).filter(
+    (b) => b.isActive,
+  );
   const initials = offer?.merchant.businessName
-    .split(' ')
+    .split(" ")
     .map((s) => s[0])
     .filter(Boolean)
     .slice(0, 2)
-    .join('')
-    .toUpperCase()
+    .join("")
+    .toUpperCase();
   const bannerImage =
-    offer?.imageUrls && offer.imageUrls.length > 0
-      ? offer.imageUrls[0]
-      : null
+    offer?.imageUrls && offer.imageUrls.length > 0 ? offer.imageUrls[0] : null;
 
   // ── Redeem mutation ───────────────────────────────────────
-  // IN_STORE_QR requires a `branchId`. The list endpoint already
-  // returns the active branches, so we auto-pick the first one.
-  // The "Select a store" picker was removed in the simplified UI.
+  // IN_STORE_QR requires a `branchId`. The employee must select
+  // from the branch picker when multiple active branches exist.
   const redeemMutation = useMutation({
     mutationFn: async () => {
       const branchId =
-        offer?.redemptionType === 'IN_STORE_QR' && offer.merchant.branches[0]
-          ? offer.merchant.branches[0].id
-          : null
-      const res = await fetch('/api/employee/redeem', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        offer?.redemptionType === "IN_STORE_QR" ? selectedBranchId : null;
+      const res = await fetch("/api/employee/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ offerId: offer?.id, branchId }),
-      })
-      const json = await res.json()
+      });
+      const json = await res.json();
       if (!res.ok) {
-        throw new Error(json.error?.message ?? 'Failed to redeem')
+        throw new Error(json.error?.message ?? "Failed to redeem");
       }
-      return json
+      return json;
     },
     onSuccess: (json) => {
-      const data = json?.data as RedemptionResult | undefined
-      setHasRedeemed(true)
-      setRedemptionResult(data ?? null)
+      const data = json?.data as RedemptionResult | undefined;
+      setHasRedeemed(true);
+      setRedemptionResult(data ?? null);
 
       // Patch every cached offers list so the card flips to
       // "Already Redeemed" everywhere it's rendered.
       if (offer?.id) {
-        patchOffersListCache(queryClient, offer.id, { isRedeemed: true })
+        patchOffersListCache(queryClient, offer.id, { isRedeemed: true });
       }
 
       // Invalidate related queries so subsequent navigations see
       // fresh server data. We intentionally do NOT invalidate
       // ['employee-offers'] — we patched it in place.
-      queryClient.invalidateQueries({ queryKey: ['employee-redemptions'] })
-      queryClient.invalidateQueries({ queryKey: ['employee-dashboard-stats'] })
-      queryClient.invalidateQueries({ queryKey: ['employee-saved'] })
+      queryClient.invalidateQueries({ queryKey: ["employee-redemptions"] });
+      queryClient.invalidateQueries({ queryKey: ["employee-dashboard-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["employee-saved"] });
 
       showToast({
-        type: 'success',
-        title: 'Redemption submitted',
-        description: 'Your offer has been redeemed.',
-      })
+        type: "success",
+        title: "Redemption confirmed",
+        description: "Your offer has been redeemed successfully.",
+      });
     },
     onError: (err: any) =>
       showToast({
-        type: 'error',
-        title: 'Redemption failed',
-        description: err?.message ?? 'Please try again.',
+        type: "error",
+        title: "Redemption failed",
+        description: err?.message ?? "Please try again.",
       }),
-  })
+  });
 
   // ── Clipboard helper ──────────────────────────────────────
   function handleCopy(text: string) {
-    navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   // ── Render ────────────────────────────────────────────────
   // If the host passes `open` while there's no offer, stay closed
   // silently. This avoids briefly opening the modal during the
   // close → clear state → next open sequence.
-  if (!open || !offer) return null
+  if (!open || !offer) return null;
 
-  const o = offer
+  const o = offer;
 
   return (
     <div
@@ -425,8 +446,8 @@ export function RedeemModal({
                 <span className="ml-1">·</span>
                 <MapPin className="h-3 w-3 shrink-0" />
                 <span className="truncate">
-                  {o.merchant.city ?? '—'}
-                  {o.merchant.state ? `, ${o.merchant.state}` : ''}
+                  {o.merchant.city ?? "—"}
+                  {o.merchant.state ? `, ${o.merchant.state}` : ""}
                 </span>
               </div>
             </div>
@@ -444,7 +465,8 @@ export function RedeemModal({
               </Badge>
               {o.redemptionType && (
                 <Badge variant="outline">
-                  {REDEMPTION_METHOD_LABELS[o.redemptionType] ?? o.redemptionType}
+                  {REDEMPTION_METHOD_LABELS[o.redemptionType] ??
+                    o.redemptionType}
                 </Badge>
               )}
             </div>
@@ -488,7 +510,7 @@ export function RedeemModal({
               <div className="rounded-md border p-2 text-sm">
                 <p className="text-xs text-muted-foreground">Valid</p>
                 <p className="font-medium">
-                  {new Date(o.startDate).toLocaleDateString()} –{' '}
+                  {new Date(o.startDate).toLocaleDateString()} –{" "}
                   {new Date(o.endDate).toLocaleDateString()}
                 </p>
               </div>
@@ -526,20 +548,20 @@ export function RedeemModal({
             const days =
               Array.isArray(o.daysOfWeek) && o.daysOfWeek.length > 0
                 ? o.daysOfWeek
-                : [0, 1, 2, 3, 4, 5, 6]
-            const isEveryDay = days.length === 7
+                : [0, 1, 2, 3, 4, 5, 6];
+            const isEveryDay = days.length === 7;
             return (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Calendar className="h-4 w-4" />
                 <span>
                   {isEveryDay
-                    ? 'Available every day'
+                    ? "Available every day"
                     : `Available ${days
                         .map((d: number) => DAY_LABELS[d] ?? `D${d}`)
-                        .join(' • ')}`}
+                        .join(" • ")}`}
                 </span>
               </div>
-            )
+            );
           })()}
 
           {/* ── Terms & Conditions ──────────────────────────── */}
@@ -558,26 +580,87 @@ export function RedeemModal({
             </Card>
           )}
 
-          {/* ── Available branches (informational) ─────────── */}
-          {o.merchant.branches.length > 0 && (
+          {/* ── Available branches (informational, non-QR only) ─ */}
+          {o.redemptionType !== "IN_STORE_QR" &&
+            o.merchant.branches.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <MapPin className="h-4 w-4" /> Available at
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-2 text-sm">
+                    {o.merchant.branches.map((b) => (
+                      <li key={b.id} className="rounded-md border p-2">
+                        <p className="font-medium">{b.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {b.addressLine1}, {b.city}
+                          {b.state ? `, ${b.state}` : ""} · {b.branchType}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            )}
+
+          {/* ── IN_STORE_QR: Store location / branch picker ──── */}
+          {o.redemptionType === "IN_STORE_QR" && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <MapPin className="h-4 w-4" /> Available at
+                  <MapPin className="h-4 w-4" />{" "}
+                  {activeBranches.length === 1
+                    ? "Store Location"
+                    : "Select a Store"}
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ul className="space-y-2 text-sm">
-                  {o.merchant.branches.map((b) => (
-                    <li key={b.id} className="rounded-md border p-2">
-                      <p className="font-medium">{b.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {b.addressLine1}, {b.city}
-                        {b.state ? `, ${b.state}` : ''} · {b.branchType}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
+                {activeBranches.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No active store locations available for this offer.
+                  </p>
+                ) : activeBranches.length === 1 ? (
+                  <div className="rounded-md border bg-muted/30 p-4 space-y-1">
+                    <p className="font-semibold">{activeBranches[0]!.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {activeBranches[0]!.addressLine1},{" "}
+                      {activeBranches[0]!.city}
+                      {activeBranches[0]!.state
+                        ? `, ${activeBranches[0]!.state}`
+                        : ""}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {activeBranches[0]!.branchType}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">
+                      This merchant has {activeBranches.length} active
+                      locations. Choose one to redeem at:
+                    </p>
+                    {activeBranches.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => setSelectedBranchId(b.id)}
+                        className={`w-full rounded-md border p-3 text-left transition-colors ${
+                          selectedBranchId === b.id
+                            ? "border-primary bg-primary/5 ring-1 ring-primary"
+                            : "hover:bg-muted/50"
+                        }`}
+                      >
+                        <p className="font-medium">{b.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {b.addressLine1}, {b.city}
+                          {b.state ? `, ${b.state}` : ""} · {b.branchType}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -586,7 +669,21 @@ export function RedeemModal({
           {/*   REDEEM BUTTON — single source of the call.      */}
           {/* ──────────────────────────────────────────────── */}
           <div className="flex items-center gap-2">
-            {hasRedeemed ? (
+            {o.redemptionType === "IN_STORE_QR" ? (
+              hasRedeemed ? (
+                <Button size="lg" disabled className="w-full sm:w-auto">
+                  <CheckCircle2 className="mr-2 h-4 w-4" /> Already Redeemed
+                </Button>
+              ) : (
+                <div className="flex w-full items-center gap-2 rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  <Info className="h-4 w-4 shrink-0" />
+                  <span>
+                    This offer is redeemed by scanning the in-store QR code at
+                    checkout — no action needed here.
+                  </span>
+                </div>
+              )
+            ) : hasRedeemed ? (
               <Button size="lg" disabled className="w-full sm:w-auto">
                 <CheckCircle2 className="mr-2 h-4 w-4" /> Already Redeemed
               </Button>
@@ -595,8 +692,8 @@ export function RedeemModal({
                 size="lg"
                 disabled={!canRedeem || redeemMutation.isPending}
                 onClick={() => {
-                  if (offer?.id) recordView(offer.id)
-                  redeemMutation.mutate()
+                  if (offer?.id) recordView(offer.id);
+                  redeemMutation.mutate();
                 }}
                 className="w-full sm:w-auto"
               >
@@ -619,7 +716,7 @@ export function RedeemModal({
           {/* ──────────────────────────────────────────────── */}
           {hasRedeemed && (
             <>
-              {o.redemptionType === 'ONLINE_CODE' && (
+              {o.redemptionType === "ONLINE_CODE" && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Your Offer Code</CardTitle>
@@ -639,12 +736,12 @@ export function RedeemModal({
                         size="sm"
                         onClick={() => {
                           const code =
-                            redemptionResult?.offerCode ?? o.offerCode
-                          if (code) handleCopy(code)
+                            redemptionResult?.offerCode ?? o.offerCode;
+                          if (code) handleCopy(code);
                         }}
                       >
                         <Copy className="mr-1 h-4 w-4" />
-                        {copied ? 'Copied!' : 'Copy Code'}
+                        {copied ? "Copied!" : "Copy Code"}
                       </Button>
                     </div>
                     {(redemptionResult?.merchantWebsite ?? o.bookingUrl) && (
@@ -672,7 +769,7 @@ export function RedeemModal({
                 </Card>
               )}
 
-              {o.redemptionType === 'BOOKING_LINK' && (
+              {o.redemptionType === "BOOKING_LINK" && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Book This Offer</CardTitle>
@@ -701,10 +798,12 @@ export function RedeemModal({
                 </Card>
               )}
 
-              {o.redemptionType === 'IN_STORE_QR' && (
+              {o.redemptionType === "IN_STORE_QR" && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">Redeem In-Store</CardTitle>
+                    <CardTitle className="text-base">
+                      Redemption Confirmed
+                    </CardTitle>
                   </CardHeader>
                   <CardContent>
                     {redemptionResult?.branch ? (
@@ -717,16 +816,16 @@ export function RedeemModal({
                             {redemptionResult.branch.addressLine1}
                             {redemptionResult.branch.addressLine2
                               ? `, ${redemptionResult.branch.addressLine2}`
-                              : ''}
+                              : ""}
                             {redemptionResult.branch.city
                               ? `, ${redemptionResult.branch.city}`
-                              : ''}
+                              : ""}
                             {redemptionResult.branch.state
                               ? `, ${redemptionResult.branch.state}`
-                              : ''}
+                              : ""}
                             {redemptionResult.branch.postalCode
                               ? ` ${redemptionResult.branch.postalCode}`
-                              : ''}
+                              : ""}
                           </p>
                           {redemptionResult.branch.phone && (
                             <p className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -741,11 +840,15 @@ export function RedeemModal({
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                             >
-                              <MapPin className="h-4 w-4" /> Open in Google
-                              Maps
+                              <MapPin className="h-4 w-4" /> Open in Google Maps
                             </a>
                           )}
                         </div>
+                        <p className="text-sm text-muted-foreground">
+                          Your redemption is confirmed. Show the redemption code
+                          in your My Redemptions list to store staff as proof of
+                          redemption.
+                        </p>
                         {redemptionResult.instructions && (
                           <p className="text-sm text-muted-foreground">
                             {redemptionResult.instructions}
@@ -754,9 +857,73 @@ export function RedeemModal({
                       </div>
                     ) : (
                       <p className="text-sm text-muted-foreground">
-                        Visit the merchant location to complete your
-                        in-store redemption. Your redemption code is
-                        available in the My Redemptions list.
+                        Your redemption is confirmed. Show the redemption code
+                        in your My Redemptions list to store staff as proof of
+                        redemption.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {o.redemptionType === "VIRTUAL_CARD_AUTO_VERIFY" && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <CreditCard className="h-4 w-4" /> Your Virtual Card
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {redemptionResult?.virtualCard ? (
+                      <div className="rounded-xl bg-gradient-to-br from-primary to-primary/70 p-5 text-primary-foreground shadow-lg">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-xs uppercase tracking-wider opacity-80">
+                              {redemptionResult.virtualCard.merchantName}
+                            </p>
+                            <p className="truncate font-semibold">
+                              {redemptionResult.virtualCard.offerTitle}
+                            </p>
+                          </div>
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-medium">
+                            <CheckCircle2 className="h-3 w-3" /> Verified
+                          </span>
+                        </div>
+                        <p className="mt-5 font-mono text-2xl font-bold tracking-widest">
+                          {redemptionResult.virtualCard.code ?? "—"}
+                        </p>
+                        <div className="mt-4 flex items-end justify-between gap-2 text-sm">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">
+                              {redemptionResult.virtualCard.holderName}
+                            </p>
+                            <p className="truncate text-xs opacity-80">
+                              {redemptionResult.virtualCard.companyName ?? ""}
+                              {redemptionResult.virtualCard.employeeNumber
+                                ? ` · #${redemptionResult.virtualCard.employeeNumber}`
+                                : ""}
+                            </p>
+                          </div>
+                          <p className="shrink-0 text-xs opacity-80">
+                            {new Date(
+                              redemptionResult.virtualCard.issuedAt,
+                            ).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Your redemption is verified. Your virtual card and code
+                        are available in your My Redemptions list.
+                      </p>
+                    )}
+                    <p className="text-sm text-muted-foreground">
+                      Show this card to store staff. Your redemption has been
+                      verified automatically.
+                    </p>
+                    {redemptionResult?.instructions && (
+                      <p className="text-sm text-muted-foreground">
+                        {redemptionResult.instructions}
                       </p>
                     )}
                   </CardContent>
@@ -767,14 +934,13 @@ export function RedeemModal({
                   shown if the API returned instructions but no
                   type-specific card above already displayed them. */}
               {redemptionResult?.instructions &&
-                o.redemptionType !== 'ONLINE_CODE' &&
-                o.redemptionType !== 'BOOKING_LINK' &&
-                o.redemptionType !== 'IN_STORE_QR' && (
+                o.redemptionType !== "ONLINE_CODE" &&
+                o.redemptionType !== "BOOKING_LINK" &&
+                o.redemptionType !== "IN_STORE_QR" &&
+                o.redemptionType !== "VIRTUAL_CARD_AUTO_VERIFY" && (
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-base">
-                        How to redeem
-                      </CardTitle>
+                      <CardTitle className="text-base">How to redeem</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <p className="whitespace-pre-wrap text-sm text-muted-foreground">
@@ -785,7 +951,7 @@ export function RedeemModal({
                 )}
 
               {/* ── Review this merchant ─────────────────── */}
-              <Card>
+              {/* <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
@@ -846,13 +1012,13 @@ export function RedeemModal({
                     </p>
                   )}
                 </CardContent>
-              </Card>
+              </Card> */}
             </>
           )}
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 /* Sparkles is a small icon not in the lucide-react default bundle
@@ -878,5 +1044,5 @@ function SparklesIcon() {
       <path d="M4 17v2" />
       <path d="M5 18H3" />
     </svg>
-  )
+  );
 }

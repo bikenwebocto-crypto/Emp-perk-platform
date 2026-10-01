@@ -191,7 +191,7 @@ export function buildMerchantAnalyticsConfig(
       {
         key: 'avgDiscount',
         label: 'Avg Discount',
-        value: `£${summary.averageDiscount.toFixed(2)}`,
+        value: `€${summary.averageDiscount.toFixed(2)}`,
         icon: Tag,
         color: 'from-rose-500 to-red-600',
         bg: 'bg-rose-100 dark:bg-rose-950/40',
@@ -200,7 +200,7 @@ export function buildMerchantAnalyticsConfig(
       {
         key: 'avgSavings',
         label: 'Avg Savings',
-        value: `£${summary.averageSavings.toFixed(2)}`,
+        value: `€${summary.averageSavings.toFixed(2)}`,
         icon: Sparkles,
         color: 'from-fuchsia-500 to-pink-600',
         bg: 'bg-fuchsia-100 dark:bg-fuchsia-950/40',

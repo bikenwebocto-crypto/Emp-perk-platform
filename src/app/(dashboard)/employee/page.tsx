@@ -116,7 +116,7 @@ export default function EmployeeHomePage() {
           />
           <StatCard
             title="Total Saved"
-            value={stats ? `£${stats.data.totalSavings.toFixed(2)}` : '£0.00'}
+            value={stats ? `€${stats.data.totalSavings.toFixed(2)}` : '€0.00'}
             subtitle={stats ? `${stats.data.redemptions.thisMonth} this month` : ''}
             icon={TrendingUp}
             color="text-green-600"

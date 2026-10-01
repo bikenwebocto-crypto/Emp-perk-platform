@@ -40,21 +40,33 @@ export interface ImportPreview {
   bodyHash: string
 }
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+/**
+ * Parses a CSV body into rows keyed by lower-cased header. Handles a
+ * UTF-8 BOM, CRLF/LF line endings, quoted fields and blank lines.
+ * `rowNumber` is the physical CSV line the record ends on (header = 1),
+ * so it stays accurate when blank lines are skipped.
+ */
 export async function parseCsvBody(csv: string): Promise<ParsedCsvRow[]> {
   if (!csv.trim()) return []
-  const records: Record<string, string>[] = parse(csv, {
+  const records: { record: Record<string, string>; info: { lines: number } }[] = parse(csv, {
+    bom: true,
     columns: (header: string[]) => header.map((h) => h.trim().toLowerCase()),
     skip_empty_lines: true,
     trim: true,
     relax_column_count: true,
+    info: true,
   })
-  return records.map((raw, idx) => ({ rowNumber: idx + 2, raw }))
+  return records.map(({ record, info }) => ({ rowNumber: info.lines, raw: record }))
 }
 
-function normalize(value: string | undefined): string {
+export function normalize(value: string | undefined | null): string {
   return (value ?? '').trim()
+}
+
+export function normalizeEmail(value: string | undefined | null): string {
+  return normalize(value).toLowerCase()
 }
 
 export async function validateRows(
@@ -73,7 +85,7 @@ export async function validateRows(
   for (const row of rows) {
     const firstName = normalize(row.raw.firstname)
     const lastName = normalize(row.raw.lastname)
-    const email = normalize(row.raw.email).toLowerCase()
+    const email = normalizeEmail(row.raw.email)
     const department = normalize(row.raw.department) || null
     const jobTitle = normalize(row.raw.jobtitle) || null
 

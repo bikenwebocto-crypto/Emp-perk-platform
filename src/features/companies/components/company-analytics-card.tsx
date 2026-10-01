@@ -186,13 +186,13 @@ export function CompanyAnalyticsCard({ company }: CompanyAnalyticsCardProps) {
             <MiniStat
               icon={TrendingUp}
               label="Avg Save"
-              value={`£${statistics.averageSavings.toFixed(2)}`}
+              value={`€${statistics.averageSavings.toFixed(2)}`}
               color="text-amber-600"
             />
             <MiniStat
               icon={Sparkles}
               label="Monthly"
-              value={`£${statistics.monthlySavings.toFixed(2)}`}
+              value={`€${statistics.monthlySavings.toFixed(2)}`}
               color="text-emerald-600"
             />
             <MiniStat

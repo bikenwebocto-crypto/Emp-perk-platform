@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
       }),
       prisma.$queryRaw<{ date: string; total: number }[]>`
         SELECT DATE("redeemedAt") as date, COUNT(*)::int as total
-        FROM "Redemption"
+        FROM "redemptions"
         WHERE "companyId" = ${company.id}::uuid
           AND "redeemedAt" >= ${dateFrom} AND "redeemedAt" <= ${dateTo}
         GROUP BY DATE("redeemedAt")

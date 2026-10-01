@@ -16,6 +16,7 @@
 // visibility time) by counting the employee's existing redemptions for the offer.
 
 import { prisma } from '@/lib/prisma'
+import { deriveCapacityStatus } from '@/lib/redemption-tracking'
 
 export interface OfferVisibilityResult {
   visible: boolean
@@ -110,16 +111,12 @@ export async function checkRedemptionEligibility(
     where: { id: offerId, deletedAt: null },
     select: {
       id: true,
-      redemption: { select: { maxRedemptions: true, currentRedemptions: true } },
+      capacity: { select: { maxRedemptions: true, redeemedCount: true } },
     },
   })
   if (!offer) return { eligible: false, reason: 'Offer not found' }
 
-  if (
-    offer.redemption?.maxRedemptions != null &&
-    offer.redemption?.maxRedemptions > 0 &&
-    (offer.redemption?.currentRedemptions ?? 0) >= offer.redemption!.maxRedemptions
-  ) {
+  if (deriveCapacityStatus(offer.capacity) === 'ENDED') {
     return { eligible: false, reason: 'Offer usage limit reached' }
   }
 

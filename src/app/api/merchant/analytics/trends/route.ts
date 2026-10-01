@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { getMerchantFromSession } from '@/lib/merchant-session'
+import { calcConversionRate } from '@/lib/analytics/conversion'
 
 function unauthorized() {
   return NextResponse.json(
@@ -25,6 +26,12 @@ function internalError(error: unknown) {
   )
 }
 
+function parseDays(value: string | null): number {
+  const n = Number.parseInt(value ?? '', 10)
+  if (!Number.isFinite(n)) return 30
+  return Math.min(365, Math.max(1, n))
+}
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser()
@@ -33,7 +40,7 @@ export async function GET(request: NextRequest) {
     if (!merchant) return notFound()
 
     const { searchParams } = new URL(request.url)
-    const days = Math.min(365, Math.max(1, parseInt(searchParams.get('days') ?? '30')))
+    const days = parseDays(searchParams.get('days'))
 
     const dateFrom = new Date()
     dateFrom.setDate(dateFrom.getDate() - days)
@@ -55,17 +62,21 @@ export async function GET(request: NextRequest) {
         date: { gte: dateFrom },
       },
       _sum: { views: true, redemptions: true, revenueGenerated: true },
-      _avg: { conversionRate: true },
+      // removed: _avg: { conversionRate: true }  ← averaging percentages is wrong
       orderBy: { date: 'asc' },
     })
 
-    const data = trends.map((t) => ({
-      date: t.date,
-      views: t._sum.views ?? 0,
-      redemptions: t._sum.redemptions ?? 0,
-      revenueGenerated: Number(t._sum.revenueGenerated ?? 0),
-      conversionRate: t._avg.conversionRate ?? null,
-    }))
+    const data = trends.map((t) => {
+      const views = t._sum.views ?? 0
+      const redemptions = t._sum.redemptions ?? 0
+      return {
+        date: t.date,
+        views,
+        redemptions,
+        revenueGenerated: Number(t._sum.revenueGenerated ?? 0),
+        conversionRate: calcConversionRate(redemptions, views), // sum ÷ sum
+      }
+    })
 
     return NextResponse.json({ success: true, data })
   } catch (error) {

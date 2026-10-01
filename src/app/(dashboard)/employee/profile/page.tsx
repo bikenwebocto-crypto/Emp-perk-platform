@@ -9,7 +9,16 @@ import { LoadingButton } from '@/components/ui/loading-button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmployeeLayout } from '@/components/employee/EmployeeLayout'
 import { showToast } from '@/hooks/use-toast'
-import { UserCircle, Save, Building2, Mail, Phone } from 'lucide-react'
+import { UserCircle, Save, Building2, Mail, Phone, MapPin } from 'lucide-react'
+
+interface AddressInfo {
+  addressLine1: string | null
+  addressLine2: string | null
+  city: string | null
+  state: string | null
+  postalCode: string | null
+  country: string | null
+}
 
 interface Profile {
   id: string
@@ -22,6 +31,7 @@ interface Profile {
   avatarUrl: string | null
   employeeId: string | null
   status: string
+  address: AddressInfo | null
   company: { id: string; name: string; approvedDomain: string | null } | null
 }
 
@@ -31,6 +41,15 @@ async function fetchProfile(): Promise<{ data: Profile }> {
   if (!res.ok) throw new Error(json.error?.message ?? 'Failed to load')
   return json
 }
+
+const ADDRESS_KEYS: (keyof AddressInfo)[] = [
+  'addressLine1',
+  'addressLine2',
+  'city',
+  'state',
+  'postalCode',
+  'country',
+]
 
 export default function EmployeeProfilePage() {
   const { data, isLoading } = useQuery({
@@ -71,19 +90,56 @@ export default function EmployeeProfilePage() {
   const setField = (k: string, v: unknown) =>
     setForm((prev) => ({ ...(prev ?? profile), [k]: v } as any))
 
+  const setAddressField = (k: keyof AddressInfo, v: string) =>
+    setForm((prev) => {
+      const base = prev ?? profile
+      return {
+        ...base,
+        address: {
+          ...(base.address ?? {}),
+          [k]: v,
+        },
+      } as any
+    })
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const payload: Record<string, unknown> = {}
+
+    // Personal fields
     for (const f of ['firstName', 'lastName', 'phone', 'jobTitle', 'department', 'avatarUrl']) {
       const a = (profile as any)[f]
       const b = (values as any)[f]
       if (JSON.stringify(a ?? null) !== JSON.stringify(b ?? null)) payload[f] = b
     }
+
+    // Address fields — send as nested { address: { ...changed } }
+    const addressChanges: Record<string, unknown> = {}
+    const profAddr = profile.address ?? {}
+    const valAddr = values.address ?? {}
+    for (const f of ADDRESS_KEYS) {
+      const a = (profAddr as any)[f] ?? null
+      const b = (valAddr as any)[f] ?? null
+      if (JSON.stringify(a) !== JSON.stringify(b)) addressChanges[f] = b
+    }
+    if (Object.keys(addressChanges).length > 0) {
+      payload.address = addressChanges
+    }
+
     if (Object.keys(payload).length === 0) {
       showToast({ type: 'info', title: 'No changes to save' })
       return
     }
     update.mutate(payload)
+  }
+
+  const addr: AddressInfo = values.address ?? {
+    addressLine1: null,
+    addressLine2: null,
+    city: null,
+    state: null,
+    postalCode: null,
+    country: null,
   }
 
   return (
@@ -178,6 +234,66 @@ export default function EmployeeProfilePage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 Email cannot be changed here. Contact your company admin.
               </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MapPin className="h-4 w-4" /> Address
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Address Line 1
+              </label>
+              <Input
+                value={addr.addressLine1 ?? ''}
+                onChange={(e) => setAddressField('addressLine1', e.target.value)}
+                placeholder="Street address, P.O. box, company name"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Address Line 2
+              </label>
+              <Input
+                value={addr.addressLine2 ?? ''}
+                onChange={(e) => setAddressField('addressLine2', e.target.value)}
+                placeholder="Apartment, suite, unit, building, floor"
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">City</label>
+                <Input
+                  value={addr.city ?? ''}
+                  onChange={(e) => setAddressField('city', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">State</label>
+                <Input
+                  value={addr.state ?? ''}
+                  onChange={(e) => setAddressField('state', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">Postal Code</label>
+                <Input
+                  value={addr.postalCode ?? ''}
+                  onChange={(e) => setAddressField('postalCode', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">Country</label>
+                <Input
+                  value={addr.country ?? ''}
+                  onChange={(e) => setAddressField('country', e.target.value)}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>

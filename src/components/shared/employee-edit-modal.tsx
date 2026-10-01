@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { Input } from '@/components/ui/input'
 import { showToast } from '@/hooks/use-toast'
-import { X, Save } from 'lucide-react'
+import { uploadImage, EMPLOYEE_AVATAR_OPTIONS } from '@/lib/upload/image'
+import { X, Save, Upload, Loader2, User } from 'lucide-react'
 
 export interface EmployeeEditFormData {
   firstName: string
@@ -16,6 +17,7 @@ export interface EmployeeEditFormData {
   jobTitle: string
   phone: string
   status?: string
+  avatarUrl?: string | null
 }
 
 export interface EmployeeEditModalProps {
@@ -26,6 +28,9 @@ export interface EmployeeEditModalProps {
   scope: 'admin' | 'company'
   saving?: boolean
 }
+
+const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+const MAX_SIZE = 5 * 1024 * 1024 // 5 MB
 
 export function EmployeeEditModal({
   open,
@@ -44,8 +49,15 @@ export function EmployeeEditModal({
     jobTitle: '',
     phone: '',
     status: 'ACTIVE',
+    avatarUrl: null,
   })
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null)
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null)
+  const [avatarUploading, setAvatarUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const previewUrlRef = useRef<string | null>(null)
 
+  // Sync form when modal opens; clear pending avatar state
   useEffect(() => {
     if (open && employee) {
       setForm({
@@ -57,9 +69,25 @@ export function EmployeeEditModal({
         jobTitle: employee.jobTitle ?? '',
         phone: employee.phone ?? '',
         status: employee.status ?? 'ACTIVE',
+        avatarUrl: employee.avatarUrl ?? null,
       })
+      setPendingAvatarFile(null)
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current)
+        previewUrlRef.current = null
+      }
+      setAvatarPreviewUrl(null)
     }
   }, [open, employee])
+
+  // Revoke object URL on unmount
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current)
+      }
+    }
+  }, [])
 
   if (!open) return null
 
@@ -68,6 +96,41 @@ export function EmployeeEditModal({
   const update = (field: keyof EmployeeEditFormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setForm((f) => ({ ...f, [field]: e.target.value }))
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!ACCEPTED_TYPES.includes(file.type)) {
+      showToast({ type: 'error', title: 'Invalid file type', description: 'Please upload a JPEG, PNG, or WebP image.' })
+      return
+    }
+    if (file.size > MAX_SIZE) {
+      showToast({ type: 'error', title: 'File too large', description: 'Avatar must be 5 MB or smaller.' })
+      return
+    }
+
+    // Revoke previous preview URL if any
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+    }
+    const objectUrl = URL.createObjectURL(file)
+    previewUrlRef.current = objectUrl
+    setAvatarPreviewUrl(objectUrl)
+    setPendingAvatarFile(file)
+
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleRemoveAvatar = () => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = null
+    }
+    setAvatarPreviewUrl(null)
+    setPendingAvatarFile(null)
+    setForm((f) => ({ ...f, avatarUrl: null }))
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -89,6 +152,22 @@ export function EmployeeEditModal({
       phone: form.phone.trim() || undefined,
     }
 
+    // Upload pending avatar file NOW (on save, not on select)
+    if (pendingAvatarFile) {
+      setAvatarUploading(true)
+      try {
+        const url = await uploadImage(pendingAvatarFile, EMPLOYEE_AVATAR_OPTIONS)
+        payload.avatarUrl = url
+      } catch (err: any) {
+        showToast({ type: 'error', title: 'Avatar upload failed', description: err?.message ?? 'Failed to upload avatar.' })
+        setAvatarUploading(false)
+        return
+      }
+      setAvatarUploading(false)
+    } else if (form.avatarUrl !== (employee.avatarUrl ?? null)) {
+      payload.avatarUrl = form.avatarUrl
+    }
+
     if (isAdmin) {
       if (form.email?.trim()) payload.email = form.email.trim()
       if (form.status) payload.status = form.status
@@ -107,13 +186,16 @@ export function EmployeeEditModal({
     }
   }
 
+  // Show local preview if a file was just selected, otherwise the saved avatarUrl
+  const displayAvatarUrl = avatarPreviewUrl ?? form.avatarUrl
+  console.log('displayAvatarUrl:', form)
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={onClose}
     >
       <div
-        className="mx-4 w-full max-w-lg rounded-lg border bg-card p-6 shadow-lg"
+        className="mx-4 w-full max-w-lg rounded-lg border bg-card p-6 shadow-lg max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
@@ -136,6 +218,70 @@ export function EmployeeEditModal({
         </div>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+          {/* Avatar */}
+          <div className="flex items-center gap-4">
+            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border bg-muted">
+              {displayAvatarUrl ? (
+                <img
+                  src={displayAvatarUrl}
+                  alt="avatar"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <User className="h-6 w-6 text-muted-foreground" />
+              )}
+            </div>
+            <div className="flex-1">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Avatar
+              </label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ACCEPTED_TYPES.join(',')}
+                onChange={handleAvatarChange}
+                disabled={avatarUploading || saving}
+                className="hidden"
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={avatarUploading || saving}
+                >
+                  {avatarUploading ? (
+                    <>
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="mr-1 h-3 w-3" />
+                      {displayAvatarUrl ? 'Change Avatar' : 'Upload Avatar'}
+                    </>
+                  )}
+                </Button>
+                {displayAvatarUrl && !avatarUploading && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRemoveAvatar}
+                    disabled={saving}
+                    className="text-muted-foreground"
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                JPEG, PNG, or WebP. Max 5 MB. Uploaded on save.
+              </p>
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">
@@ -242,10 +388,10 @@ export function EmployeeEditModal({
           )}
 
           <div className="mt-6 flex items-center justify-end gap-3 border-t pt-4">
-            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving || avatarUploading}>
               Cancel
             </Button>
-            <LoadingButton type="submit" loading={saving} loadingText="Saving...">
+            <LoadingButton type="submit" loading={saving || avatarUploading} loadingText={avatarUploading ? 'Uploading...' : 'Saving...'}>
               <Save className="mr-1 h-4 w-4" />
               Save Changes
             </LoadingButton>

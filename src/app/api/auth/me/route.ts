@@ -66,6 +66,7 @@ export async function GET() {
         userType: user.userType,
         role: user.role,
         companyName: user.companyName,
+        companyId: user.companyId ?? null,
         avatarUrl,
       },
     })

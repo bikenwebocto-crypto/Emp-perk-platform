@@ -29,6 +29,8 @@ import { StatusBadge } from '@/components/shared/status-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MerchantActionsMenu } from './merchant-actions-menu'
 import type { MerchantDashboardRow, MerchantHealth, TableSortConfig } from '@/types'
+import flags from 'react-phone-number-input/flags'
+import { formatPhone, phoneCountry } from '@/lib/phone'
 
 interface MerchantOperationsTableProps {
   data: MerchantDashboardRow[]
@@ -42,6 +44,7 @@ interface MerchantOperationsTableProps {
   onSuspend?: (id: string, reason: string) => void
   onActivate?: (id: string) => void
   onPause?: (id: string) => void
+  onResume?: (id: string) => void  
   onToggleFeatured?: (id: string, value: boolean) => void
   onToggleHomepage?: (id: string, value: boolean) => void
   onChangePriority?: (id: string, value: number) => void
@@ -49,6 +52,22 @@ interface MerchantOperationsTableProps {
 }
 
 // ---- Helpers ----------------------------------------------------------------
+
+function PhoneCell({ value }: { value: string | null | undefined }) {
+  if (!value) return <span className="text-muted-foreground/40">—</span>
+  const country = phoneCountry(value)
+  const Flag = country ? flags[country] : undefined
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {Flag && country && (
+        <span className="inline-block w-4 shrink-0 [&>svg]:h-auto [&>svg]:w-full">
+          <Flag title={country} />
+        </span>
+      )}
+      {formatPhone(value)}
+    </span>
+  )
+}
 
 function formatRelative(date: string | null | undefined): string {
   if (!date) return '—'
@@ -211,6 +230,7 @@ export function MerchantOperationsTable({
   onSuspend,
   onActivate,
   onPause,
+  onResume,
   onToggleFeatured,
   onToggleHomepage,
   onChangePriority,
@@ -241,8 +261,8 @@ export function MerchantOperationsTable({
       {/* ============================================================ */}
       {/* DESKTOP & TABLET (lg+) — full operations table               */}
       {/* ============================================================ */}
-      <div className="hidden overflow-x-auto rounded-lg border bg-card shadow-sm lg:block">
-        <table className="w-full text-sm">
+      <div className="hidden overflow-x-auto rounded-lg border bg-card shadow-sm [scrollbar-width:thin] lg:block">
+        <table className="w-full min-w-[1280px] whitespace-nowrap text-sm [&_td]:px-2 [&_th]:px-2 [&_th]:pt-3">
           <thead>
             <tr className="border-b bg-muted/30">
               <th className="w-12 px-2"></th>
@@ -251,10 +271,11 @@ export function MerchantOperationsTable({
               <SortHeader label="Priority" sortKey="priority" currentSort={sortConfig} onSort={onSortChange} align="center" />
               <th className="px-2 pb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Flags</th>
               <SortHeader label="City" sortKey="city" currentSort={sortConfig} onSort={onSortChange} />
+              <th className="px-2 pb-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Phone</th>
               <th className="px-2 pb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Offers</th>
               <SortHeader label="Engagement" sortKey="views" currentSort={sortConfig} onSort={onSortChange} align="center" />
               <SortHeader label="Redeemed" sortKey="redemptions" currentSort={sortConfig} onSort={onSortChange} align="center" />
-              <SortHeader label="Conversion" sortKey="redemptions" currentSort={sortConfig} onSort={onSortChange} align="center" />
+              {/* <SortHeader label="Conversion" sortKey="redemptions" currentSort={sortConfig} onSort={onSortChange} align="center" /> */}
               <th className="px-2 pb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Network</th>
               <th className="px-2 pb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Health</th>
               <SortHeader label="Last activity" sortKey="lastActivity" currentSort={sortConfig} onSort={onSortChange} align="center" />
@@ -325,6 +346,11 @@ export function MerchantOperationsTable({
                   {row.city ?? <span className="text-muted-foreground/40">—</span>}
                 </td>
 
+                {/* Phone */}
+                <td className="py-3 text-xs text-muted-foreground">
+                  <PhoneCell value={row.contactPhone} />
+                </td>
+
                 {/* Offers (Live / Pending / Archived / Rejected) */}
                 <td className="py-3">
                   <div className="flex items-center justify-center gap-1.5">
@@ -369,7 +395,7 @@ export function MerchantOperationsTable({
                 </td>
 
                 {/* Conversion */}
-                <td className="py-3 text-center">
+                {/* <td className="py-3 text-center">
                   {row.engagement.conversion === null ? (
                     <span className="text-muted-foreground/40 text-sm">--</span>
                   ) : (
@@ -381,7 +407,7 @@ export function MerchantOperationsTable({
                       {formatPercent(row.engagement.conversion)}
                     </span>
                   )}
-                </td>
+                </td> */}
 
                 {/* Network: companies, employees, branches */}
                 <td className="py-3">
@@ -432,6 +458,7 @@ export function MerchantOperationsTable({
                     onSuspend={onSuspend}
                     onActivate={onActivate}
                     onPause={onPause}
+                    onResume={onResume}
                     onToggleFeatured={onToggleFeatured}
                     onToggleHomepage={onToggleHomepage}
                     onChangePriority={onChangePriority}
@@ -447,8 +474,8 @@ export function MerchantOperationsTable({
       {/* ============================================================ */}
       {/* TABLET (sm to lg) — condensed table                          */}
       {/* ============================================================ */}
-      <div className="hidden overflow-x-auto rounded-lg border bg-card shadow-sm sm:block lg:hidden">
-        <table className="w-full text-sm">
+      <div className="hidden overflow-x-auto rounded-lg border bg-card shadow-sm [scrollbar-width:thin] sm:block lg:hidden">
+        <table className="w-full min-w-[640px] whitespace-nowrap text-sm [&_td]:px-2 [&_th]:px-2 [&_th]:pt-3">
           <thead>
             <tr className="border-b bg-muted/30">
               <th className="w-10 px-2"></th>
@@ -534,6 +561,7 @@ export function MerchantOperationsTable({
                     onSuspend={onSuspend}
                     onActivate={onActivate}
                     onPause={onPause}
+                    onResume={onResume}
                     onToggleFeatured={onToggleFeatured}
                     onToggleHomepage={onToggleHomepage}
                     onChangePriority={onChangePriority}
@@ -561,6 +589,7 @@ export function MerchantOperationsTable({
             onSuspend={onSuspend}
             onActivate={onActivate}
             onPause={onPause}
+            onResume={onResume}
             onToggleFeatured={onToggleFeatured}
             onToggleHomepage={onToggleHomepage}
             onChangePriority={onChangePriority}
@@ -583,6 +612,7 @@ interface MerchantMobileCardProps {
   onSuspend?: (id: string, reason: string) => void
   onActivate?: (id: string) => void
   onPause?: (id: string) => void
+  onResume?: (id: string) => void
   onToggleFeatured?: (id: string, value: boolean) => void
   onToggleHomepage?: (id: string, value: boolean) => void
   onChangePriority?: (id: string, value: number) => void
@@ -596,7 +626,7 @@ function MerchantMobileCard({
 }: MerchantMobileCardProps) {
   return (
     <div
-      className="rounded-lg border bg-card p-3 shadow-sm"
+      className="cursor-pointer rounded-lg border bg-card p-3 shadow-sm"
       onClick={() => onRowClick?.(row.id)}
     >
       <div className="flex items-start gap-3">
@@ -620,7 +650,9 @@ function MerchantMobileCard({
                 </p>
               )}
             </div>
-            <MerchantActionsMenu row={row} {...actionProps} />
+            <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+              <MerchantActionsMenu row={row} {...actionProps} />
+            </div>
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -648,7 +680,7 @@ function MerchantMobileCard({
             </div>
           </div>
 
-          <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
             <span className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
               Last activity {formatRelative(row.lastActivityAt)}

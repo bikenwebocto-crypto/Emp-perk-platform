@@ -20,7 +20,6 @@ export default function ReplaceOfferPage({ params }: { params: Promise<{ id: str
       currentLiveOffer={{ id: offer.id, title: offer.title }}
       initialData={{
         offerType: offer.offerType ?? 'FLAT',
-        categoryId: offer.categoryId ?? '',
       }}
     />
   )

@@ -12,6 +12,8 @@ import { createAuditLog } from "@/services/audit-log.service";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { createPerfTimer } from "@/lib/perf";
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessToAdmins } from '@/services/business-notification.service';
+import { getPriorityForType } from '@/features/complaints/constants';
+import { sanitizeEvidenceUrls } from '@/features/complaints/evidence';
 
 const VALID_TYPES = [
   "MISLEADING",
@@ -19,7 +21,6 @@ const VALID_TYPES = [
   "NON_FUNCTIONAL",
   "POLICY_VIOLATION",
 ] as const;
-const VALID_PRIORITIES = ["LOW", "MEDIUM", "HIGH"] as const;
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,8 +29,8 @@ export async function POST(request: NextRequest) {
     if ("inactive" in employee) return companyInactive(employee.companyStatus);
 
     const body = await request.json();
-    const { offerId, complaintType, description, evidenceUrls, priority } =
-      body;
+    const { offerId, complaintType, description } = body;
+    const evidenceUrls = sanitizeEvidenceUrls(body.evidenceUrls);
 
     if (!offerId || !complaintType || !description) {
       return badRequest(
@@ -43,11 +44,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (priority && !VALID_PRIORITIES.includes(priority)) {
-      return badRequest(
-        "Invalid priority. Must be one of: " + VALID_PRIORITIES.join(", "),
-      );
-    }
+    const priority = getPriorityForType(complaintType);
 
     const offer = await prisma.merchantOffer.findUnique({
       where: { id: offerId },
@@ -68,8 +65,8 @@ export async function POST(request: NextRequest) {
           companyId: employee.companyId,
           complaintType,
           description,
-          evidenceUrls: evidenceUrls ?? null,
-          priority: priority ?? "MEDIUM",
+          ...(evidenceUrls.length > 0 ? { evidenceUrls } : {}),
+          priority,
         },
       });
 
@@ -146,10 +143,20 @@ export async function GET(request: NextRequest) {
           actions: { orderBy: { createdAt: "desc" }, take: 5 },
         };
         break;
+      case "COMPANY_ADMIN":
+        where = { companyId: user?.companyId };
+        include = {
+          offer: { select: { id: true, title: true } },
+          employee: { select: { id: true, firstName: true, lastName: true } },
+          actions: { orderBy: { createdAt: "desc" }, take: 5 },
+        };
+        break;
       case "ADMIN":
         return unauthorized();
     }
     if (status) where.status = status;
+    const category = searchParams.get("category");
+    if (category) where.category = category;
     timer.point(`param parse + switch: ${(performance.now() - tParams).toFixed(1)}ms`)
 
     timer.section('Database Queries')

@@ -16,7 +16,7 @@ const MAX_TITLE_LENGTH = 255;
 const MAX_DESCRIPTION_LENGTH = 2000;
 const MAX_SHORT_DESCRIPTION_LENGTH = 500;
 const ALLOWED_IMAGE_FORMATS = ["jpg", "jpeg", "png", "webp"];
-const VALID_REDEMPTION_TYPES = ['ONLINE_CODE', 'BOOKING_LINK', 'IN_STORE_QR'] as const;
+const VALID_REDEMPTION_TYPES = ['ONLINE_CODE', 'BOOKING_LINK', 'IN_STORE_QR', 'VIRTUAL_CARD_AUTO_VERIFY'] as const;
 const VALID_OFFER_TYPES = ['flat_rate', 'percentage', 'buy_x_get_y'] as const;
 
 function unauthorized() {
@@ -318,10 +318,14 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status");
     const q = searchParams.get("q");
     const scope = searchParams.get("scope");
+    const search = searchParams.get("search")?.trim();
 
     const where: any = { merchantId: merchant.id, deletedAt: null };
     if (status) where.status = status;
-    if (q)
+    if (search) {
+      // Offer selector search: title-only, case-insensitive, capped at 10.
+      where.title = { contains: search, mode: "insensitive" };
+    } else if (q)
       where.OR = [
         { title: { contains: q, mode: "insensitive" } },
         { content: { is: { description: { contains: q, mode: "insensitive" } } } },
@@ -334,12 +338,14 @@ export async function GET(request: NextRequest) {
       where.status = "ARCHIVED";
     }
 
+    const take = search ? Math.min(pageSize, 10) : pageSize;
+
     const [offers, total, currentLive] = await Promise.all([
       prisma.merchantOffer.findMany({
         where,
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * pageSize,
-        take: pageSize,
+        take,
         select: {
           id: true,
           title: true,
@@ -350,7 +356,7 @@ export async function GET(request: NextRequest) {
           _count: { select: { redemptions: true } },
           replacesOffer: { select: { id: true, title: true } },
           pricing: { select: { configuration: true } },
-          redemption: { select: { currentRedemptions: true, maxRedemptions: true } },
+          capacity: { select: { redeemedCount: true, maxRedemptions: true } },
           content: { select: { imageUrls: true } }
         },
       }),
@@ -437,6 +443,8 @@ export async function POST(request: NextRequest) {
       discountMax,
       discountPercent,
       minimumSpend,
+      isFeatured,
+      isExclusive,
       maxRedemptions,
       startDate,
       endDate,
@@ -541,7 +549,7 @@ export async function POST(request: NextRequest) {
     // Offer code generation is needed to build the redemption config inside
     // the transaction below, so it must stay synchronous/awaited.
     let offerCodeValue: string | null = null;
-    if (redemptionType === 'ONLINE_CODE') {
+    if (redemptionType === 'ONLINE_CODE' || redemptionType === 'VIRTUAL_CARD_AUTO_VERIFY') {
       offerCodeValue = await generateUniqueOfferCode();
     }
 
@@ -554,6 +562,9 @@ export async function POST(request: NextRequest) {
           categoryId: categoryId ?? null,
           title,
           offerType,
+          isFeatured: !!isFeatured,
+          isExclusive: !!isExclusive,
+          // redemption: redemptionType ?? null,
           status: targetStatus,
           startDate: new Date(startDate),
           endDate: new Date(endDate),
@@ -607,6 +618,9 @@ export async function POST(request: NextRequest) {
         redemptionConfig.instructions = redemptionInstructions ?? null;
       } else if (redemptionType === 'IN_STORE_QR') {
         redemptionConfig.instructions = redemptionInstructions ?? null;
+      } else if (redemptionType === 'VIRTUAL_CARD_AUTO_VERIFY') {
+        redemptionConfig.code = offerCodeValue;
+        redemptionConfig.instructions = redemptionInstructions ?? null;
       }
 
       await tx.offerRedemption.create({
@@ -617,6 +631,14 @@ export async function POST(request: NextRequest) {
           maxRedemptions: maxRedemptions ?? null,
           currentRedemptions: 0,
           daysOfWeek: daysOfWeek ?? [0, 1, 2, 3, 4, 5, 6],
+        },
+      });
+
+      await tx.offerRedemptionCapacity.create({
+        data: {
+          offerId: created.id,
+          maxRedemptions: maxRedemptions ?? null,
+          redeemedCount: 0,
         },
       });
 

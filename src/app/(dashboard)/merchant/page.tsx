@@ -55,44 +55,82 @@ interface DashboardData {
   }[]
 }
 
-const MOCK_DATA: DashboardData = {
-  businessName: 'PARK RUN CAFE',
-  stats: {
-    liveOffers: { value: 3, change: 1, trend: 'up' },
-    activeViews: { value: 5577, change: 12, trend: 'up' },
-    redemptionCount: { value: 434, change: 8, trend: 'up' },
-    monthlySavings: { value: '£3,240', change: 8, trend: 'up' },
-    activeBookings: { value: 2 },
-  },
-  redemptions: [
-    { code: 'PRK-A1B2C3', employee: { name: 'Sarah Johnson', initials: 'SJ' }, discount: '£5.00', time: '2m ago', status: 'verified' },
-    { code: 'PRK-D4E5F6', employee: { name: 'Mike Chen', initials: 'MC' }, discount: '£12.50', time: '15m ago', status: 'pending' },
-    { code: 'PRK-G7H8I9', employee: { name: 'Emma Wilson', initials: 'EW' }, discount: '£8.00', time: '1h ago', status: 'verified' },
-    { code: 'PRK-J1K2L3', employee: { name: 'Alex Brown', initials: 'AB' }, discount: '£20.00', time: '3h ago', status: 'verified' },
-  ],
-  activities: [
-    { type: 'redemption', title: 'Sarah Johnson redeemed 20% Off', description: 'Code PRK-A1B2C3 at Main Street branch', time: '2m ago' },
-    { type: 'offer', title: 'Offer views up 12% this week', description: 'Active offers received 245 more views than last week', time: '1h ago' },
-    { type: 'review', title: 'New 5-star review received', description: '"Great deals and easy to use!"', time: '3h ago' },
-    { type: 'alert', title: 'Offer expiring soon', description: '"Free Coffee with Breakfast" expires in 3 days', time: '5h ago' },
-  ],
+function formatCurrency(n: number) {
+  return `€${Number(n).toFixed(2)}`
 }
 
-const EMPTY_DATA: DashboardData = {
-  businessName: 'Your Business',
-  stats: {
-    liveOffers: { value: 0, change: 0, trend: 'up' },
-    activeViews: { value: 0, change: 0, trend: 'up' },
-    redemptionCount: { value: 0, change: 0, trend: 'up' },
-    monthlySavings: { value: '£0.00', change: 0, trend: 'up' },
-    activeBookings: { value: 0 },
-  },
-  redemptions: [],
-  activities: [],
+function timeAgo(date: string | Date) {
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(date).toLocaleDateString()
 }
 
-function fetchDashboard(): Promise<DashboardData> {
-  return new Promise((resolve) => setTimeout(() => resolve(MOCK_DATA), 600))
+async function fetchDashboard(): Promise<DashboardData> {
+  const [analyticsRes, overviewRes, redemptionsRes, profileRes] = await Promise.all([
+    fetch('/api/merchant/analytics/summary'),
+    fetch('/api/merchant/profile/business-overview'),
+    fetch('/api/merchant/redemptions?pageSize=5'),
+    fetch('/api/merchant/profile'),
+  ])
+
+  const analyticsJson = analyticsRes.ok ? await analyticsRes.json() : null
+  const overviewJson = overviewRes.ok ? await overviewRes.json() : null
+  const redemptionsJson = redemptionsRes.ok ? await redemptionsRes.json() : null
+  const profileJson = profileRes.ok ? await profileRes.json() : null
+
+  const summary = analyticsJson?.data?.summary
+  const topOffers: any[] = analyticsJson?.data?.topOffers ?? []
+  const banners = overviewJson?.data?.banners
+  const redemptionRows: any[] = redemptionsJson?.data ?? []
+  const businessName: string = profileJson?.data?.businessName ?? 'Your Business'
+
+  const totalViews = topOffers.reduce((sum: number, o: any) => sum + (o.views ?? 0), 0)
+
+  const redemptions = redemptionRows.map((r: any) => {
+    const employeeName = r.employee
+      ? `${r.employee.firstName ?? ''} ${r.employee.lastName ?? ''}`.trim()
+      : 'Unknown'
+    const initials = employeeName
+      .split(' ')
+      .map((s: string) => s[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join('')
+      .toUpperCase()
+    return {
+      code: r.redemptionCode ?? r.id?.slice(0, 8) ?? '',
+      employee: { name: employeeName, initials },
+      discount: formatCurrency(r.discountAmount ?? 0),
+      time: r.redeemedAt ? timeAgo(r.redeemedAt) : '',
+      status: (r.isVerified ? 'verified' : r.status === 'REJECTED' ? 'rejected' : 'pending') as 'verified' | 'pending' | 'rejected',
+    }
+  })
+
+  const activities = redemptions.slice(0, 4).map((r) => ({
+    type: 'redemption' as const,
+    title: `${r.employee.name} redeemed ${r.discount}`,
+    description: `Code ${r.code}`,
+    time: r.time,
+  }))
+
+  return {
+    businessName,
+    stats: {
+      liveOffers: { value: summary?.liveOffers ?? 0, change: 0, trend: 'up' },
+      activeViews: { value: totalViews, change: 0, trend: 'up' },
+      redemptionCount: { value: summary?.totalRedemptions ?? 0, change: 0, trend: 'up' },
+      monthlySavings: { value: formatCurrency(summary?.totalDiscount ?? 0), change: 0, trend: 'up' },
+      activeBookings: { value: banners?.active?.length ?? 0 },
+    },
+    redemptions,
+    activities,
+  }
 }
 
 interface DashboardStat {
@@ -144,9 +182,21 @@ export default function MerchantDashboard() {
     queryKey: ['merchant-dashboard'],
     queryFn: fetchDashboard,
     retry: false,
+    staleTime: 60_000,
   })
 
-  const d = data ?? EMPTY_DATA
+  const d = data ?? {
+    businessName: 'Your Business',
+    stats: {
+      liveOffers: { value: 0, change: 0, trend: 'up' as const },
+      activeViews: { value: 0, change: 0, trend: 'up' as const },
+      redemptionCount: { value: 0, change: 0, trend: 'up' as const },
+      monthlySavings: { value: '€0.00', change: 0, trend: 'up' as const },
+      activeBookings: { value: 0 },
+    },
+    redemptions: [],
+    activities: [],
+  }
   const s = d.stats
 
   return (

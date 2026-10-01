@@ -26,6 +26,7 @@ export async function GET(
             slug: true,
           },
         },
+        _count: { select: { offers: true, branches: true, redemptions: true } },
       },
     });
 
@@ -39,7 +40,11 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({ success: true, data: merchant });
+    // averageRating intentionally removed from this response (deferred decision).
+    // Business metrics live in the dedicated /business-overview endpoint.
+    const { averageRating: _removedRating, ...merchantData } = merchant;
+
+    return NextResponse.json({ success: true, data: merchantData });
   } catch (error) {
     console.error("Merchant detail error:", error);
     return NextResponse.json(

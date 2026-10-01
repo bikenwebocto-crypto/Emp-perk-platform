@@ -18,11 +18,12 @@ export async function GET(
       include: {
         content: { select: { description: true, shortDescription: true, termsAndConditions: true, imageUrls: true } },
         pricing: { select: { configuration: true } },
-        redemption: { select: { redemptionType: true, configuration: true, maxRedemptions: true, currentRedemptions: true, daysOfWeek: true } },
+        redemption: { select: { redemptionType: true, configuration: true, daysOfWeek: true } },
+        capacity: { select: { maxRedemptions: true, redeemedCount: true } },
         merchant: {
           include: {
             category: { select: { id: true, name: true, icon: true } },
-            branches: { where: { deletedAt: null, status: 'ACTIVE' }, select: { id: true, name: true, branchType: true, addressLine1: true, city: true, state: true } },
+            branches: { where: { deletedAt: null, status: 'ACTIVE' }, select: { id: true, name: true, branchType: true, isActive: true, addressLine1: true, city: true, state: true } },
           },
         },
       },
@@ -64,8 +65,8 @@ export async function GET(
         bookingUrl: (redemptionConfig.bookingUrl as string | null) ?? null,
         qrCodeUrl: (redemptionConfig.qrCodeUrl as string | null) ?? null,
         daysOfWeek: offer.redemption?.daysOfWeek ?? null,
-        maxRedemptions: offer.redemption?.maxRedemptions ?? null,
-        currentRedemptions: offer.redemption?.currentRedemptions ?? 0,
+        maxRedemptions: offer.capacity?.maxRedemptions ?? null,
+        currentRedemptions: offer.capacity?.redeemedCount ?? 0,
         isFeatured: offer.isFeatured,
         isExclusive: offer.isExclusive,
         startDate: offer.startDate.toISOString(),

@@ -270,7 +270,7 @@ export default function CompanyDetailPage() {
     {
       key: "email",
       header: "Email",
-      render: (e: any) => <span className="font-mono">{e.email}</span>,
+      render: (e: any) => <span className="font-mono">{e?.account?.email}</span>,
     },
     {
       key: "department",
