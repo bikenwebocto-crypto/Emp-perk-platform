@@ -25,6 +25,7 @@ const PUBLIC_API_ROUTES = [
   "/api/firebase-config",
   "/api/webhooks",
   "/api/health",
+  "/api/categories",
 ];
 
 async function fetchRole(
