@@ -401,45 +401,44 @@ async function buildBrandsNearYou(
 }
 
 async function buildForYou(employeeId: string, now: Date): Promise<MobileHomeOffer[]> {
-  // Pull the employee's recent redemption history to infer preferences.
-  // 30 days is long enough to surface real patterns without going stale.
+  const limit = SECTION_LIMITS.forYou
   const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-  const [history, redeemedIds] = await Promise.all([
+
+  const [history, redeemedRows] = await Promise.all([
+    // Most recent 50 redemptions in the last 30 days.
     prisma.redemption.findMany({
       where: { employeeId, redeemedAt: { gte: cutoff } },
       select: {
         offerId: true,
         merchantId: true,
-      
         offer: { select: { categoryId: true } },
       },
+      orderBy: { redeemedAt: 'desc' },
       take: 50,
     }),
-    // All-time redeemed offer ids for this employee — used to exclude them
-    // from recommendations (so the same offer never appears twice in the
-    // "for you" section after the employee redeems it).
+    // Offers this employee has actually redeemed (saved-only rows have
+    // redeemedAt = null and must not be excluded from recommendations).
     prisma.redemption.findMany({
-      where: { employeeId },
+      where: { employeeId, redeemedAt: { not: null } },
       select: { offerId: true },
+      distinct: ['offerId'],
     }),
   ])
 
-  const redeemedSet = new Set(redeemedIds.map((r) => r.offerId))
+  const redeemedIds = redeemedRows.map((r) => r.offerId)
 
-  if (history.length === 0) {
-    // Cold-start fallback: newest LIVE offers that this employee has not
-    // already redeemed. The empty-set filter becomes a no-op for new
-    // employees; for returning employees with prior (out-of-window)
-    // redemptions, it prevents the section from re-surfacing used offers.
-    const rows = await prisma.merchantOffer.findMany({
-      where: {
-        ...liveOfferWhere(now),
-        id: { notIn: [...redeemedSet] },
-      },
+  // Newest live offers, minus the given ids. Used for cold start and backfill.
+  const newestLive = (excludeIds: string[], take: number) =>
+    prisma.merchantOffer.findMany({
+      where: { ...liveOfferWhere(now), id: { notIn: excludeIds } },
       orderBy: { createdAt: 'desc' },
-      take: SECTION_LIMITS.forYou,
+      take,
       select: offerSelect,
     })
+
+  // Cold start: no recent history.
+  if (history.length === 0) {
+    const rows = await newestLive(redeemedIds, limit)
     return rows.map((o) => mapOffer(o, null))
   }
 
@@ -460,22 +459,40 @@ async function buildForYou(employeeId: string, now: Date): Promise<MobileHomeOff
     .slice(0, 10)
     .map(([id]) => id)
 
-  const rows = await prisma.merchantOffer.findMany({
+  // Fetch more than we need so ranking has something to choose from.
+  const candidates = await prisma.merchantOffer.findMany({
     where: {
       ...liveOfferWhere(now),
-      id: { notIn: [...redeemedSet] },
+      id: { notIn: redeemedIds },
       OR: [
         ...(topCategoryIds.length > 0 ? [{ categoryId: { in: topCategoryIds } }] : []),
         ...(topMerchantIds.length > 0 ? [{ merchantId: { in: topMerchantIds } }] : []),
       ],
     },
-    take: SECTION_LIMITS.forYou,
+    take: limit * 3,
     orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
-    select: offerSelect,
+    select: { ...offerSelect, merchantId: true, categoryId: true },
   })
-  return rows.map((o) => mapOffer(o, null))
-}
 
+  // Rank by the employee's preferences. The sort is stable, so offers with
+  // the same score keep the featured-then-newest order from the query.
+  const score = (o: { merchantId: string; categoryId: string | null }) =>
+    (merchantWeight.get(o.merchantId) ?? 0) * 2 +
+    (o.categoryId ? categoryWeight.get(o.categoryId) ?? 0 : 0)
+
+  const ranked = [...candidates].sort((a, b) => score(b) - score(a)).slice(0, limit)
+
+  // Backfill: top up with newest live offers when the personalised list is short.
+  if (ranked.length < limit) {
+    const filler = await newestLive(
+      [...redeemedIds, ...ranked.map((o) => o.id)],
+      limit - ranked.length,
+    )
+    return [...ranked, ...filler].map((o) => mapOffer(o, null))
+  }
+
+  return ranked.map((o) => mapOffer(o, null))
+}
 async function buildNearbyOffers(
   now: Date,
   location: Location | null,
