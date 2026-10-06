@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { clientIpFromRequest, getRateLimiter } from '@/lib/rate-limit';
 import { channels, publishBusinessToAdmins } from '@/services/business-notification.service';
 
-export const RATE_LIMIT = { limit: 5, windowMs: 60 * 60 * 1000 } as const;
+const RATE_LIMIT = { limit: 5, windowMs: 60 * 60 * 1000 } as const;
 
 const REQUIRED_TEXT = (max: number) => z.string().trim().min(1).max(max);
 
