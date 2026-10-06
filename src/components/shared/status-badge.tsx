@@ -29,6 +29,10 @@ const statusStyles: Record<string, string> = {
   PROCESSING: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-500',
   COMPLETED_CSV: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-500',
   ERROR: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-500',
+  // Lead
+  NEW: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-500',
+  CONTACTED: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-500',
+  CONVERTED: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-500',
   // Generic
   INVITED: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-500',
   VERIFIED: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-500',

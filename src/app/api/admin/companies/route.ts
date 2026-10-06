@@ -56,6 +56,12 @@ function unauthorized() {
   );
 }
 
+class InvalidLeadError extends Error {
+  constructor() {
+    super('Lead is not eligible for company conversion');
+  }
+}
+
 function notFound(entity: string) {
   return NextResponse.json(
     { success: false, error: { code: 'NOT_FOUND', message: `${entity} not found` } },
@@ -236,6 +242,11 @@ export async function POST(request: NextRequest) {
     }
     const { name, email, firstName, lastName, phone: rawPhone, website, employeeCount, addressLine1, addressLine2, city, state, postalCode, country, taxId } = parsed.data;
 
+    // Converting a lead is an admin-only action; public signup is unchanged.
+    const rawLeadId = (rawBody as { leadId?: unknown } | null)?.leadId;
+    const leadId = typeof rawLeadId === 'string' ? rawLeadId : null;
+    if (rawLeadId && (!user || user.userType !== 'admin')) return unauthorized();
+
     const phone = toE164(rawPhone);
     if (rawPhone && !phone) {
       return NextResponse.json(
@@ -258,6 +269,13 @@ export async function POST(request: NextRequest) {
     timer.section('Database Queries')
     timer.point('$transaction (company + account + companyAdmin + billing + audit)')
     const result = await prisma.$transaction(async (tx) => {
+      // Validate the lead before any write so a rejected conversion leaves no partial state.
+      if (rawLeadId) {
+        if (!leadId) throw new InvalidLeadError();
+        const lead = await tx.lead.findUnique({ where: { id: leadId } });
+        if (!lead || lead.type !== 'EMPLOYER' || lead.companyId) throw new InvalidLeadError();
+      }
+
       const company = await tx.company.create({
         data: {
           name, slug, email, employeeCount: employeeCount ?? 0, phone, website,
@@ -266,6 +284,13 @@ export async function POST(request: NextRequest) {
           approvedAt: requiresApproval ? null : new Date(),
         },
       });
+
+      if (leadId) {
+        await tx.lead.update({
+          where: { id: leadId },
+          data: { companyId: company.id, status: 'CONVERTED' },
+        });
+      }
 
       const pkId = crypto.randomUUID();
       await tx.account.create({
@@ -292,7 +317,11 @@ export async function POST(request: NextRequest) {
             referenceType: 'company',
             status: 'PENDING',
             priority: 2,
-            metadata: { queueType: 'COMPANY_ACTIVATION', source: user ? 'ADMIN' : 'PUBLIC_SIGNUP' },
+            metadata: {
+              queueType: 'COMPANY_ACTIVATION',
+              source: user ? 'ADMIN' : 'PUBLIC_SIGNUP',
+              companyName: company.name,
+            },
           },
         });
       }
@@ -329,6 +358,12 @@ export async function POST(request: NextRequest) {
     );
   } catch (error: any) {
     timer.end()
+    if (error instanceof InvalidLeadError) {
+      return NextResponse.json(
+        { success: false, error: { code: 'INVALID_LEAD', message: error.message } },
+        { status: 400 },
+      );
+    }
     if (error?.code === 'P2002') {
       return NextResponse.json(
         { success: false, error: { code: 'CONFLICT', message: 'A company with this email or slug already exists' } },

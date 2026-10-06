@@ -1,6 +1,8 @@
 'use client'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useLead } from '@/hooks/queries/use-leads'
+import { leadToCompanyPrefill } from '@/lib/leads/prefill'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PhoneInput } from '@/components/ui/phone-input'
@@ -60,6 +62,16 @@ export function CompanyForm() {
     taxId: '',
   })
 
+  // Converting a lead: /admin/companies/add?leadId=...
+  const leadId = useSearchParams().get('leadId')
+  const { data: lead } = useLead(leadId)
+  const prefilled = useRef(false)
+  useEffect(() => {
+    if (!lead || prefilled.current) return
+    prefilled.current = true
+    setForm((prev) => ({ ...prev, ...leadToCompanyPrefill(lead) }))
+  }, [lead])
+
   const setField = (field: keyof FormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
     if (errors[field]) {
@@ -90,11 +102,15 @@ export function CompanyForm() {
     if (!validate()) return
 
     createCompany.mutate(
-      { ...form, employeeCount: form.employeeCount ? parseInt(form.employeeCount) : 0 },
+      {
+        ...form,
+        employeeCount: form.employeeCount ? parseInt(form.employeeCount) : 0,
+        ...(leadId ? { leadId } : {}),
+      },
       {
         onSuccess: (res) => {
           showToast({ type: 'success', title: res.message ?? 'Company created successfully' })
-          router.push('/admin/companies')
+          router.push(leadId ? `/admin/leads/${leadId}` : '/admin/companies')
         },
         onError: (err) => {
           showToast({ type: 'error', title: 'Failed to create company', description: err.message })

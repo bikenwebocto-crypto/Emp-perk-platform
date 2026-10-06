@@ -17,6 +17,7 @@ const pageTitles: Record<string, string> = {
   '/admin/merchants': 'Merchants',
   '/admin/categories': 'Categories',
   '/admin/companies': 'Companies',
+  '/admin/leads': 'Leads',
   '/admin/employees': 'Employees',
   '/admin/csv-uploads': 'CSV Uploads',
   '/admin/audit-logs': 'Audit Logs',

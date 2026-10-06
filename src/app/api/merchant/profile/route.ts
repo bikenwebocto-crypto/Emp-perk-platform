@@ -183,7 +183,7 @@ export async function PATCH(request: NextRequest) {
               type: 'PROFILE_EDIT_REQUEST',
               title: `Profile change request: ${merchant.businessName}`,
               description: `Merchant ${merchant.businessName} requested changes to: ${(APPROVAL_FIELDS as readonly string[]).filter((f) => f in afterSnapshot).join(', ')}. Reason: ${changeReason}`,
-              referenceId: merchant.id, referenceType: 'merchant', status: 'PENDING', priority: 2,
+              referenceId: merchant.id, referenceType: 'merchant', merchantId: merchant.id, status: 'PENDING', priority: 2,
               metadata: {
                 queueType: 'PROFILE_EDIT_REQUEST', requestedFields: afterSnapshot, originalValues: beforeSnapshot,
                 reason: changeReason, approvalFields: (APPROVAL_FIELDS as readonly string[]).filter((f) => f in afterSnapshot),

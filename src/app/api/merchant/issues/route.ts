@@ -148,6 +148,7 @@ export async function POST(request: NextRequest) {
         description: description.slice(0, 200),
         referenceId: merchant.id,
         referenceType: 'issue',
+        merchantId: merchant.id,
         status: 'PENDING',
         priority: priority === 'urgent' ? 4 : priority === 'high' ? 3 : 2,
         metadata: {

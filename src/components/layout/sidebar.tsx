@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { cn } from '@/utils/cn'
 import { merchantDashboardKeys } from '@/hooks/queries/use-merchants'
+import { useNewLeadCount } from '@/hooks/queries/use-leads'
 import type { MerchantDashboardFilters } from '@/types'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
@@ -13,7 +14,7 @@ import { Loader2 } from 'lucide-react'
 import {
   LayoutDashboard, Store, Users, FileText, BarChart3, Settings, CreditCard,
   ShoppingBag, MapPin, Gift, Building2, UserCircle, Bell, Upload, LogOut,
-  Zap, Search, RefreshCw, Bookmark, Palette, Trash2, Lightbulb, Tags,
+  Zap, Search, RefreshCw, Bookmark, Palette, Trash2, Lightbulb, Tags, Inbox,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase/client'
 import type { PublicBranding } from '@/features/admin/settings/login-branding/services/login-branding.service'
@@ -49,6 +50,7 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Categories', href: '/admin/categories', icon: Tags },
     { label: 'Stores', href: '/admin/stores', icon: MapPin },
     { label: 'Companies', href: '/admin/companies', icon: Building2 },
+    { label: 'Leads', href: '/admin/leads', icon: Inbox },
     { label: 'Employees', href: '/admin/employees', icon: Users },
     { label: 'CSV Uploads', href: '/admin/csv-uploads', icon: Upload },
     { label: 'Audit Logs', href: '/admin/audit-logs', icon: Search },
@@ -152,7 +154,13 @@ type PrefetchEntry = () => void
 
 export function Sidebar({ userType, userName, userEmail, userRole, companyName, branding, avatarUrl }: SidebarProps) {
   const pathname = usePathname()
-  const navItems = navConfig[userType] ?? []
+  const { data: newLeadCount } = useNewLeadCount(userType === 'admin')
+  const navItems = useMemo(
+    () => (navConfig[userType] ?? []).map((item) =>
+      item.href === '/admin/leads' && newLeadCount ? { ...item, badge: newLeadCount } : item,
+    ),
+    [userType, newLeadCount],
+  )
   const router = useRouter()
   const queryClient = useQueryClient()
   const prefetchRegistry = usePrefetchRegistry(queryClient)

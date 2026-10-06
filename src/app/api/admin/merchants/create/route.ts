@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
+import { getCurrentUser } from '@/lib/supabase/server';
 import { toE164 } from '@/lib/phone';
 import { validateUserEmail, createAccountForProfile } from '@/services/user-validation.service';
 import { publishBusinessToAdmins } from '@/services/business-notification.service';
@@ -12,6 +13,12 @@ function unauthorized() {
   );
 }
 
+class InvalidLeadError extends Error {
+  constructor() {
+    super('Lead is not eligible for merchant conversion');
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -21,11 +28,18 @@ export async function POST(request: NextRequest) {
       logoUrl, coverImageUrl,
       addressLine1, addressLine2, city, state, postalCode, country,
       requiresApproval,
+      leadId,
     } = body;
+
+    // Converting a lead is an admin-only action; plain merchant creation is unchanged.
+    if (leadId) {
+      const user = await getCurrentUser();
+      if (!user || user.userType !== 'admin') return unauthorized();
+    }
 
     if (!businessName || !email ||  !contactName) {
       return NextResponse.json(
-        { success: false, error: { code: 'VALIDATION', message: 'Missing required fields: businessName, email, password, contactName' } },
+        { success: false, error: { code: 'VALIDATION', message: 'Missing required fields: businessName, email, contactName' } },
         { status: 400 },
       );
     }
@@ -59,6 +73,13 @@ export async function POST(request: NextRequest) {
     const slug = businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now();
 
     const result = await prisma.$transaction(async (tx) => {
+      // Validate the lead before any write so a rejected conversion leaves no partial state.
+      if (leadId) {
+        if (typeof leadId !== 'string') throw new InvalidLeadError();
+        const lead = await tx.lead.findUnique({ where: { id: leadId } });
+        if (!lead || lead.type !== 'MERCHANT' || lead.merchantId) throw new InvalidLeadError();
+      }
+
       const pkId = crypto.randomUUID();
       const account = await tx.account.create({
         data: {
@@ -94,6 +115,13 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      if (leadId) {
+        await tx.lead.update({
+          where: { id: leadId },
+          data: { merchantId: merchant.id, status: 'CONVERTED' },
+        });
+      }
+
       if (requiresApproval) {
         await tx.actionQueueItem.create({
           data: {
@@ -102,6 +130,7 @@ export async function POST(request: NextRequest) {
             description: `Merchant application submitted for ${merchant.businessName} and requires board approval.`,
             referenceId: merchant.id,
             referenceType: 'merchant',
+            merchantId: merchant.id,
             status: 'PENDING',
             priority: 3,
             metadata: { queueType: 'NEW_MERCHANT_APPLICATION' },
@@ -131,6 +160,12 @@ export async function POST(request: NextRequest) {
       { status: 201 },
     );
   } catch (error: any) {
+    if (error instanceof InvalidLeadError) {
+      return NextResponse.json(
+        { success: false, error: { code: 'INVALID_LEAD', message: error.message } },
+        { status: 400 },
+      );
+    }
     if (error?.code === 'P2002') {
       return NextResponse.json(
         { success: false, error: { code: 'CONFLICT', message: 'A merchant with this email already exists' } },

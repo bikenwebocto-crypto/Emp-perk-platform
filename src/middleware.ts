@@ -26,6 +26,7 @@ const PUBLIC_API_ROUTES = [
   "/api/webhooks",
   "/api/health",
   "/api/categories",
+  "/api/leads",
 ];
 
 async function fetchRole(
