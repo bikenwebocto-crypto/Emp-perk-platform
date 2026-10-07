@@ -74,11 +74,15 @@ export async function GET(
 
     const pricingConfig = (offer.pricing?.configuration as Record<string, unknown>) ?? {}
     const redemptionConfig = (offer.redemption?.configuration as Record<string, unknown>) ?? {}
+    const now = new Date()    
     const redeemState = getRedeemState(
       redemption?.createdAt,
       getRepeatAfterHours(offer.redemption?.configuration),
+      now,
     )
-
+    const remainingSeconds = redeemState.nextRedeemAt
+    ? Math.max(0, Math.ceil((redeemState.nextRedeemAt.getTime() - now.getTime()) / 1000))
+    : null
     console.log('$$$ Offer Data:', { pricingConfig, redemptionConfig })
 
     return NextResponse.json({
@@ -116,6 +120,8 @@ export async function GET(
         isSaved: !!saved,
         isRedeemed: redeemState.isRedeemed,
         nextRedeemAt: redeemState.nextRedeemAt?.toISOString() ?? null,
+        remainingSeconds,
+        serverTime: now.toISOString(),
         // redemptionCode: redemption?.redemptionCode ?? null,   // <-- handy top-level field
         redemption: redemption
           ? {
