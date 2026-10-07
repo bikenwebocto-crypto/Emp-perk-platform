@@ -252,14 +252,22 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
             Expires {new Date(offer.endDate).toLocaleDateString()}
           </span>
           {offer.isRedeemed ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled
-              className="h-7 text-[11px] px-2.5"
-            >
-              Already Redeemed
-            </Button>
+            <div className="flex items-center gap-1.5">
+              {offer.nextRedeemAt && (
+                <span className="text-[11px] text-muted-foreground">
+                  Available again on{" "}
+                  {new Date(offer.nextRedeemAt).toLocaleDateString()}
+                </span>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled
+                className="h-7 text-[11px] px-2.5"
+              >
+                Already Redeemed
+              </Button>
+            </div>
           ) : offer.redemptionType === "IN_STORE_QR" && onOpen ? (
             <Button
               size="sm"

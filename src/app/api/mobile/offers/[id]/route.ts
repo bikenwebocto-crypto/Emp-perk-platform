@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { internalError, notFound } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { isOfferVisibleToEmployees } from '@/lib/offer-visibility'
+import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
 
 // GET /api/mobile/offers/[id]
 //
@@ -58,8 +59,10 @@ export async function GET(
       }),
       prisma.redemption.findFirst({
         where: { employeeId: auth.employee.id, offerId: id },
+        orderBy: { createdAt: 'desc' },
         select: {
           id: true,
+          createdAt: true,
           redemptionCode: true,
           isRedeemed: true,
           isVerified: true,
@@ -71,7 +74,11 @@ export async function GET(
 
     const pricingConfig = (offer.pricing?.configuration as Record<string, unknown>) ?? {}
     const redemptionConfig = (offer.redemption?.configuration as Record<string, unknown>) ?? {}
-    
+    const redeemState = getRedeemState(
+      redemption?.createdAt,
+      getRepeatAfterHours(offer.redemption?.configuration),
+    )
+
     console.log('$$$ Offer Data:', { pricingConfig, redemptionConfig })
 
     return NextResponse.json({
@@ -107,7 +114,8 @@ export async function GET(
         isVisible: visibility.visible,
         visibilityReason: visibility.reason,
         isSaved: !!saved,
-        isRedeemed: !!redemption,
+        isRedeemed: redeemState.isRedeemed,
+        nextRedeemAt: redeemState.nextRedeemAt?.toISOString() ?? null,
         // redemptionCode: redemption?.redemptionCode ?? null,   // <-- handy top-level field
         redemption: redemption
           ? {

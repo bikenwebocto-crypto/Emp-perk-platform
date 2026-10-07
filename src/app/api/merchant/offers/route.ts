@@ -9,6 +9,7 @@ import {
 import { logReplacementAudit, notifyReplacement } from "@/lib/offer-replacement-notifications";
 import { createAuditLog } from '@/services/audit-log.service';
 import { generateUniqueOfferCode } from '@/lib/offer-code';
+import { parseRepeatAfterHoursInput } from '@/lib/redemption-tracking';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
 
 const MIN_TITLE_LENGTH = 5;
@@ -479,6 +480,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const repeatAfterHours = parseRepeatAfterHoursInput(body.repeatAfterHours);
+    if (!repeatAfterHours.ok) {
+      return badRequest("repeatAfterHours must be a positive number");
+    }
+
     if (redemptionType === 'ONLINE_CODE' && !bookingUrl && !saveAsDraft) {
       return badRequest("Booking URL is required for ONLINE_CODE offers");
     }
@@ -623,6 +629,9 @@ export async function POST(request: NextRequest) {
       } else if (redemptionType === 'VIRTUAL_CARD_AUTO_VERIFY') {
         redemptionConfig.code = offerCodeValue;
         redemptionConfig.instructions = redemptionInstructions ?? null;
+      }
+      if (repeatAfterHours.value != null) {
+        redemptionConfig.repeatAfterHours = repeatAfterHours.value;
       }
 
       await tx.offerRedemption.create({

@@ -16,7 +16,11 @@
 // visibility time) by counting the employee's existing redemptions for the offer.
 
 import { prisma } from '@/lib/prisma'
-import { deriveCapacityStatus } from '@/lib/redemption-tracking'
+import {
+  deriveCapacityStatus,
+  getRedeemState,
+  getRepeatAfterHours,
+} from '@/lib/redemption-tracking'
 
 export interface OfferVisibilityResult {
   visible: boolean
@@ -112,6 +116,7 @@ export async function checkRedemptionEligibility(
     select: {
       id: true,
       capacity: { select: { maxRedemptions: true, redeemedCount: true } },
+      redemption: { select: { configuration: true } },
     },
   })
   if (!offer) return { eligible: false, reason: 'Offer not found' }
@@ -120,11 +125,22 @@ export async function checkRedemptionEligibility(
     return { eligible: false, reason: 'Offer usage limit reached' }
   }
 
-  const employeeRedemptions = await prisma.redemption.count({
+  const last = await prisma.redemption.findFirst({
     where: { offerId, employeeId },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
   })
-  if (employeeRedemptions > 0) {
-    return { eligible: false, reason: 'You have already redeemed this offer' }
+  const state = getRedeemState(
+    last?.createdAt,
+    getRepeatAfterHours(offer.redemption?.configuration),
+  )
+  if (state.isRedeemed) {
+    return {
+      eligible: false,
+      reason: state.nextRedeemAt
+        ? `You have already redeemed this offer. Available again on ${state.nextRedeemAt.toISOString()}`
+        : 'You have already redeemed this offer',
+    }
   }
 
   return { eligible: true }

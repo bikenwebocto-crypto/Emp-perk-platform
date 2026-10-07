@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getRepeatAfterHours } from "@/lib/redemption-tracking";
 
 export async function GET(
   _request: NextRequest,
@@ -138,6 +139,7 @@ export async function GET(
 
         bookingUrl: redemptionCfg.bookingUrl ?? "",
         qrCodeUrl: redemptionCfg.qrCodeUrl ?? "",
+        repeatAfterHours: getRepeatAfterHours(offer.redemption?.configuration),
 
         // Existing additional data
         _count: offer._count,

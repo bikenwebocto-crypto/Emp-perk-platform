@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getEmployeeFromSession, unauthorized, internalError, companyInactive, notFound, badRequest } from '@/lib/employee-session'
 import { isOfferVisibleToEmployees } from '@/lib/offer-visibility'
+import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
 
 export async function GET(
   _request: NextRequest,
@@ -41,9 +42,14 @@ export async function GET(
       }),
       prisma.redemption.findFirst({
         where: { employeeId: employee.id, offerId: id },
-        select: { id: true },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
       }),
     ])
+    const redeemState = getRedeemState(
+      redeemed?.createdAt,
+      getRepeatAfterHours(offer.redemption?.configuration),
+    )
 
     return NextResponse.json({
       success: true,
@@ -75,7 +81,8 @@ export async function GET(
         isVisible: visibility.visible,
         visibilityReason: visibility.reason,
         isSaved: !!saved,
-        isRedeemed: !!redeemed,
+        isRedeemed: redeemState.isRedeemed,
+        nextRedeemAt: redeemState.nextRedeemAt?.toISOString() ?? null,
       },
     })
   } catch (error) {

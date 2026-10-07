@@ -78,6 +78,8 @@ export interface EmployeeOffer {
   // Per-employee state
   isSaved: boolean
   isRedeemed: boolean
+  /** ISO time the employee can redeem again (repeat-cooldown offers only) */
+  nextRedeemAt?: string | null
 }
 
 export type EmployeeOfferType = EmployeeOffer['offerType']

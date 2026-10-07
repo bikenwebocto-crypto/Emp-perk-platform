@@ -8,7 +8,11 @@ import {
   publishBusinessNotification,
   publishBusinessToAdmins,
 } from "@/services/business-notification.service";
-import { OfferStatus } from "@prisma/client";
+import { OfferStatus, Prisma } from "@prisma/client";
+import {
+  parseRepeatAfterHoursInput,
+  withRepeatAfterHours,
+} from "@/lib/redemption-tracking";
 import { getCurrentUser } from "@/lib/supabase/server";
 
 function unauthorized() {
@@ -334,6 +338,14 @@ export async function POST(
     const body = await request.json();
     console.log("[SUBMIT OFFER] Body received:", Object.keys(body));
 
+    const repeatAfterHours = parseRepeatAfterHoursInput(body.repeatAfterHours);
+    if (!repeatAfterHours.ok) {
+      return NextResponse.json(
+        { success: false, error: { code: "VALIDATION", message: "repeatAfterHours must be a positive number" } },
+        { status: 400 },
+      );
+    }
+
     const pricingConfig =
       (offer.pricing?.configuration as Record<string, unknown>) ?? {};
 
@@ -483,11 +495,17 @@ export async function POST(
           body.redemptionInstructions !== undefined ||
           body.bookingUrl !== undefined ||
           body.maxRedemptions !== undefined ||
-          body.daysOfWeek !== undefined
+          body.daysOfWeek !== undefined ||
+          repeatAfterHours.value !== undefined
         ) {
           const config =
             (offer.redemption?.configuration as Record<string, unknown>) ?? {};
-          const newRedemptionConfig: Record<string, unknown> = { ...config };
+          let newRedemptionConfig: Record<string, unknown> = { ...config };
+          if (repeatAfterHours.value !== undefined)
+            newRedemptionConfig = withRepeatAfterHours(
+              newRedemptionConfig,
+              repeatAfterHours.value,
+            );
           if (body.redemptionCode !== undefined)
             newRedemptionConfig.code = body.redemptionCode;
           if (body.redemptionInstructions !== undefined)
@@ -515,6 +533,11 @@ export async function POST(
               ...(Object.keys(newRedemptionConfig).length > 0 && {
                 configuration: newRedemptionConfig as any,
               }),
+              // Clearing the last key must still be written.
+              ...(repeatAfterHours.value !== undefined &&
+                Object.keys(newRedemptionConfig).length === 0 && {
+                  configuration: Prisma.DbNull,
+                }),
               ...(body.maxRedemptions !== undefined && {
                 maxRedemptions:
                   body.maxRedemptions === null || body.maxRedemptions === ""

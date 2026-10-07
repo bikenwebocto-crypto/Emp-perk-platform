@@ -24,6 +24,68 @@ export class AlreadyRedeemedError extends Error {
 }
 
 /**
+ * Per-offer repeat cooldown, read from OfferRedemption.configuration
+ * `repeatAfterHours`. Returns null (one redemption ever) when missing,
+ * non-numeric, or <= 0.
+ */
+export function getRepeatAfterHours(configuration: unknown): number | null {
+  if (!configuration || typeof configuration !== 'object') return null
+  const raw = (configuration as Record<string, unknown>).repeatAfterHours
+  const hours = typeof raw === 'string' ? Number(raw) : raw
+  return typeof hours === 'number' && Number.isFinite(hours) && hours > 0 ? hours : null
+}
+
+/**
+ * Parse `repeatAfterHours` from an offer create/edit request body.
+ *   - undefined          → { ok: true, value: undefined } (not sent; leave config alone)
+ *   - null or ''         → { ok: true, value: null }      (clear / not set)
+ *   - finite number > 0  → { ok: true, value }
+ *   - anything else      → { ok: false }
+ */
+export function parseRepeatAfterHoursInput(
+  raw: unknown,
+): { ok: true; value: number | null | undefined } | { ok: false } {
+  if (raw === undefined) return { ok: true, value: undefined }
+  if (raw === null || raw === '') return { ok: true, value: null }
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return { ok: true, value: raw }
+  return { ok: false }
+}
+
+/**
+ * Return a copy of a redemption configuration with `repeatAfterHours` set
+ * (number) or removed (null). Other keys are preserved.
+ */
+export function withRepeatAfterHours(
+  config: Record<string, unknown>,
+  value: number | null,
+): Record<string, unknown> {
+  const next = { ...config }
+  if (value == null) delete next.repeatAfterHours
+  else next.repeatAfterHours = value
+  return next
+}
+
+/**
+ * Employee-facing redeem state for an offer given their latest redemption.
+ *   - no redemption              → not redeemed
+ *   - no cooldown                → redeemed forever (nextRedeemAt null)
+ *   - cooldown not yet elapsed   → redeemed, nextRedeemAt = last + cooldown
+ *   - cooldown elapsed           → not redeemed
+ */
+export function getRedeemState(
+  lastRedeemedAt: Date | null | undefined,
+  repeatAfterHours: number | null,
+  now: Date = new Date(),
+): { isRedeemed: boolean; nextRedeemAt: Date | null } {
+  if (!lastRedeemedAt) return { isRedeemed: false, nextRedeemAt: null }
+  if (repeatAfterHours == null) return { isRedeemed: true, nextRedeemAt: null }
+  const next = new Date(lastRedeemedAt.getTime() + repeatAfterHours * 3_600_000)
+  return next > now
+    ? { isRedeemed: true, nextRedeemAt: next }
+    : { isRedeemed: false, nextRedeemAt: null }
+}
+
+/**
  * Ensure a capacity-tracking row exists for the offer.
  * Copies the current maxRedemptions from OfferRedemption the first time
  * (mirrors existing schema); subsequent calls are no-ops.
@@ -103,12 +165,22 @@ export async function releaseCapacity(tx: Tx, offerId: string): Promise<void> {
  *
  * The DB-level UNIQUE(offerId, employeeId) constraint makes this race-safe —
  * two concurrent requests from the same employee cannot both succeed.
+ *
+ * When the offer has a repeat cooldown, attempt rows older than the cutoff
+ * are deleted first (same transaction) so the insert can succeed again.
  */
 export async function claimAttempt(
   tx: Tx,
   offerId: string,
   employeeId: string,
+  repeatAfterHours: number | null = null,
 ): Promise<{ ok: boolean; attemptId?: string }> {
+  if (repeatAfterHours != null && repeatAfterHours > 0) {
+    const cutoff = new Date(Date.now() - repeatAfterHours * 3_600_000)
+    await tx.offerRedemptionAttempt.deleteMany({
+      where: { offerId, employeeId, createdAt: { lt: cutoff } },
+    })
+  }
   try {
     const attempt = await tx.offerRedemptionAttempt.create({
       data: { offerId, employeeId },

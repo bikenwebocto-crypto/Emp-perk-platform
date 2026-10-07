@@ -4,6 +4,7 @@ import { getAuthenticatedMobileEmployee } from "@/lib/mobile-auth";
 import { checkRedemptionEligibility } from "@/lib/offer-visibility";
 import {
   claimAttempt,
+  getRepeatAfterHours,
   linkAttemptToRedemption,
   ensureCapacityRow,
   reserveCapacity,
@@ -137,7 +138,12 @@ export async function POST(request, { params }) {
       redemption = await prisma.$transaction(
         async (tx) => {
           // Claim stays, so the employee can't try to redeem again
-          const claim = await claimAttempt(tx, offer.id, employee.id);
+          const claim = await claimAttempt(
+            tx,
+            offer.id,
+            employee.id,
+            getRepeatAfterHours(offer.redemption.configuration),
+          );
           if (!claim.ok) throw new AlreadyRedeemedError();
 
           await ensureCapacityRow(tx, offer.id, offer.redemption.maxRedemptions ?? null);

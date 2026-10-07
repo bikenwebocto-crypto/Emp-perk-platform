@@ -74,6 +74,7 @@ export function EditOfferModal({
             discountPercent: offer.discountPercent?.toString() ?? "",
             minimumSpend: offer.minimumSpend?.toString() ?? "",
             maxRedemptions: offer.maxRedemptions?.toString() ?? "",
+            repeatAfterHours: offer.repeatAfterHours?.toString() ?? "",
             buyQuantity: offer.buyQuantity?.toString() ?? "",
             buyItem: offer.buyItem ?? "",
             getQuantity: offer.getQuantity?.toString() ?? "",

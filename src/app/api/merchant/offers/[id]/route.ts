@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMerchantFromSession } from '@/lib/merchant-session'
+import { Prisma } from "@prisma/client";
 import { generateUniqueOfferCode } from '@/lib/offer-code';
+import { getRepeatAfterHours, parseRepeatAfterHoursInput, withRepeatAfterHours } from '@/lib/redemption-tracking';
 import { ensureOfferQRCode } from '@/lib/offer-qr';
 
 import { createAuditLog } from '@/services/audit-log.service';
@@ -102,7 +104,10 @@ export async function GET(
       });
     }
 
-    return NextResponse.json({ success: true, data: offer });
+    return NextResponse.json({
+      success: true,
+      data: { ...offer, repeatAfterHours: getRepeatAfterHours(offer.redemption?.configuration) },
+    });
   } catch (error) {
     return internalError(error);
   }
@@ -124,6 +129,11 @@ export async function PATCH(
     }
 
     const body = await request.json();
+
+    const repeatAfterHours = parseRepeatAfterHoursInput(body.repeatAfterHours);
+    if (!repeatAfterHours.ok) {
+      return badRequest("repeatAfterHours must be a positive number");
+    }
 
     const merchantOfferUpdatable: Record<string, unknown> = {};
     if (body.title !== undefined) merchantOfferUpdatable.title = body.title;
@@ -214,12 +224,16 @@ export async function PATCH(
         body.redemptionInstructions !== undefined ||
         body.bookingUrl !== undefined ||
         body.maxRedemptions !== undefined ||
-        body.daysOfWeek !== undefined
+        body.daysOfWeek !== undefined ||
+        repeatAfterHours.value !== undefined
       ) {
         const config = (existing.redemption?.configuration as Record<string, unknown>) ?? {};
-        const redemptionConfig: Record<string, unknown> = {
+        let redemptionConfig: Record<string, unknown> = {
           ...config,
         };
+        if (repeatAfterHours.value !== undefined) {
+          redemptionConfig = withRepeatAfterHours(redemptionConfig, repeatAfterHours.value);
+        }
         if (body.redemptionCode !== undefined) redemptionConfig.code = body.redemptionCode;
         if (body.redemptionInstructions !== undefined) redemptionConfig.instructions = body.redemptionInstructions;
         if (body.bookingUrl !== undefined) redemptionConfig.bookingUrl = body.bookingUrl;
@@ -265,6 +279,10 @@ export async function PATCH(
           update: {
             ...(body.redemptionType !== undefined && { redemptionType: body.redemptionType }),
             ...(Object.keys(redemptionConfig).length > 0 && { configuration: (redemptionConfig as any) }),
+            // Clearing the last key must still be written.
+            ...(repeatAfterHours.value !== undefined && Object.keys(redemptionConfig).length === 0 && {
+              configuration: Prisma.DbNull,
+            }),
             ...(body.maxRedemptions !== undefined && { maxRedemptions: body.maxRedemptions === null || body.maxRedemptions === '' ? null : Number(body.maxRedemptions) }),
             ...(body.daysOfWeek !== undefined && {
               daysOfWeek: Array.isArray(body.daysOfWeek) ? body.daysOfWeek : [0, 1, 2, 3, 4, 5, 6],

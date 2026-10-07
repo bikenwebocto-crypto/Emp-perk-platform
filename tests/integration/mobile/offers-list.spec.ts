@@ -94,7 +94,7 @@ describe('GET /api/mobile/offers', () => {
     ])
     ;(prisma.merchantOffer.count as any).mockResolvedValue(2)
     ;(prisma.notificationEvent.findMany as any).mockResolvedValue([{ referenceId: 'offer-1' }])
-    ;(prisma.redemption.findMany as any).mockResolvedValue([{ offerId: 'offer-2' }])
+    ;(prisma.redemption.findMany as any).mockResolvedValue([{ offerId: 'offer-2', createdAt: new Date() }])
 
     const res = await GET(getRequest())
     const body = await res.json()

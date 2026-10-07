@@ -37,6 +37,7 @@ interface FormData {
   discountPercent: string;
   minimumSpend: string;
   maxRedemptions: string;
+  repeatAfterHours: string;
   buyQuantity: string;
   buyItem: string;
   getQuantity: string;
@@ -197,6 +198,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     discountPercent: initialData?.discountPercent ?? "",
     minimumSpend: initialData?.minimumSpend ?? "",
     maxRedemptions: initialData?.maxRedemptions ?? "",
+    repeatAfterHours: initialData?.repeatAfterHours ?? "",
     buyQuantity: initialData?.buyQuantity ?? "",
     buyItem: initialData?.buyItem ?? "",
     getQuantity: initialData?.getQuantity ?? "",
@@ -401,6 +403,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       errs.termsAndConditions =
         "Terms and conditions are required for replacement offers"; // Days of week validation
 
+    if (form.repeatAfterHours && !(Number(form.repeatAfterHours) > 0))
+      errs.repeatAfterHours = "Must be a positive number of hours";
+
     const selectedDays = form.daysOfWeek.split(",").filter(Boolean);
     if (selectedDays.length === 0) {
       errs.daysOfWeek = "Select at least one valid day";
@@ -432,6 +437,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     discountPercent: form.discountPercent ? Number(form.discountPercent) : null,
     minimumSpend: form.minimumSpend ? Number(form.minimumSpend) : null,
     maxRedemptions: form.maxRedemptions ? Number(form.maxRedemptions) : null,
+    repeatAfterHours: form.repeatAfterHours ? Number(form.repeatAfterHours) : null,
     buyQuantity: form.buyQuantity ? Number(form.buyQuantity) : null,
     buyItem: form.buyItem || null,
     getQuantity: form.getQuantity ? Number(form.getQuantity) : null,
@@ -1355,6 +1361,28 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     onChange={set("maxRedemptions")}
                     placeholder="Unlimited if empty"
                   />
+                </div>
+
+                <div>
+                  <label className={labelClass}>Repeat after (hours)</label>
+
+                  <Input
+                    className={inputClass}
+                    type="number"
+                    min={1}
+                    value={form.repeatAfterHours}
+                    onChange={set("repeatAfterHours")}
+                  />
+
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Leave empty for one redemption per employee
+                  </p>
+
+                  {errors.repeatAfterHours && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {errors.repeatAfterHours}
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
