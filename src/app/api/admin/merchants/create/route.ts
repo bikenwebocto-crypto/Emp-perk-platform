@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/supabase/server';
 import { toE164 } from '@/lib/phone';
-import { validateUserEmail, createAccountForProfile } from '@/services/user-validation.service';
+import { validateUserEmail } from '@/services/user-validation.service';
 import { publishBusinessToAdmins } from '@/services/business-notification.service';
+import {
+  inviteAuthUser, inviteErrorStatus, normalizeEmail, rollbackAuthUser,
+} from '@/services/employee-invite.service';
 
 function unauthorized() {
   return NextResponse.json(
@@ -30,6 +32,7 @@ export async function POST(request: NextRequest) {
       requiresApproval,
       leadId,
     } = body;
+    const normalizedEmail = typeof email === 'string' ? normalizeEmail(email) : '';
 
     // Converting a lead is an admin-only action; plain merchant creation is unchanged.
     if (leadId) {
@@ -62,17 +65,36 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const validation = await validateUserEmail(email);
+    const validation = await validateUserEmail(normalizedEmail);
     if (validation.exists) {
       return NextResponse.json(
         { success: false, error: { code: 'EMAIL_ALREADY_EXISTS', message: 'Email is already assigned to another account' } },
         { status: 409 },
       );
     }
-
+    if (leadId) {
+      if (typeof leadId !== 'string') throw new InvalidLeadError();
+      const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+      if (!lead || lead.type !== 'MERCHANT' || lead.merchantId) throw new InvalidLeadError();
+    }
     const slug = businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now();
 
-    const result = await prisma.$transaction(async (tx) => {
+    // Create the Supabase login user + send the merchant "Set password" email.
+    const invite = await inviteAuthUser(normalizedEmail, {
+      role: 'MERCHANT',
+      firstName: contactName,
+      merchantName: businessName,
+    });
+    if (!invite.ok) {
+      return NextResponse.json(
+        { success: false, error: { code: invite.code, message: invite.message } },
+        { status: inviteErrorStatus(invite.code) },
+      );
+    }
+    const pkId = invite.authUserId;
+    let result;
+    try {
+      result = await prisma.$transaction(async (tx) => {
       // Validate the lead before any write so a rejected conversion leaves no partial state.
       if (leadId) {
         if (typeof leadId !== 'string') throw new InvalidLeadError();
@@ -80,11 +102,10 @@ export async function POST(request: NextRequest) {
         if (!lead || lead.type !== 'MERCHANT' || lead.merchantId) throw new InvalidLeadError();
       }
 
-      const pkId = crypto.randomUUID();
-      const account = await tx.account.create({
+      await tx.account.create({
         data: {
           authUserId: pkId,
-          email,
+          email: normalizedEmail,
           role: 'MERCHANT',
           profileType: 'MERCHANT',
           status: 'PENDING',
@@ -139,7 +160,12 @@ export async function POST(request: NextRequest) {
       }
 
       return merchant;
-    });
+      });
+    } catch (err) {
+      // DB failed → delete the Supabase user so nothing is half-created
+      await rollbackAuthUser(pkId);
+      throw err; // the outer catch still maps InvalidLeadError / P2002 / 500
+    }
 
     // Admin-created merchants (requiresApproval not set) are live immediately and need no board review.
     if (requiresApproval) {

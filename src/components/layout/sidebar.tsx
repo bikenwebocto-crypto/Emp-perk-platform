@@ -7,6 +7,7 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { cn } from '@/utils/cn'
 import { merchantDashboardKeys } from '@/hooks/queries/use-merchants'
 import { useNewLeadCount } from '@/hooks/queries/use-leads'
+import { useAdminSidebarCounts } from '@/hooks/queries/use-admin-sidebar-counts'
 import type { MerchantDashboardFilters } from '@/types'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
@@ -154,13 +155,23 @@ type PrefetchEntry = () => void
 
 export function Sidebar({ userType, userName, userEmail, userRole, companyName, branding, avatarUrl }: SidebarProps) {
   const pathname = usePathname()
-  const { data: newLeadCount } = useNewLeadCount(userType === 'admin')
-  const navItems = useMemo(
-    () => (navConfig[userType] ?? []).map((item) =>
-      item.href === '/admin/leads' && newLeadCount ? { ...item, badge: newLeadCount } : item,
-    ),
-    [userType, newLeadCount],
-  )
+  const isAdmin = userType === 'admin'
+  const { data: newLeadCount } = useNewLeadCount(isAdmin)
+  const { data: counts } = useAdminSidebarCounts(isAdmin)
+  const navItems = useMemo(() => {
+    const badges: Record<string, number | undefined> = {
+      '/admin/leads': newLeadCount,
+      '/admin/action-queue': counts?.actionQueue,
+      '/admin/offers/replacements': counts?.replacements,
+      '/admin/merchants': counts?.merchants,
+      '/admin/merchant-suggestions': counts?.merchantSuggestions,
+      '/admin/complaints': counts?.tickets,
+    }
+    return (navConfig[userType] ?? []).map((item) => {
+      const count = isAdmin ? badges[item.href] : undefined
+      return count ? { ...item, badge: count > 99 ? '99+' : count } : item
+    })
+  }, [userType, isAdmin, newLeadCount, counts])
   const router = useRouter()
   const queryClient = useQueryClient()
   const prefetchRegistry = usePrefetchRegistry(queryClient)

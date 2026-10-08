@@ -2,9 +2,11 @@
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { supabase } from "@/lib/supabase/client";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { LoginLayoutRenderer } from "@/components/login-layouts";
 import type { PublicBranding } from "@/features/admin/settings/login-branding/services/login-branding.service";
 
@@ -22,6 +24,44 @@ export function LoginClient({ branding }: LoginClientProps) {
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Sign-in form. The Supabase Auth widget can't take a default email, so
+  // sign-in uses a small form pre-filled from ?email= (invite links).
+  const searchParams = useSearchParams();
+  const [email, setEmail] = useState(() => searchParams.get("email") ?? "");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const handleSignIn = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    setSubmitting(true);
+    // On success, onAuthStateChange(SIGNED_IN) runs the sync + redirect.
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+    setSubmitting(false);
+    if (signInError) setError(signInError.message);
+  };
+
+  const handleForgotPassword = async () => {
+    setError(null);
+    setNotice(null);
+    if (!email.trim()) {
+      setError("Enter your email address first.");
+      return;
+    }
+    setSubmitting(true);
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/login`,
+    });
+    setSubmitting(false);
+    if (resetError) setError(resetError.message);
+    else setNotice("If an account exists for this email, a password reset link has been sent.");
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -131,8 +171,13 @@ export function LoginClient({ branding }: LoginClientProps) {
           <span>{error}</span>
         </div>
       )}
+      {notice && (
+        <div className="mb-4 w-full rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+          {notice}
+        </div>
+      )}
       <div className="w-full max-w-sm">
-        {mounted && (
+        {mounted && view === "update_password" && (
           <Auth
             supabaseClient={supabase}
             appearance={{ theme: ThemeSupa }}
@@ -140,6 +185,49 @@ export function LoginClient({ branding }: LoginClientProps) {
             redirectTo="/login"
             view={view}
           />
+        )}
+        {mounted && view === "sign_in" && (
+          <form onSubmit={handleSignIn} className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="login-email" className="text-sm font-medium">
+                Email address
+              </label>
+              <Input
+                id="login-email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="login-password" className="text-sm font-medium">
+                Password
+              </label>
+              <Input
+                id="login-password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Sign in
+            </Button>
+            <Button
+              type="button"
+              variant="link"
+              className="w-full"
+              disabled={submitting}
+              onClick={handleForgotPassword}
+            >
+              Forgot password?
+            </Button>
+          </form>
         )}
       </div>
     </LoginLayoutRenderer>

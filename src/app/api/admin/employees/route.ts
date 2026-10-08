@@ -6,6 +6,7 @@ import { createAuditLog, fromCurrentUser } from "@/services/audit-log.service";
 import { validateUserEmail } from "@/services/user-validation.service";
 import { createPerfTimer } from "@/lib/perf";
 import { channels, publishBusinessNotification } from '@/services/business-notification.service';
+import { inviteAuthUser, inviteErrorStatus, normalizeEmail, rollbackAuthUser } from '@/services/employee-invite.service';
 
 function unauthorized() {
   return NextResponse.json(
@@ -135,8 +136,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const normalizedEmail = normalizeEmail(email);
+
     timer.point('validateUserEmail')
-    const validation = await validateUserEmail(email);
+    const validation = await validateUserEmail(normalizedEmail);
     if (validation.exists) {
       return NextResponse.json(
         { success: false, error: { code: "EMAIL_ALREADY_EXISTS", message: "Email is already assigned to another account" } },
@@ -144,24 +147,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const pkId = crypto.randomUUID();
+    // Invite first: creates the Supabase user and sends the invite email.
+    // Its id becomes the account/employee id.
+    timer.point('inviteAuthUser')
+    const invite = await inviteAuthUser(normalizedEmail, { role: 'EMPLOYEE', firstName, companyName: company.name });
+    if (!invite.ok) {
+      return NextResponse.json(
+        { success: false, error: { code: invite.code, message: invite.message } },
+        { status: inviteErrorStatus(invite.code) },
+      );
+    }
+    const pkId = invite.authUserId;
 
     timer.section('Database Queries')
     timer.point('$transaction (account + employee + audit)')
-    const result = await prisma.$transaction(async (tx) => {
-      await tx.account.create({ data: { authUserId: pkId, email, role: "EMPLOYEE", profileType: "EMPLOYEE", status: "PENDING" } });
-      const employee = await tx.employee.create({ data: { id: pkId, accountId: pkId, companyId, firstName, lastName, employeeId, department, jobTitle, phone, joinMethod: joinMethod || "manual", status: "INVITED", invitedAt: new Date(), invitedBy: user.id }, include: { company: { select: { id: true, name: true } } } });
-      await createAuditLog(fromCurrentUser(user, "EMPLOYEE_CREATED", "employee", employee.id, { changes: { email, companyId, department } }));
-      return employee;
-    });
+    let result;
+    try {
+      result = await prisma.$transaction(async (tx) => {
+        await tx.account.create({ data: { authUserId: pkId, email: normalizedEmail, role: "EMPLOYEE", profileType: "EMPLOYEE", status: "ACTIVE" } });
+        const employee = await tx.employee.create({ data: { id: pkId, accountId: pkId, companyId, firstName, lastName, employeeId, department, jobTitle, phone, joinMethod: joinMethod || "manual", status: "ACTIVE", invitedAt: new Date(), invitedBy: user.id }, include: { company: { select: { id: true, name: true } } } });
+        await createAuditLog(fromCurrentUser(user, "EMPLOYEE_CREATED", "employee", employee.id, { changes: { email: normalizedEmail, companyId, department } }));
+        return employee;
+      });
+    } catch (dbError) {
+      await rollbackAuthUser(pkId);
+      throw dbError;
+    }
 
+    // The invite email comes from Supabase; this is the in-app record only.
     await publishBusinessNotification({
       type: 'EMPLOYEE_INVITED',
       title: `Invitation to ${result.company.name}`,
       message: 'You have been invited to join your company benefits account.',
       priority: 'NORMAL',
       recipients: [{ role: 'employee', id: result.id }],
-      channels: channels('EMAIL'),
+      channels: channels('IN_APP'),
       referenceType: 'employee',
       referenceId: result.id,
       metadata: { companyId, invitedBy: user.id },
