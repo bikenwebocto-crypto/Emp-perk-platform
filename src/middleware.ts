@@ -27,6 +27,7 @@ const PUBLIC_API_ROUTES = [
   "/api/health",
   "/api/categories",
   "/api/leads",
+  "/api/cron", // protected by CRON_SECRET inside each route
 ];
 
 async function fetchRole(

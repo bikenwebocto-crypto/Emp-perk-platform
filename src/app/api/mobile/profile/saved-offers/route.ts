@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { internalError } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
+import { effectiveOfferStatus } from '@/lib/offer-visibility'
+import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
 export async function GET(request: NextRequest) {
   try {
+    triggerOfferExpiry() // background, never awaited
     const auth = await getAuthenticatedMobileEmployee(request)
     if (!auth.ok) return auth.response
 
@@ -53,10 +56,12 @@ export async function GET(request: NextRequest) {
         : [],
     )
 
+    const now = new Date()
     const items = saved
       .map((s) => {
         const offer = s.referenceId ? offersMap.get(s.referenceId) : null
         if (!offer) return null
+        const status = effectiveOfferStatus(offer.status, offer.endDate, now)
         return {
           savedAt: s.createdAt,
           offer: {
@@ -64,7 +69,8 @@ export async function GET(request: NextRequest) {
             title: offer.title,
             image: offer.image,
             endDate: offer.endDate,
-            status: offer.status,
+            status,
+            isExpired: status === 'EXPIRED',
             merchant: offer.merchant,
           },
         }

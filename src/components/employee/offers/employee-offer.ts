@@ -78,6 +78,8 @@ export interface EmployeeOffer {
   // Per-employee state
   isSaved: boolean
   isRedeemed: boolean
+  /** True when the offer's endDate has passed (saved offers can include these). */
+  isExpired?: boolean
   /** ISO time the employee can redeem again (repeat-cooldown offers only) */
   nextRedeemAt?: string | null
 }

@@ -22,6 +22,18 @@ import {
   getRepeatAfterHours,
 } from '@/lib/redemption-tracking'
 
+/**
+ * Status as employees should see it. A LIVE offer past its endDate is
+ * reported as EXPIRED even before the expiry job has updated the row.
+ */
+export function effectiveOfferStatus<S extends string>(
+  status: S,
+  endDate: Date,
+  now: Date = new Date(),
+): S | 'EXPIRED' {
+  return status === 'LIVE' && endDate <= now ? 'EXPIRED' : status
+}
+
 export interface OfferVisibilityResult {
   visible: boolean
   reason?: string

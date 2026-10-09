@@ -11,6 +11,7 @@ import { createAuditLog } from '@/services/audit-log.service';
 import { generateUniqueOfferCode } from '@/lib/offer-code';
 import { parseRepeatAfterHoursInput } from '@/lib/redemption-tracking';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
+import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
 const MIN_TITLE_LENGTH = 5;
 const MAX_TITLE_LENGTH = 255;
@@ -309,6 +310,7 @@ async function firePostCreateSideEffects(params: {
 
 export async function GET(request: NextRequest) {
   try {
+    triggerOfferExpiry() // background, never awaited
     const merchant = await getMerchantFromSession();
     if (!merchant) return unauthorized();
 

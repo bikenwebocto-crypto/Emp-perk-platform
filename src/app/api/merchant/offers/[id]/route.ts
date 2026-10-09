@@ -234,11 +234,17 @@ export async function PATCH(
         if (repeatAfterHours.value !== undefined) {
           redemptionConfig = withRepeatAfterHours(redemptionConfig, repeatAfterHours.value);
         }
-        if (body.redemptionCode !== undefined) redemptionConfig.code = body.redemptionCode;
+        if (typeof body.redemptionCode === 'string' && body.redemptionCode.trim()) {
+            redemptionConfig.code = body.redemptionCode.trim();
+          }
         if (body.redemptionInstructions !== undefined) redemptionConfig.instructions = body.redemptionInstructions;
         if (body.bookingUrl !== undefined) redemptionConfig.bookingUrl = body.bookingUrl;
 
-        if (body.redemptionType === 'ONLINE_CODE' && existing.redemption?.redemptionType !== 'ONLINE_CODE' && !config.code) {
+        const effectiveType = body.redemptionType ?? existing.redemption?.redemptionType;
+        if (
+          (effectiveType === 'ONLINE_CODE' || effectiveType === 'VIRTUAL_CARD_AUTO_VERIFY') &&
+          !redemptionConfig.code
+        ) {
           const newCode = await generateUniqueOfferCode();
           redemptionConfig.code = newCode;
           await createAuditLog({
@@ -248,9 +254,9 @@ export async function PATCH(
             entityType: "MERCHANT_OFFER",
             entityId: id,
             actorId: merchant?.accountId ?? null,
-            metadata: { offerCode: newCode, redemptionType: 'ONLINE_CODE' },
-          });
-        }
+            metadata: { offerCode: newCode, redemptionType: effectiveType },
+  });
+}
 
         if (body.regenerateOfferCode) {
           const newCode = await generateUniqueOfferCode();

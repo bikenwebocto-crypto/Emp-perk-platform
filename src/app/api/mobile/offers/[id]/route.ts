@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { internalError, notFound } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
-import { isOfferVisibleToEmployees } from '@/lib/offer-visibility'
+import { effectiveOfferStatus, isOfferVisibleToEmployees } from '@/lib/offer-visibility'
 import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
+import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
 // GET /api/mobile/offers/[id]
 //
@@ -15,13 +16,14 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    triggerOfferExpiry() // background, never awaited
     const auth = await getAuthenticatedMobileEmployee(request)
     if (!auth.ok) return auth.response
     const { id } = await params
     if (!id) return notFound('Offer not found')
 
-    const offer = await prisma.merchantOffer.findUnique({
-      where: { id },
+    const offer = await prisma.merchantOffer.findFirst({
+      where: { id, deletedAt: null },
       include: {
         content: { select: { description: true, shortDescription: true, termsAndConditions: true, imageUrls: true } },
         pricing: { select: { configuration: true } },
@@ -74,7 +76,8 @@ export async function GET(
 
     const pricingConfig = (offer.pricing?.configuration as Record<string, unknown>) ?? {}
     const redemptionConfig = (offer.redemption?.configuration as Record<string, unknown>) ?? {}
-    const now = new Date()    
+    const now = new Date()
+    const status = effectiveOfferStatus(offer.status, offer.endDate, now)
     const redeemState = getRedeemState(
       redemption?.createdAt,
       getRepeatAfterHours(offer.redemption?.configuration),
@@ -95,7 +98,8 @@ export async function GET(
         termsAndConditions: offer.content?.termsAndConditions,
         imageUrls: offer.content?.imageUrls ?? [],
         offerType: offer.offerType,
-        status: offer.status,
+        status,
+        isExpired: status === 'EXPIRED',
         discountValue: pricingConfig.discountValue ?? pricingConfig.amount ?? pricingConfig.percent ?? null,
         discountPercent: pricingConfig.percent ?? null,
         minimumSpend: pricingConfig.minimumSpend ?? null,

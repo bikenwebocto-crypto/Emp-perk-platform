@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getRepeatAfterHours } from "@/lib/redemption-tracking";
+import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    triggerOfferExpiry() // background, never awaited
     const { id } = await params;
 
     const merchant = await prisma.merchant.findUnique({

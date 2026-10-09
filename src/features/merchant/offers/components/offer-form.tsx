@@ -57,6 +57,13 @@ interface FormData {
   isExclusive: boolean;
 }
 
+/** "2026-10-08T23:59" (local, from datetime-local) → UTC ISO string. Empty/invalid stays as-is. */
+function localInputToIso(value: string): string {
+  if (!value) return value;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? value : d.toISOString();
+}
+
 interface FormErrors {
   [key: string]: string;
 }
@@ -443,8 +450,10 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     getQuantity: form.getQuantity ? Number(form.getQuantity) : null,
     freeItem: form.freeItem || null,
     maxFreeItems: form.maxFreeItems ? Number(form.maxFreeItems) : null,
-    startDate: form.startDate,
-    endDate: form.endDate,
+    // datetime-local values have no timezone; convert in the browser so the
+    // server stores the merchant's local time correctly (it runs in UTC).
+    startDate: localInputToIso(form.startDate),
+    endDate: localInputToIso(form.endDate),
     daysOfWeek: form.daysOfWeek
       .split(",")
       .map((s) => parseInt(s.trim()))

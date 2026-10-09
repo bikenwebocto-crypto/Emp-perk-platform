@@ -249,9 +249,18 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
         {/* Footer */}
         <div className="flex items-center justify-between border-t pt-2">
           <span className="text-[11px] text-muted-foreground">
-            Expires {new Date(offer.endDate).toLocaleDateString()}
+            {offer.isExpired ? "Expired" : "Expires"} {new Date(offer.endDate).toLocaleDateString()}
           </span>
-          {offer.isRedeemed ? (
+          {offer.isExpired ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled
+              className="h-7 text-[11px] px-2.5"
+            >
+              Expired
+            </Button>
+          ) : offer.isRedeemed ? (
             <div className="flex items-center gap-1.5">
               {offer.nextRedeemAt && (
                 <span className="text-[11px] text-muted-foreground">

@@ -3,12 +3,14 @@ import { prisma } from '@/lib/prisma'
 import { getEmployeeFromSession, unauthorized, internalError, companyInactive, notFound, badRequest } from '@/lib/employee-session'
 import { isOfferVisibleToEmployees } from '@/lib/offer-visibility'
 import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
+import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    triggerOfferExpiry() // background, never awaited
     const employee = await getEmployeeFromSession()
     if (!employee) return unauthorized()
     if ('inactive' in employee) return companyInactive(employee.companyStatus)

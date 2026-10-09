@@ -20,11 +20,18 @@ vi.mock('@/services/user-validation.service', () => ({
 vi.mock('@/services/business-notification.service', () => ({
   publishBusinessToAdmins: vi.fn().mockResolvedValue(undefined),
 }))
+// The route invites the Supabase user first; its id becomes the merchant id.
+vi.mock('@/services/employee-invite.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/employee-invite.service')>()),
+  inviteAuthUser: vi.fn(),
+  rollbackAuthUser: vi.fn().mockResolvedValue(undefined),
+}))
 
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { validateUserEmail } from '@/services/user-validation.service'
 import { publishBusinessToAdmins } from '@/services/business-notification.service'
+import { inviteAuthUser } from '@/services/employee-invite.service'
 import { POST } from '@/app/api/admin/merchants/create/route'
 
 const db = prisma as any
@@ -60,6 +67,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(getCurrentUser).mockResolvedValue(adminUser as any)
   vi.mocked(validateUserEmail).mockResolvedValue({ exists: false } as any)
+  vi.mocked(inviteAuthUser).mockResolvedValue({ ok: true, authUserId: createdMerchant.id })
   db.category.findUnique.mockResolvedValue(null)
   db.account.create.mockResolvedValue({ id: createdMerchant.id })
   db.merchant.create.mockResolvedValue(createdMerchant)

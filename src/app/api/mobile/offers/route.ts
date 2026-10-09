@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { internalError, notFound, badRequest } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
+import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
 // GET /api/mobile/offers
 //
@@ -11,6 +12,7 @@ import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
 // app can reuse the same React Query hooks adapted to the smaller payload.
 export async function GET(request: NextRequest) {
   try {
+    triggerOfferExpiry() // background, never awaited
     const auth = await getAuthenticatedMobileEmployee(request)
     if (!auth.ok) return auth.response
 

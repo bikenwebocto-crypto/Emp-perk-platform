@@ -9,10 +9,11 @@
  *  - Notifies employees who saved an offer expiring within 24h (OFFER_EXPIRING).
  *
  * Idempotency:
- *  - Expired offers are transitioned with `status: 'LIVE'` guards, so a
- *    second run never re-expires or re-notifies.
- *  - Expiry notices rely on NotificationService dedup (type + reference +
- *    title + recipient), so repeated hourly runs never duplicate rows.
+ *  - Expired offers are transitioned with `status: 'LIVE'` guards; only the
+ *    run whose update actually changed the row sends OFFER_EXPIRED, so a
+ *    concurrent or repeated run never re-notifies.
+ *  - Every notice skips employees who already have a row with the same
+ *    type + title + offer reference (see notifySavedEmployees).
  *  - Audiences are scoped to employees who saved the offer (the `saved_offer`
  *    side channel), keeping volume bounded.
  */
@@ -64,16 +65,21 @@ class OfferExpiryScheduler {
     });
     if (!offers.length) return;
 
-    // Transition to EXPIRED. The status guard makes this idempotent.
+    // Transition to EXPIRED. The status guard makes this idempotent, and its
+    // row count tells us whether THIS run made the change — a concurrent run
+    // (cron + request-triggered) gets count 0 and must not notify again.
+    const transitioned: OfferForNotify[] = [];
     for (const offer of offers) {
-      await prisma.merchantOffer.updateMany({
+      const { count } = await prisma.merchantOffer.updateMany({
         where: { id: offer.id, status: 'LIVE' },
         data: { status: 'EXPIRED', expiresAt: offer.endDate },
       });
+      if (count === 1) transitioned.push(offer);
     }
 
-    // Notify only offers that expired within the last 24 hours.
-    const recent = offers.filter((offer) => offer.endDate >= cutoff);
+    // Notify only offers this run expired, and only if they expired within
+    // the last 24 hours.
+    const recent = transitioned.filter((offer) => offer.endDate >= cutoff);
     for (const offer of recent) {
       await this.notifySavedEmployees(
         offer,
@@ -147,9 +153,27 @@ class OfferExpiryScheduler {
       select: { employeeId: true },
       distinct: ['employeeId'],
     });
-    const recipients: Recipient[] = savers
+    const saverIds = savers
       .map((row) => row.employeeId)
-      .filter((id): id is string => Boolean(id))
+      .filter((id): id is string => Boolean(id));
+    if (!saverIds.length) return;
+
+    // Skip employees who already got this exact notice. NotificationEvent has
+    // no unique key, so createMany's skipDuplicates does not dedupe — without
+    // this, every run (hourly cron + request-triggered) would resend it.
+    const alreadyNotified = await prisma.notificationEvent.findMany({
+      where: {
+        type,
+        title,
+        referenceType: 'offer',
+        referenceId: offer.id,
+        employeeId: { in: saverIds },
+      },
+      select: { employeeId: true },
+    });
+    const notifiedIds = new Set(alreadyNotified.map((row) => row.employeeId));
+    const recipients: Recipient[] = saverIds
+      .filter((id) => !notifiedIds.has(id))
       .map((id) => ({ role: 'employee' as const, id }));
     if (!recipients.length) return;
 
