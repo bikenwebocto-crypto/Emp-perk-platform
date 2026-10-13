@@ -90,6 +90,7 @@ export function DashboardShell({ children, branding }: DashboardShellProps) {
           userName={user?.name}
           userEmail={user?.email}
           userRole={user?.role}
+          adminRole={user?.adminRole}
           companyName={user?.companyName}
           branding={branding}
           avatarUrl={user?.avatarUrl}
@@ -102,7 +103,7 @@ export function DashboardShell({ children, branding }: DashboardShellProps) {
           onMenuClick={() => setSidebarOpen(true)}
           userName={user?.name}
           userEmail={user?.email}
-          userRole={user?.role}
+          userRole={user?.adminRole}
         />
         <main className="min-w-0 flex-1 overflow-y-auto p-6">
           {children}

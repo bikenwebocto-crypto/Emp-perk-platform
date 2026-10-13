@@ -65,6 +65,8 @@ export async function GET() {
         name,
         userType: user.userType,
         role: user.role,
+        profileType: user.profileType,
+        adminRole: user.adminRole,
         companyName: user.companyName,
         companyId: user.companyId ?? null,
         avatarUrl,

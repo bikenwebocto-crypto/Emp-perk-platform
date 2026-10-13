@@ -23,7 +23,7 @@ export function normalizeEmail(email: string): string {
 export function inviteErrorStatus(code: InviteErrorCode): 409 | 502 {
   return code === 'EMAIL_EXISTS' ? 409 : 502
 }
-export type InviteRole = 'EMPLOYEE' | 'MERCHANT' | 'COMPANY_ADMIN'
+export type InviteRole = 'EMPLOYEE' | 'MERCHANT' | 'COMPANY_ADMIN' | 'ADMIN'
 export async function inviteAuthUser(
   email: string,
   meta: { role: InviteRole; firstName?: string | null; companyName?: string | null; merchantName?: string | null },

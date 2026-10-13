@@ -143,6 +143,7 @@ const SECTION_LIMITS = {
   mostRequested: 10,
   mostRedeemed: 10,
   today: 10,
+  expiringSoon: 10,
 } as const
 
 // Shared "offer is currently visible to employees" filter. Mirrors the
@@ -592,53 +593,28 @@ async function buildMostRedeemed(now: Date): Promise<MobileHomeOffer[]> {
   return rows.map((o) => mapOffer(o, null))
 }
 
-async function buildTodaysPicks(now: Date): Promise<MobileHomeOffer[]> {
-  const startOfDay = new Date(now)
-  startOfDay.setHours(0, 0, 0, 0)
+const EXPIRING_SOON_DAYS = 45
 
-  // Pull today's redemption counts. We deliberately do NOT apply
-  // `liveOfferWhere` here — the offer id is what we need; visibility is
-  // re-applied in step 3 so an expired or paused offer never reaches the
-  // final list, even if it was redeemed earlier today.
-  const todaysCounts = await prisma.redemption.groupBy({
-    by: ['offerId'],
-    where: { redeemedAt: { gte: startOfDay } },
-    _count: { _all: true },
-    orderBy: { _count: { offerId: 'desc' } },
-    take: SECTION_LIMITS.today,
-  })
+async function buildExpiringSoon(now: Date): Promise<MobileHomeOffer[]> {
+  const cutoff = new Date(now.getTime() + EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000)
 
-  if (todaysCounts.length === 0) {
-    return buildMostRequested(now)
-  }
-
-  const ids = todaysCounts.map((r) => r.offerId)
-  const countMap = new Map(todaysCounts.map((r) => [r.offerId, r._count._all]))
-
-  // Apply `liveOfferWhere` so only valid LIVE offers are returned.
-  // Previously the visibility filter was applied AFTER the top-10 were
-  // selected, which meant an expired top offer silently dropped out of
-  // the rank order. Filtering here preserves rank order integrity.
   const rows = await prisma.merchantOffer.findMany({
-    where: { ...liveOfferWhere(now), id: { in: ids } },
+    where: {
+      AND: [
+        liveOfferWhere(now),                    // still live: active, approved, not paused, etc.
+        { endDate: { gt: now, lte: cutoff } },  // expires within the next 45 days
+      ],
+    },
     select: offerSelect,
+    orderBy: [
+      { endDate: 'asc' },     // soonest expiry first
+      { isFeatured: 'desc' }, // featured wins on the same date
+      { createdAt: 'desc' },  // then newest
+    ],
+    take: SECTION_LIMITS.expiringSoon,
   })
 
-  // Preserve the groupBy ranking. Use featured + recency as tiebreakers so
-  // a featured offer is preferred over a non-featured one with the same
-  // redemption count.
-  const byId = new Map(rows.map((r) => [r.id, r]))
-  return ids
-    .map((id) => byId.get(id))
-    .filter((o): o is NonNullable<typeof o> => Boolean(o))
-    .sort((a, b) => {
-      const ca = countMap.get(a.id) ?? 0
-      const cb = countMap.get(b.id) ?? 0
-      if (ca !== cb) return cb - ca
-      if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1
-      return b.createdAt.getTime() - a.createdAt.getTime()
-    })
-    .map((o) => mapOffer(o, null))
+  return rows.map((o) => mapOffer(o, null))
 }
 
 // ---------------------------------------------------------------------------
@@ -681,7 +657,7 @@ export async function getMobileHomeLight({
     buildBanners(now),
     buildDiscover(now),
     buildNewArrivals(now),
-    buildTodaysPicks(now),
+    buildExpiringSoon(now),
   ]);
 
   return {
@@ -713,8 +689,8 @@ export async function getMobileHomeLight({
         items: newArrivals,
       },
       {
-        id: "today",
-        title: "Today's Hot Picks",
+        id: "expiringSoon",
+        title: "Expiring Soon",
         type: "offer",
         items: today,
       },

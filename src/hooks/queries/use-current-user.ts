@@ -8,6 +8,7 @@ export interface CurrentUser {
   name: string;
   userType: string;
   role: string | null;
+  adminRole?: string | null;
   companyName?: string | null;
   companyId?: string | null;
   avatarUrl: string | null;

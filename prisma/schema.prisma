@@ -1078,9 +1078,10 @@ enum AccountStatus {
 
 enum AdminRole {
   SUPER_ADMIN
+  ADMIN
   SUPPORT_ADMIN
   FINANCE_ADMIN
-  CONTENT_ADMIN
+  CONTENT_ADMIN // deprecated → ADMIN
 }
 
 enum MerchantStatus {

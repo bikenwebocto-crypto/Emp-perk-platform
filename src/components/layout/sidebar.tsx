@@ -15,8 +15,9 @@ import { Loader2 } from 'lucide-react'
 import {
   LayoutDashboard, Store, Users, FileText, BarChart3, Settings, CreditCard,
   ShoppingBag, MapPin, Gift, Building2, UserCircle, Bell, Upload, LogOut,
-  Zap, Search, RefreshCw, Bookmark, Palette, Trash2, Lightbulb, Tags, Inbox,
+  Zap, Search, RefreshCw, Bookmark, Palette, Trash2, Lightbulb, Tags, Inbox, KeyRound,
 } from 'lucide-react'
+import { canAdminAccessPath } from '@/lib/access/account-access'
 import { supabase } from '@/lib/supabase/client'
 import type { PublicBranding } from '@/features/admin/settings/login-branding/services/login-branding.service'
 
@@ -33,6 +34,8 @@ interface SidebarProps {
   userName?: string
   userEmail?: string
   userRole?: string | null
+  /** AdminUser.role — limits which admin items are shown (admins only). */
+  adminRole?: string | null
   companyName?: string | null
   branding?: PublicBranding | null
   avatarUrl?: string | null
@@ -59,6 +62,7 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Banners', href: '/admin/banners', icon: Palette },
     { label: 'Notifications', href: '/admin/notifications', icon: Bell },
     { label: 'Login Branding', href: '/admin/settings/login-branding', icon: Palette },
+    { label: 'Accounts', href: '/admin/accounts', icon: KeyRound },
     // { label: 'Theme Customizer', href: '/admin/themes/customize', icon: Palette },
   ],
   merchant: [
@@ -153,10 +157,14 @@ function usePrefetchRegistry(queryClient: QueryClient): Record<string, PrefetchE
 
 type PrefetchEntry = () => void
 
-export function Sidebar({ userType, userName, userEmail, userRole, companyName, branding, avatarUrl }: SidebarProps) {
+export function Sidebar({ userType, userName, userEmail, userRole, adminRole, companyName, branding, avatarUrl }: SidebarProps) {
   const pathname = usePathname()
   const isAdmin = userType === 'admin'
-  const { data: newLeadCount } = useNewLeadCount(isAdmin)
+  // SUPPORT_ADMIN only opens tickets + notifications: the leads query (and its
+  // /api/admin/leads request) must not fire for it. Sidebar counts are allowed
+  // and return the ticket count only for that role.
+  const isSupportAdmin = isAdmin && adminRole === 'SUPPORT_ADMIN'
+  const { data: newLeadCount } = useNewLeadCount(isAdmin && !isSupportAdmin)
   const { data: counts } = useAdminSidebarCounts(isAdmin)
   const navItems = useMemo(() => {
     const badges: Record<string, number | undefined> = {
@@ -167,11 +175,18 @@ export function Sidebar({ userType, userName, userEmail, userRole, companyName, 
       '/admin/merchant-suggestions': counts?.merchantSuggestions,
       '/admin/complaints': counts?.tickets,
     }
-    return (navConfig[userType] ?? []).map((item) => {
-      const count = isAdmin ? badges[item.href] : undefined
-      return count ? { ...item, badge: count > 99 ? '99+' : count } : item
-    })
-  }, [userType, isAdmin, newLeadCount, counts])
+    console.log('** [sidebar]', { userType, adminRole, userRole,
+  accounts: canAdminAccessPath(adminRole, '/admin/accounts') })
+
+    return (navConfig[userType] ?? [])
+      // Admins only see the pages their admin role may open (same rule the
+      // middleware enforces).
+      .filter((item) => !isAdmin || canAdminAccessPath(adminRole, item.href))
+      .map((item) => {
+        const count = isAdmin ? badges[item.href] : undefined
+        return count ? { ...item, badge: count > 99 ? '99+' : count } : item
+      })
+  }, [userType, isAdmin, adminRole, newLeadCount, counts])
   const router = useRouter()
   const queryClient = useQueryClient()
   const prefetchRegistry = usePrefetchRegistry(queryClient)
@@ -238,12 +253,12 @@ export function Sidebar({ userType, userName, userEmail, userRole, companyName, 
           {companyName && (
             <p className="truncate text-xs" style={{ color: `hsl(var(--sidebar-text-muted))` }}>{companyName}</p>
           )}
-          {userRole && (
+          {adminRole && (
             <span
               className="mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium"
               style={{ backgroundColor: `hsl(var(--sidebar-active-bg) / 0.1)`, color: `hsl(var(--sidebar-active-text))` }}
             >
-              {userRole.replace(/_/g, ' ')}
+              {adminRole.replace(/_/g, ' ')}
             </span>
           )}
         </div>

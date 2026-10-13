@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
+import { canAdminAccessPath, canAdminCallApi, adminLandingPath } from "@/lib/access/account-access";
 
 const ROLE_DASHBOARD_MAP: Record<string, string> = {
   SUPER_ADMIN: "/admin",
@@ -15,7 +16,13 @@ const ROLE_ACCESS_MAP: Record<string, string[]> = {
   EMPLOYEE: ["/employee"],
 };
 
-const roleCache = new Map<string, { role: string; timestamp: number }>();
+interface RoleInfo {
+  role: string;
+  /** AdminUser.role for admin accounts (decides which /admin pages open). */
+  adminRole: string | null;
+}
+
+const roleCache = new Map<string, RoleInfo & { timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000;
 
 const PUBLIC_API_ROUTES = [
@@ -34,10 +41,10 @@ async function fetchRole(
   supabase: ReturnType<typeof createServerClient>,
   email: string,
   request: NextRequest,
-): Promise<string | null> {
+): Promise<RoleInfo | null> {
   const cached = roleCache.get(email);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.role;
+    return { role: cached.role, adminRole: cached.adminRole };
   }
 
   try {
@@ -56,10 +63,11 @@ async function fetchRole(
 
     const data = await res.json()
     const role: string | undefined = data.user?.role
+    const adminRole: string | null = data.user?.adminRole ?? null
     if (role) {
-      roleCache.set(email, { role, timestamp: Date.now() })
+      roleCache.set(email, { role, adminRole, timestamp: Date.now() })
     }
-    return role ?? null
+    return role ? { role, adminRole } : null
   } catch {
     return null
   }
@@ -131,15 +139,28 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // For API routes: just set auth headers and pass through (no role check)
+  // For API routes: just set auth headers and pass through. SUPPORT_ADMIN is
+  // restricted to the tickets UI, so every /api/admin/* route it does not
+  // explicitly need (notifications, sidebar counts) is rejected here. Ticket
+  // APIs live under /api/complaints/admin and are gated in-route.
   if (isApiRoute) {
+    if (pathname.startsWith("/api/admin/")) {
+      const roleInfo = await fetchRole(supabase, user.email!, request)
+      if (!canAdminCallApi(roleInfo?.adminRole, pathname)) {
+        return NextResponse.json(
+          { success: false, error: { code: "FORBIDDEN", message: "Forbidden" } },
+          { status: 403 },
+        )
+      }
+    }
     requestHeaders.set("x-auth-email", user.email!)
     response.headers.set("x-auth-email", user.email!)
     return response
   }
 
   // For page routes: full role-based access check
-  const role = await fetchRole(supabase, user.email!, request)
+  const roleInfo = await fetchRole(supabase, user.email!, request)
+  const role = roleInfo?.role
 
   if (!role) {
     await supabase.auth.signOut()
@@ -154,6 +175,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(
       new URL(ROLE_DASHBOARD_MAP[role] ?? "/employee", request.url),
     )
+  }
+
+  // Admin permission level: each admin role only opens its own /admin pages.
+  // SUPPORT_ADMIN has no overview, so it is sent to its tickets list instead.
+  if (role === "SUPER_ADMIN" && !canAdminAccessPath(roleInfo?.adminRole, pathname)) {
+    return NextResponse.redirect(new URL(adminLandingPath(roleInfo?.adminRole), request.url))
   }
 
   requestHeaders.set("x-auth-role", role)
