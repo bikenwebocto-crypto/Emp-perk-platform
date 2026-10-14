@@ -63,6 +63,7 @@ model Company {
   phone                String?                @db.VarChar(50)
   logoUrl              String?                @db.VarChar(500)
   website              String?                @db.VarChar(500)
+  socialLinks          Json?
   employeeCount        Int                    @default(0)
   status               CompanyStatus          @default(PENDING)
   addressLine1         String?                @db.VarChar(255)
@@ -1112,6 +1113,7 @@ enum CompanyStatus {
 enum LeadType {
   MERCHANT
   EMPLOYER
+  EMPLOYEE_ACCESS
 }
 
 enum LeadStatus {
@@ -1423,6 +1425,7 @@ enum ComplaintType {
   NON_FUNCTIONAL
   POLICY_VIOLATION
   APPLICATION_SUPPORT
+  OTHER
 }
 
 enum ComplaintStatus {
@@ -1528,8 +1531,8 @@ model MerchantSuggestion {
   companyId       String                   @db.Uuid
   merchantName    String                   @db.VarChar(255)
   merchantWebsite String?                  @db.VarChar(500)
-  merchantPhone   String                   @db.VarChar(50)
-  merchantEmail   String                   @db.VarChar(255)
+  merchantPhone   String?                  @db.VarChar(50)
+  merchantEmail   String?                  @db.VarChar(255)
   reason          String?
   status          MerchantSuggestionStatus @default(PENDING)
   adminNotes      String?
@@ -1579,6 +1582,15 @@ model Lead {
   companySize String? @db.VarChar(50)
   hqCountry   String? @db.VarChar(100)
   role        String? @db.VarChar(50)
+
+  // website forms (employer_enquiry / merchant_application / employee_access)
+  formKey           String?  @db.VarChar(50)
+  redemption        String?  @db.VarChar(20)
+  intent            String?  @db.VarChar(20)
+  /// Employee leads only. When false, staff must not name the employee to their employer.
+  shareWithEmployer Boolean  @default(false)
+  consents          Json?
+  attribution       Json?
 
   // link to the real record, set on conversion
   merchantId String?   @unique @db.Uuid

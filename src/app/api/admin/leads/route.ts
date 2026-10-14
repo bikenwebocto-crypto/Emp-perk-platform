@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/supabase/server';
 
-const LEAD_TYPES = ['MERCHANT', 'EMPLOYER'] as const;
+const LEAD_TYPES = ['MERCHANT', 'EMPLOYER', 'EMPLOYEE_ACCESS'] as const;
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'REJECTED', 'CONVERTED'] as const;
 
 function unauthorized() {
@@ -23,7 +23,7 @@ function forbidden() {
 // GET /api/admin/leads
 //
 // Query params:
-//   - type     : MERCHANT | EMPLOYER
+//   - type     : MERCHANT | EMPLOYER | EMPLOYEE_ACCESS
 //   - status   : NEW | CONTACTED | REJECTED | CONVERTED
 //   - q        : search across company name, email, first/last name
 //   - page, pageSize

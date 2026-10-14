@@ -13,6 +13,8 @@ import { ArrowLeft, Save, Upload } from 'lucide-react'
 import { CSVUploadDropzone } from '@/features/csv-uploads/components/csv-upload-dropzone'
 import { useCreateCompany } from '@/hooks/queries/use-companies'
 import { showToast } from '@/hooks/use-toast'
+import { SocialLinksInput } from '@/components/shared/social-links-input'
+import { cleanSocialLinks, type SocialLinks } from '@/lib/social-links'
 
 interface FormData {
   name: string
@@ -22,6 +24,7 @@ interface FormData {
   lastName: string
   phone: string
   website: string
+  socialLinks?: SocialLinks
   employeeCount: string
   industry: string
   addressLine1: string
@@ -51,6 +54,7 @@ export function CompanyForm() {
     lastName: '',
     phone: '',
     website: '',
+    socialLinks: {},
     employeeCount: '',
     industry: '',
     addressLine1: '',
@@ -83,6 +87,10 @@ export function CompanyForm() {
     }
   }
 
+  const setSocialLink = (platform: keyof SocialLinks, value: string) => {
+    setForm((prev) => ({ ...prev, socialLinks: { ...(prev.socialLinks ?? {}), [platform]: value } }))
+  }
+
   const validate = (): boolean => {
     const errs: FormErrors = {}
     if (!form.name.trim()) errs.name = 'Company name is required'
@@ -104,6 +112,7 @@ export function CompanyForm() {
     createCompany.mutate(
       {
         ...form,
+        socialLinks: cleanSocialLinks(form.socialLinks),
         employeeCount: form.employeeCount ? parseInt(form.employeeCount) : 0,
         ...(leadId ? { leadId } : {}),
       },
@@ -245,6 +254,9 @@ export function CompanyForm() {
             <div>
               <label className="mb-1 block text-sm font-medium">Website</label>
               <Input type="url" value={form.website} onChange={(e) => setField('website', e.target.value)} placeholder="https://company.com" />
+            </div>
+            <div>
+              <SocialLinksInput value={form.socialLinks} onChange={setSocialLink} />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Approx. Employee Count</label>

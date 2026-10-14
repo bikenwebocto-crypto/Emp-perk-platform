@@ -5,7 +5,6 @@ import { badRequest, internalError } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { createAuditLog } from '@/services/audit-log.service'
 import {
-  OPEN_SUGGESTION_STATUSES,
   SUGGESTION_RATE_LIMIT,
   SUGGESTION_RATE_WINDOW_MS,
   apiError,
@@ -50,8 +49,8 @@ function serialize(s: EmployeeSuggestion) {
 // POST /api/mobile/merchant-suggestions
 //
 // File a merchant suggestion for the authenticated employee.
-//   merchantName, merchantPhone, merchantEmail (required),
-//   merchantWebsite, reason (optional)
+//   merchantName (required),
+//   merchantWebsite, merchantPhone, merchantEmail, reason (optional)
 //
 // employeeId / companyId are NEVER read from the client — both come from
 // the Supabase Bearer token via getAuthenticatedMobileEmployee.
@@ -70,8 +69,8 @@ export async function POST(request: NextRequest) {
     if (!validation.ok) return badRequest('Invalid merchant suggestion', validation.errors)
     const input = validation.data
 
-    // The rate-limit and duplicate checks run under a per-employee advisory
-    // lock so two concurrent submissions cannot both slip past them.
+    // The rate-limit check runs under a per-employee advisory lock so two
+    // concurrent submissions cannot both slip past it.
     const result = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`merchant_suggestion:${employee.id}`}))`
 
@@ -82,16 +81,6 @@ export async function POST(request: NextRequest) {
         },
       })
       if (recentCount >= SUGGESTION_RATE_LIMIT) return { kind: 'rate_limited' as const }
-
-      const duplicate = await tx.merchantSuggestion.findFirst({
-        where: {
-          employeeId: employee.id,
-          status: { in: OPEN_SUGGESTION_STATUSES },
-          OR: [{ merchantEmail: input.merchantEmail }, { merchantPhone: input.merchantPhone }],
-        },
-        select: { id: true },
-      })
-      if (duplicate) return { kind: 'duplicate' as const, id: duplicate.id }
 
       const created = await tx.merchantSuggestion.create({
         data: {
@@ -111,15 +100,6 @@ export async function POST(request: NextRequest) {
         `You can submit at most ${SUGGESTION_RATE_LIMIT} merchant suggestions in 24 hours.`,
       )
     }
-    if (result.kind === 'duplicate') {
-      return apiError(
-        409,
-        'DUPLICATE_SUGGESTION',
-        'You already have an open suggestion for a merchant with this email or phone.',
-        { existingSuggestionId: result.id },
-      )
-    }
-
     void createAuditLog({
       actorType: 'employee',
       actorId: employee.id,

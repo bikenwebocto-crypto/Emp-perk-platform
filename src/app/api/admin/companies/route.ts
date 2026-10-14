@@ -11,6 +11,7 @@ import { getCityReadiness } from '@/lib/company-activation/city-readiness';
 import { sendLaunchPack } from '@/lib/company-activation/launch-pack';
 import { derivePrimaryAdmin, summarizeAdmins } from '@/lib/company-contact';
 import { createPerfTimer } from '@/lib/perf';
+import { cleanSocialLinks } from '@/lib/social-links';
 import type { CompanyStatus } from '@/types';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessToAdmins, publishBusinessToCompanyAdmins } from '@/services/business-notification.service';
 import { z } from 'zod';
@@ -38,6 +39,12 @@ const companySignupSchema = z.object({
   lastName: z.string().trim().min(1).max(100),
   phone: z.string().trim().max(30).optional().nullable(),
   website: z.string().trim().url().max(300).optional().nullable().or(z.literal('')),
+  socialLinks: z.object({
+    instagram: z.string().trim().url().max(500).optional().nullable().or(z.literal('')),
+    facebook: z.string().trim().url().max(500).optional().nullable().or(z.literal('')),
+    twitter: z.string().trim().url().max(500).optional().nullable().or(z.literal('')),
+    tiktok: z.string().trim().url().max(500).optional().nullable().or(z.literal('')),
+  }).optional().nullable(),
   employeeCount: z.number().int().min(0).max(1_000_000).optional().nullable(),
   addressLine1: z.string().trim().max(300).optional().nullable(),
   addressLine2: z.string().trim().max(300).optional().nullable(),
@@ -240,7 +247,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    const { name, email, firstName, lastName, phone: rawPhone, website, employeeCount, addressLine1, addressLine2, city, state, postalCode, country, taxId } = parsed.data;
+    const { name, email, firstName, lastName, phone: rawPhone, website, socialLinks, employeeCount, addressLine1, addressLine2, city, state, postalCode, country, taxId } = parsed.data;
 
     // Converting a lead is an admin-only action; public signup is unchanged.
     const rawLeadId = (rawBody as { leadId?: unknown } | null)?.leadId;
@@ -279,6 +286,7 @@ export async function POST(request: NextRequest) {
       const company = await tx.company.create({
         data: {
           name, slug, email, employeeCount: employeeCount ?? 0, phone, website,
+          socialLinks: (cleanSocialLinks(socialLinks) ?? undefined) as any,
           addressLine1, addressLine2, city, state, postalCode, country, taxId,
           status: requiresApproval ? 'PENDING' : 'APPROVED_PENDING_PAYMENT',
           approvedAt: requiresApproval ? null : new Date(),

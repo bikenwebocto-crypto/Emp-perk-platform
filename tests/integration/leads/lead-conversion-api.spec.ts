@@ -143,6 +143,7 @@ describe('POST /api/admin/merchants/create lead validation', () => {
   it.each([
     ['lead does not exist', null],
     ['lead is an employer lead', merchantLead({ type: 'EMPLOYER' })],
+    ['lead is an employee lead', merchantLead({ type: 'EMPLOYEE_ACCESS' })],
     ['lead is already converted', merchantLead({ status: 'CONVERTED', merchantId: 'other-id' })],
   ])('rejects with INVALID_LEAD when %s', async (_label, lead) => {
     db.lead.findUnique.mockResolvedValue(lead)

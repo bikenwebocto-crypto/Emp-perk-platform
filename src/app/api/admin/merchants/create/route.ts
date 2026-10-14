@@ -7,6 +7,7 @@ import { publishBusinessToAdmins } from '@/services/business-notification.servic
 import {
   inviteAuthUser, inviteErrorStatus, normalizeEmail, rollbackAuthUser,
 } from '@/services/employee-invite.service';
+import { cleanSocialLinks, validateSocialLinks } from '@/lib/social-links';
 
 function unauthorized() {
   return NextResponse.json(
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       businessName, email, contactName, contactPhone,
-      categoryId, description, website,
+      categoryId, description, website, socialLinks,
       logoUrl, coverImageUrl,
       addressLine1, addressLine2, city, state, postalCode, country,
       requiresApproval,
@@ -51,6 +52,14 @@ export async function POST(request: NextRequest) {
     if (typeof contactPhone === 'string' && contactPhone.trim() && !phone) {
       return NextResponse.json(
         { success: false, error: { code: 'VALIDATION', message: 'Invalid phone number' } },
+        { status: 400 },
+      );
+    }
+
+    const socialError = validateSocialLinks(socialLinks);
+    if (socialError) {
+      return NextResponse.json(
+        { success: false, error: { code: 'VALIDATION', message: socialError } },
         { status: 400 },
       );
     }
@@ -122,6 +131,7 @@ export async function POST(request: NextRequest) {
           categoryId: categoryId || null,
           description: description || null,
           website: website || null,
+          socialLinks: (cleanSocialLinks(socialLinks) ?? undefined) as any,
           logoUrl: logoUrl || null,
           coverImageUrl: coverImageUrl || null,
           addressLine1: addressLine1 || null,

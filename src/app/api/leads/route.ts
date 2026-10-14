@@ -1,176 +1,151 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { clientIpFromRequest, getRateLimiter } from '@/lib/rate-limit';
+import { corsHeaders, isOriginAllowed } from '@/lib/leads/cors';
+import { parseLeadSubmission, readLeadBody } from '@/lib/leads/parse';
 import { channels, publishBusinessToAdmins } from '@/services/business-notification.service';
 
-const RATE_LIMIT = { limit: 5, windowMs: 60 * 60 * 1000 } as const;
+const RATE_LIMIT = { limit: 10, windowMs: 10 * 60 * 1000 } as const;
 
-const REQUIRED_TEXT = (max: number) => z.string().trim().min(1).max(max);
+const LEAD_LABEL = { MERCHANT: 'merchant', EMPLOYER: 'employer', EMPLOYEE_ACCESS: 'employee access' } as const;
 
-/** Trims, treats "" as absent, and caps the length. */
-const OPTIONAL_TEXT = (max: number) =>
-  z.preprocess(
-    (value) => (typeof value === 'string' ? value.trim() || undefined : value ?? undefined),
-    z.string().max(max).optional(),
-  );
-
-const OPTIONAL_URL = (max: number) =>
-  z.preprocess(
-    (value) => (typeof value === 'string' ? value.trim() || undefined : value ?? undefined),
-    z.string().url().max(max).optional(),
-  );
-
-const EMAIL = z.preprocess(
-  (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
-  z.string().email().max(255),
-);
-
-const sharedFields = {
-  firstName: REQUIRED_TEXT(100),
-  lastName: REQUIRED_TEXT(100),
-  email: EMAIL,
-  phone: OPTIONAL_TEXT(50),
-  companyName: REQUIRED_TEXT(255),
-  hearAbout: OPTIONAL_TEXT(255),
-  message: OPTIONAL_TEXT(2000),
-  consentVersion: REQUIRED_TEXT(50),
-};
-
-const merchantLeadSchema = z.object({
-  ...sharedFields,
-  type: z.literal('MERCHANT'),
-  industry: OPTIONAL_TEXT(100),
-  cities: z.preprocess(
-    (value) => (value == null ? [] : value),
-    z.array(z.string().trim().min(1).max(100)).max(50),
-  ),
-  websiteUrl: OPTIONAL_URL(500),
-  socialUrl: OPTIONAL_URL(500),
-}).strict();
-
-const employerLeadSchema = z.object({
-  ...sharedFields,
-  type: z.literal('EMPLOYER'),
-  companySize: OPTIONAL_TEXT(50),
-  hqCountry: OPTIONAL_TEXT(100),
-  role: OPTIONAL_TEXT(50),
-}).strict();
-
-const leadSubmissionSchema = z.discriminatedUnion('type', [merchantLeadSchema, employerLeadSchema]);
-
-function validationError(details: unknown) {
-  return NextResponse.json(
-    { success: false, error: { code: 'VALIDATION', message: 'Validation failed', details } },
-    { status: 400 },
-  );
+function json(origin: string | null, body: unknown, status: number, headers: Record<string, string> = {}) {
+  return NextResponse.json(body, { status, headers: { ...corsHeaders(origin), ...headers } });
 }
 
+function validationError(origin: string | null, errors: Record<string, string>) {
+  // `error` mirrors the previous response shape for existing callers.
+  return json(origin, {
+    success: false,
+    errors,
+    error: { code: 'VALIDATION', message: 'Validation failed', details: errors },
+  }, 400);
+}
+
+// OPTIONS /api/leads — CORS preflight for PUBLIC_SITE_ORIGINS only
+export function OPTIONS(request: NextRequest) {
+  const origin = request.headers.get('origin');
+  if (!origin || !isOriginAllowed(origin)) return new NextResponse(null, { status: 403 });
+  return new NextResponse(null, { status: 204, headers: corsHeaders(origin) });
+}
+
+// POST /api/leads — public website forms (employer_enquiry, merchant_application,
+// employee_access) and the legacy camelCase payload
 export async function POST(request: NextRequest) {
+  const origin = request.headers.get('origin');
   try {
+    if (!isOriginAllowed(origin)) {
+      return json(null, { success: false, error: { code: 'FORBIDDEN', message: 'Origin not allowed' } }, 403);
+    }
+
     const ip = clientIpFromRequest(request);
     const rateLimit = await getRateLimiter().consume(`leads:${ip}`, RATE_LIMIT);
     if (!rateLimit.allowed) {
-      return NextResponse.json(
+      return json(
+        origin,
         {
           success: false,
-          error: {
-            code: 'RATE_LIMITED',
-            message: 'Too many submissions. Please try again later.',
-          },
+          error: { code: 'RATE_LIMITED', message: 'Too many submissions. Please try again later.' },
           meta: { retryAfterSeconds: rateLimit.retryAfterSeconds },
         },
-        { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } },
+        429,
+        { 'Retry-After': String(rateLimit.retryAfterSeconds) },
       );
     }
 
-    const rawBody = await request.json().catch(() => null);
-    if (!rawBody || typeof rawBody !== 'object') return validationError('Request body must be JSON');
+    const read = await readLeadBody(request);
+    if (!read.ok) {
+      if (read.status === 413) {
+        return json(origin, { success: false, error: { code: 'PAYLOAD_TOO_LARGE', message: read.message } }, 413);
+      }
+      return validationError(origin, { form: read.message });
+    }
 
-    const parsed = leadSubmissionSchema.safeParse(rawBody);
-    if (!parsed.success) return validationError(parsed.error.flatten().fieldErrors);
+    // Honeypot: bots fill pm_hp. Pretend success and save nothing.
+    if (typeof read.body.pm_hp === 'string' ? read.body.pm_hp.trim() : read.body.pm_hp) {
+      return json(origin, { success: true }, 200);
+    }
 
-    const input = parsed.data;
+    const parsed = parseLeadSubmission(read.body);
+    if (!parsed.ok) return validationError(origin, parsed.errors);
+    const input = parsed.input;
 
-    // Dedupe and insert run under one advisory lock so two identical
-    // submissions cannot both pass the check.
+    // Duplicate rule: an open lead (NEW or CONTACTED) with the same email + type is
+    // updated in place with the new values — createdAt and status are kept and
+    // attribution is merged (new keys win) — and its id is returned. Otherwise, including
+    // when the earlier lead is REJECTED or CONVERTED, a new lead is created.
+    // The check and write run under one advisory lock so two identical submissions
+    // cannot both create a row.
     const outcome = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lead_submit:${input.email}:${input.type}`}))`;
 
       const existing = await tx.lead.findFirst({
-        where: { email: input.email, type: input.type, status: 'NEW' },
-        select: { id: true, createdAt: true },
+        where: { email: input.email, type: input.type, status: { in: ['NEW', 'CONTACTED'] } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, attribution: true },
       });
-      if (existing) return { kind: 'duplicate' as const, id: existing.id, createdAt: existing.createdAt };
+
+      if (existing) {
+        const previous = existing.attribution && typeof existing.attribution === 'object' && !Array.isArray(existing.attribution)
+          ? (existing.attribution as Record<string, unknown>)
+          : {};
+        const attribution = input.attribution ? { ...previous, ...input.attribution } : undefined;
+        await tx.lead.update({
+          where: { id: existing.id },
+          data: {
+            ...input.data,
+            city: 'Limassol',
+            country: 'Cyprus',
+            ...(attribution ? { attribution: attribution as Prisma.InputJsonObject } : {}),
+          },
+        });
+        return { kind: 'updated' as const, id: existing.id };
+      }
 
       const lead = await tx.lead.create({
         data: {
+          ...input.data,
           type: input.type,
+          email: input.email,
           source: 'PUBLIC_FORM',
           status: 'NEW',
-          firstName: input.firstName,
-          lastName: input.lastName,
-          email: input.email,
-          phone: input.phone ?? null,
-          companyName: input.companyName,
-          hearAbout: input.hearAbout ?? null,
-          message: input.message ?? null,
-          consentAt: new Date(),
-          consentVersion: input.consentVersion,
-          ...(input.type === 'MERCHANT'
-            ? {
-                industry: input.industry ?? null,
-                cities: input.cities,
-                websiteUrl: input.websiteUrl ?? null,
-                socialUrl: input.socialUrl ?? null,
-              }
-            : {
-                companySize: input.companySize ?? null,
-                hqCountry: input.hqCountry ?? null,
-                role: input.role ?? null,
-              }),
+          cities: ['Limassol'],
+          hqCountry: 'Cyprus',
+          consentAt: input.data.consentAt ?? new Date(),
+          ...(input.attribution ? { attribution: input.attribution } : {}),
         },
-        select: { id: true, createdAt: true },
+        select: { id: true },
       });
-      return { kind: 'created' as const, id: lead.id, createdAt: lead.createdAt };
+      return { kind: 'created' as const, id: lead.id };
     });
 
-    if (outcome.kind === 'duplicate') {
-      return NextResponse.json(
-        {
-          success: true,
-          data: { id: outcome.id, deduplicated: true },
-          message: 'We already have this enquiry on file.',
-        },
-        { status: 200 },
-      );
+    if (outcome.kind === 'created') {
+      // Notifications are best-effort: a failure must not lose the lead.
+      try {
+        await publishBusinessToAdmins({
+          type: 'SYSTEM',
+          title: `New ${LEAD_LABEL[input.type]} lead: ${input.data.companyName}`,
+          message: `${input.data.firstName} ${input.data.lastName} (${input.email}) submitted a ${LEAD_LABEL[input.type]} enquiry.`,
+          priority: 'NORMAL',
+          channels: channels('IN_APP'),
+          referenceType: 'lead',
+          referenceId: outcome.id,
+          metadata: { leadId: outcome.id, type: input.type },
+        });
+      } catch (error) {
+        console.error('Lead admin notification failed:', error);
+      }
     }
 
-    // Notifications are best-effort: a failure must not lose the lead.
-    try {
-      await publishBusinessToAdmins({
-        type: 'SYSTEM',
-        title: `New ${input.type === 'MERCHANT' ? 'merchant' : 'employer'} lead: ${input.companyName}`,
-        message: `${input.firstName} ${input.lastName} (${input.email}) submitted a ${input.type.toLowerCase()} enquiry.`,
-        priority: 'NORMAL',
-        channels: channels('IN_APP'),
-        referenceType: 'lead',
-        referenceId: outcome.id,
-        metadata: { leadId: outcome.id, type: input.type },
-      });
-    } catch (error) {
-      console.error('Lead admin notification failed:', error);
-    }
-
-    return NextResponse.json(
-      { success: true, data: { id: outcome.id, deduplicated: false }, message: 'Thank you — we will be in touch.' },
-      { status: 201 },
-    );
+    return json(origin, {
+      success: true,
+      id: outcome.id,
+      data: { id: outcome.id, deduplicated: outcome.kind === 'updated' },
+      message: 'Thank you — we will be in touch.',
+    }, 201);
   } catch (error) {
     console.error('Lead submission error:', error);
-    return NextResponse.json(
-      { success: false, error: { code: 'INTERNAL', message: 'Internal server error' } },
-      { status: 500 },
-    );
+    return json(origin, { success: false, error: { code: 'INTERNAL', message: 'Something went wrong. Please try again later.' } }, 500);
   }
 }

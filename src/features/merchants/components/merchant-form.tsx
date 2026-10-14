@@ -16,6 +16,8 @@ import { showToast } from '@/hooks/use-toast'
 import { useCategories } from '@/hooks/queries/use-categories'
 import { ImageUploader } from '@/components/shared/ImageUploader'
 import type { DeferredFile } from '@/components/shared/ImageUploader'
+import { SocialLinksInput } from '@/components/shared/social-links-input'
+import { cleanSocialLinks, type SocialLinks } from '@/lib/social-links'
 import { uploadImage, MERCHANT_LOGO_OPTIONS, MERCHANT_COVER_OPTIONS } from '@/lib/upload/image'
 
 interface FormData {
@@ -27,6 +29,7 @@ interface FormData {
   categoryId: string
   description: string
   website: string
+  socialLinks?: SocialLinks
   logoUrl?: string
   coverImageUrl?: string
   addressLine1: string
@@ -67,6 +70,7 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
     categoryId: '',
     description: '',
     website: '',
+    socialLinks: {},
     addressLine1: '',
     addressLine2: '',
     city: '',
@@ -96,6 +100,10 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
         return next
       })
     }
+  }
+
+  const setSocialLink = (platform: keyof SocialLinks, value: string) => {
+    setForm((prev) => ({ ...prev, socialLinks: { ...(prev.socialLinks ?? {}), [platform]: value } }))
   }
 
   const validate = (): boolean => {
@@ -157,6 +165,9 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
     if (uploadedCoverUrl) body.coverImageUrl = uploadedCoverUrl
     if (typeof body.logoUrl === 'string' && !body.logoUrl.trim()) delete body.logoUrl
     if (typeof body.coverImageUrl === 'string' && !body.coverImageUrl.trim()) delete body.coverImageUrl
+    const cleanLinks = cleanSocialLinks(body.socialLinks)
+    if (cleanLinks) body.socialLinks = cleanLinks
+    else delete body.socialLinks
     if (!body.password) delete body.password
     if (isEdit) body.id = merchantId
     if (leadId) body.leadId = leadId
@@ -328,6 +339,9 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
             <div>
               <label className="mb-1 block text-sm font-medium">Website</label>
               <Input type="url" value={form.website} onChange={(e) => setField('website', e.target.value)} placeholder="https://example.com" />
+            </div>
+            <div>
+              <SocialLinksInput value={form.socialLinks} onChange={setSocialLink} />
             </div>
           </CardContent>
         </Card>
