@@ -57,19 +57,31 @@ export async function GET(request: Request) {
     }
 
     let role = null
+    let profileType = null
+    let adminRole: string | null = null
     try {
       const account = await prisma.account.findUnique({
         where: { email },
-        select: { role: true },
+        select: { role: true, profileType: true, authUserId: true },
       })
-      role = account?.role
+      role = account?.role ?? null
+      profileType = account?.profileType ?? null
+      // Admin permission level (sidebar + /admin page access).
+      if (account?.profileType === 'ADMIN') {
+        const admin = await prisma.adminUser.findFirst({
+          where: { accountId: account.authUserId },
+          select: { role: true, isActive: true },
+        })
+        adminRole = admin?.isActive === false ? null : (admin?.role ?? null)
+        if (admin?.isActive === false) role = null // disabled admin: no access
+      }
     } catch (error) {
       console.error('Error fetching role:', error)
     }
 
     return NextResponse.json({
       authenticated: true,
-      user: { id, email, role },
+      user: { id, email, role, profileType, adminRole },
     })
   } catch (error) {
     console.error('Session error:', error)

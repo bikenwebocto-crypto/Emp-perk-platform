@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/supabase/server'
 import { createAuditLog, fromCurrentUser } from '@/services/audit-log.service'
 import { forbidden } from '@/lib/api-auth'
 import { buildPreview, parseCsvBody, validateRows, type ValidRow } from '@/lib/company-activation/employee-csv'
+import { inviteAuthUser, normalizeEmail, rollbackAuthUser } from '@/services/employee-invite.service'
 
 function unauthorized() {
   return NextResponse.json(
@@ -31,6 +32,13 @@ function internalError(error: unknown) {
   )
 }
 
+interface CsvRowResult {
+  email: string
+  status: 'CREATED' | 'FAILED'
+  reason?: string
+  employeeId?: string
+}
+
 interface ConfirmBody {
   csv?: string
   bodyHash?: string
@@ -46,7 +54,7 @@ export async function POST(
     if (user.userType !== 'admin') return forbidden(user.userType)
 
     const { id } = await params
-    const company = await prisma.company.findUnique({ where: { id }, select: { id: true, deletedAt: true } })
+    const company = await prisma.company.findUnique({ where: { id }, select: { id: true, name: true, deletedAt: true } })
     if (!company || company.deletedAt) return notFound()
 
     const body = (await request.json().catch(() => ({}))) as ConfirmBody
@@ -88,7 +96,56 @@ export async function POST(
       return badRequest('No valid rows to import.')
     }
 
-    // Create the CSVUploadJob audit row.
+    // One invite + one transaction per row. A failed invite or DB write
+    // fails only that row; a DB failure removes the Supabase user again.
+    const results: CsvRowResult[] = []
+    for (const v of valid) {
+      const email = normalizeEmail(v.email)
+      const invite = await inviteAuthUser(email, { role: 'EMPLOYEE', firstName: v.firstName, companyName: company.name })
+      if (!invite.ok) {
+        results.push({ email, status: 'FAILED', reason: invite.message })
+        continue
+      }
+      const pkId = invite.authUserId
+
+      try {
+        await prisma.$transaction(async (tx) => {
+          await tx.account.create({
+            data: {
+              authUserId: pkId,
+              email,
+              role: 'EMPLOYEE',
+              profileType: 'EMPLOYEE',
+              status: 'ACTIVE',
+            },
+          })
+          await tx.employee.create({
+            data: {
+              id: pkId,
+              accountId: pkId,
+              companyId: id,
+              firstName: v.firstName,
+              lastName: v.lastName,
+              department: v.department,
+              jobTitle: v.jobTitle,
+              status: 'ACTIVE',
+              joinMethod: 'csv_import',
+              invitedAt: new Date(),
+              invitedBy: user.id,
+            },
+          })
+        })
+        results.push({ email, status: 'CREATED', employeeId: pkId })
+      } catch (err) {
+        await rollbackAuthUser(pkId)
+        console.error('[CSV_CONFIRM] create failed', email, err)
+        results.push({ email, status: 'FAILED', reason: 'Could not create employee. Please try again.' })
+      }
+    }
+    const imported = results.filter((r) => r.status === 'CREATED').length
+    const failed = results.length - imported
+
+    // Create the CSVUploadJob audit row with the real outcome.
     const uploadJob = await prisma.cSVUploadJob.create({
       data: {
         companyId: id,
@@ -98,43 +155,13 @@ export async function POST(
         fileSize: csv.length,
         totalRows: preview.totalRows,
         processedRows: preview.totalRows,
-        successCount: valid.length,
-        errorCount: preview.invalidCount,
+        successCount: imported,
+        errorCount: preview.invalidCount + failed,
         status: 'COMPLETED',
         completedAt: new Date(),
         metadata: { bodyHash },
       },
     })
-
-    for (const v of valid) {
-      const pkId = crypto.randomUUID()
-
-      await prisma.account.create({
-        data: {
-          authUserId: pkId,
-          email: v.email,
-          role: 'EMPLOYEE',
-          profileType: 'EMPLOYEE',
-          status: 'PENDING',
-        },
-      })
-
-      await prisma.employee.create({
-        data: {
-          id: pkId,
-          accountId: pkId,
-          companyId: id,
-          firstName: v.firstName,
-          lastName: v.lastName,
-          department: v.department,
-          jobTitle: v.jobTitle,
-          status: 'INVITED',
-          joinMethod: 'csv_import',
-          invitedAt: new Date(),
-          invitedBy: user.id,
-        },
-      })
-    }
 
     // Record rejected rows in CSVRejectedRow for the audit trail.
     for (const r of preview.invalidRows) {
@@ -149,17 +176,19 @@ export async function POST(
     }
 
     await createAuditLog(fromCurrentUser(user, 'EMPLOYEE_CSV_IMPORTED', 'company', id, {
-      metadata: { total: preview.totalRows, imported: valid.length, rejected: preview.invalidCount },
+      metadata: { total: preview.totalRows, imported, rejected: preview.invalidCount, failed },
     }))
 
     return NextResponse.json({
       success: true,
       data: {
         jobId: uploadJob.id,
-        imported: valid.length,
+        imported,
         rejected: preview.invalidCount,
+        failed,
+        results,
       },
-      message: `Imported ${valid.length} employees. ${preview.invalidCount} rejected.`,
+      message: `Imported ${imported} employees. ${preview.invalidCount} rejected.${failed ? ` ${failed} failed.` : ''}`,
     })
   } catch (error) {
     return internalError(error)

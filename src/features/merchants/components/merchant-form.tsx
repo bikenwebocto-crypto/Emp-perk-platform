@@ -1,6 +1,8 @@
 'use client'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useLead } from '@/hooks/queries/use-leads'
+import { leadToMerchantPrefill } from '@/lib/leads/prefill'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PhoneInput } from '@/components/ui/phone-input'
@@ -14,6 +16,8 @@ import { showToast } from '@/hooks/use-toast'
 import { useCategories } from '@/hooks/queries/use-categories'
 import { ImageUploader } from '@/components/shared/ImageUploader'
 import type { DeferredFile } from '@/components/shared/ImageUploader'
+import { SocialLinksInput } from '@/components/shared/social-links-input'
+import { cleanSocialLinks, type SocialLinks } from '@/lib/social-links'
 import { uploadImage, MERCHANT_LOGO_OPTIONS, MERCHANT_COVER_OPTIONS } from '@/lib/upload/image'
 
 interface FormData {
@@ -25,6 +29,7 @@ interface FormData {
   categoryId: string
   description: string
   website: string
+  socialLinks?: SocialLinks
   logoUrl?: string
   coverImageUrl?: string
   addressLine1: string
@@ -65,6 +70,7 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
     categoryId: '',
     description: '',
     website: '',
+    socialLinks: {},
     addressLine1: '',
     addressLine2: '',
     city: '',
@@ -72,6 +78,18 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
     postalCode: '',
     country: '',
   })
+
+  // Converting a lead: /admin/merchants/add?leadId=... (create only)
+  const searchLeadId = useSearchParams().get('leadId')
+  const leadId = isEdit ? null : searchLeadId
+  const { data: lead } = useLead(leadId)
+  const prefilled = useRef(false)
+  useEffect(() => {
+    // Wait for categories so the industry → category match can run.
+    if (!lead || !categories || prefilled.current) return
+    prefilled.current = true
+    setForm((prev) => ({ ...prev, ...leadToMerchantPrefill(lead, categories) }))
+  }, [lead, categories])
 
   const setField = (field: keyof FormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -82,6 +100,10 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
         return next
       })
     }
+  }
+
+  const setSocialLink = (platform: keyof SocialLinks, value: string) => {
+    setForm((prev) => ({ ...prev, socialLinks: { ...(prev.socialLinks ?? {}), [platform]: value } }))
   }
 
   const validate = (): boolean => {
@@ -143,8 +165,12 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
     if (uploadedCoverUrl) body.coverImageUrl = uploadedCoverUrl
     if (typeof body.logoUrl === 'string' && !body.logoUrl.trim()) delete body.logoUrl
     if (typeof body.coverImageUrl === 'string' && !body.coverImageUrl.trim()) delete body.coverImageUrl
+    const cleanLinks = cleanSocialLinks(body.socialLinks)
+    if (cleanLinks) body.socialLinks = cleanLinks
+    else delete body.socialLinks
     if (!body.password) delete body.password
     if (isEdit) body.id = merchantId
+    if (leadId) body.leadId = leadId
     console.log('Mutation body:', body)
     const mutateFn = isEdit
       ? (data: typeof body) => updateMerchant.mutateAsync(data as any)
@@ -154,7 +180,7 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
       const res = await mutateFn(body)
       console.log('Mutation response:', res)
       showToast({ type: 'success', title: res.message ?? (isEdit ? 'Merchant updated' : 'Merchant created') })
-      router.push('/admin/merchants')
+      router.push(leadId ? `/admin/leads/${leadId}` : '/admin/merchants')
     } catch (err: any) {
       showToast({ type: 'error', title: isEdit ? 'Failed to update merchant' : 'Failed to create merchant', description: err.message })
     }
@@ -313,6 +339,9 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
             <div>
               <label className="mb-1 block text-sm font-medium">Website</label>
               <Input type="url" value={form.website} onChange={(e) => setField('website', e.target.value)} placeholder="https://example.com" />
+            </div>
+            <div>
+              <SocialLinksInput value={form.socialLinks} onChange={setSocialLink} />
             </div>
           </CardContent>
         </Card>

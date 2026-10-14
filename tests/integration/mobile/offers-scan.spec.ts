@@ -17,6 +17,7 @@ vi.mock('@/lib/redemption-tracking', () => ({
   OfferLimitReachedError: class OfferLimitReachedError extends Error {},
   claimAttempt: vi.fn(),
   ensureCapacityRow: vi.fn(),
+  getRepeatAfterHours: vi.fn(() => null),
   linkAttemptToRedemption: vi.fn(),
   releaseCapacity: vi.fn(),
   reserveCapacity: vi.fn(),

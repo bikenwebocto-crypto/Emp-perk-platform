@@ -361,6 +361,7 @@ export interface ActionQueueItemWithRef {
   description: string | null;
   referenceId: string;
   referenceType: string;
+  merchantId: string | null;
   status: ActionQueueStatus;
   priority: number;
   createdAt: Date;

@@ -260,6 +260,7 @@ export async function submitReplacementOfferAction(
       description: `Merchant requests to replace offer "${currentOffer?.title}" with a new offer.`,
       referenceId: newOffer.id,
       referenceType: 'offer',
+      merchantId: newOffer.merchantId,
       status: 'PENDING',
       priority: 2,
     },

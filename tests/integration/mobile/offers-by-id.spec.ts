@@ -2,13 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    merchantOffer: { findUnique: vi.fn() },
+    merchantOffer: { findFirst: vi.fn() },
     notificationEvent: { findFirst: vi.fn() },
     redemption: { findFirst: vi.fn() },
   },
 }))
 vi.mock('@/lib/mobile-auth', () => ({ getAuthenticatedMobileEmployee: vi.fn() }))
-vi.mock('@/lib/offer-visibility', () => ({ isOfferVisibleToEmployees: vi.fn() }))
+vi.mock('@/lib/offer-visibility', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/offer-visibility')>()),
+  isOfferVisibleToEmployees: vi.fn(),
+}))
 
 import { prisma } from '@/lib/prisma'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
@@ -39,12 +42,12 @@ describe('GET /api/mobile/offers/[id]', () => {
     const res = await GET(getRequest(), ctx())
 
     expect(res.status).toBe(401)
-    expect(prisma.merchantOffer.findUnique).not.toHaveBeenCalled()
+    expect(prisma.merchantOffer.findFirst).not.toHaveBeenCalled()
   })
 
   it('returns 404 when the offer does not exist', async () => {
     ;(getAuthenticatedMobileEmployee as any).mockResolvedValue(AUTH_OK)
-    ;(prisma.merchantOffer.findUnique as any).mockResolvedValue(null)
+    ;(prisma.merchantOffer.findFirst as any).mockResolvedValue(null)
 
     const res = await GET(getRequest('missing'), ctx('missing'))
 
@@ -53,7 +56,7 @@ describe('GET /api/mobile/offers/[id]', () => {
 
   it('returns offer detail with isSaved/isRedeemed and visibility flags', async () => {
     ;(getAuthenticatedMobileEmployee as any).mockResolvedValue(AUTH_OK)
-    ;(prisma.merchantOffer.findUnique as any).mockResolvedValue({
+    ;(prisma.merchantOffer.findFirst as any).mockResolvedValue({
       id: 'offer-1',
       title: 'Offer 1',
       offerType: 'PERCENTAGE',
@@ -84,5 +87,44 @@ describe('GET /api/mobile/offers/[id]', () => {
     expect(body.data.isRedeemed).toBe(false)
     expect(body.data.isVisible).toBe(true)
     expect(body.data.redemptionCount).toBe(5)
+  })
+
+  it('ignores soft-deleted offers', async () => {
+    ;(getAuthenticatedMobileEmployee as any).mockResolvedValue(AUTH_OK)
+    ;(prisma.merchantOffer.findFirst as any).mockResolvedValue(null)
+
+    await GET(getRequest(), ctx())
+
+    const [args] = (prisma.merchantOffer.findFirst as any).mock.calls[0]
+    expect(args.where).toEqual({ id: 'offer-1', deletedAt: null })
+  })
+
+  it.each([
+    ['past endDate', -60_000, 'EXPIRED', true],
+    ['future endDate', 60_000, 'LIVE', false],
+  ])('reports status for a LIVE offer with %s', async (_label, offsetMs, status, isExpired) => {
+    ;(getAuthenticatedMobileEmployee as any).mockResolvedValue(AUTH_OK)
+    ;(prisma.merchantOffer.findFirst as any).mockResolvedValue({
+      id: 'offer-1',
+      title: 'Offer 1',
+      offerType: 'PERCENTAGE',
+      status: 'LIVE',
+      startDate: new Date(Date.now() - 86_400_000),
+      endDate: new Date(Date.now() + offsetMs),
+      isFeatured: false,
+      isExclusive: false,
+      content: null,
+      pricing: null,
+      redemption: null,
+      capacity: null,
+      analytics: null,
+      merchant: { id: 'm-1', businessName: 'M', branches: [] },
+      _count: { redemptions: 0 },
+    })
+
+    const body = await (await GET(getRequest(), ctx())).json()
+
+    expect(body.data.status).toBe(status)
+    expect(body.data.isExpired).toBe(isExpired)
   })
 })

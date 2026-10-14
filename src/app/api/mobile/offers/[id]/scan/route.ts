@@ -8,6 +8,7 @@ import {
   OfferLimitReachedError,
   claimAttempt,
   ensureCapacityRow,
+  getRepeatAfterHours,
   linkAttemptToRedemption,
   releaseCapacity,
   reserveCapacity,
@@ -182,7 +183,12 @@ export async function POST(
     let reservationToken: string | null = null
     try {
       const redemption = await prisma.$transaction(async (tx) => {
-        const claim = await claimAttempt(tx, offer.id, auth.employee.id)
+        const claim = await claimAttempt(
+          tx,
+          offer.id,
+          auth.employee.id,
+          getRepeatAfterHours(offer.redemption?.configuration),
+        )
         if (!claim.ok) throw new AlreadyRedeemedError()
 
         await ensureCapacityRow(tx, offer.id, offer.redemption?.maxRedemptions ?? null)

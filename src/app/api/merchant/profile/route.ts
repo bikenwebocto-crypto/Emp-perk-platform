@@ -5,6 +5,7 @@ import { getMerchantFromSession } from '@/lib/merchant-session'
 import { createAuditLog } from '@/services/audit-log.service'
 import { createPerfTimer } from '@/lib/perf'
 import { deleteImage } from '@/lib/upload/image'
+import { mergeSocialLinks, validateSocialLinks } from '@/lib/social-links'
 
 function unauthorized() {
   return NextResponse.json(
@@ -64,8 +65,9 @@ export async function GET() {
     const profile = await prisma.merchant.findUnique({
       where: { id: merchant.id },
       include: {
+         account: { select: { email: true } },  
         category: { select: { id: true, name: true, slug: true } },
-        _count: { select: { offers: true, branches: true, redemptions: true } },
+        // _count: { select: { offers: true, branches: true, redemptions: true } },
       },
     })
     if (!profile) return notFound()
@@ -77,6 +79,7 @@ export async function GET() {
     timer.section('Serialization')
     timer.point('NextResponse.json')
     timer.end()
+    console.log(" ** profile data ** ", profileData)
     return NextResponse.json({ success: true, data: profileData })
   } catch (error) {
     timer.end()
@@ -111,6 +114,10 @@ export async function PATCH(request: NextRequest) {
     if (logoUrl !== undefined && logoUrl && !/^https?:\/\//i.test(logoUrl)) {
       errors.logoUrl = 'Logo URL must be a valid URL (http/https)'
     }
+    if (socialLinks !== undefined) {
+      const socialError = validateSocialLinks(socialLinks)
+      if (socialError) errors.socialLinks = socialError
+    }
     if (Object.keys(errors).length > 0) return badRequest('Validation failed', errors)
 
     timer.section('Database Queries')
@@ -131,6 +138,12 @@ export async function PATCH(request: NextRequest) {
         beforeSnapshot[f] = a
         afterSnapshot[f] = b
       }
+    }
+
+    // Social links: merge the incoming partial over what's stored so editing
+    // one platform keeps the others, then drop empty values.
+    if ('socialLinks' in afterSnapshot) {
+      afterSnapshot.socialLinks = (mergeSocialLinks(before.socialLinks, afterSnapshot.socialLinks) ?? null) as any
     }
 
     const hasImmediateChanges = IMMEDIATE_FIELDS.some((f) => f in afterSnapshot)
@@ -183,7 +196,7 @@ export async function PATCH(request: NextRequest) {
               type: 'PROFILE_EDIT_REQUEST',
               title: `Profile change request: ${merchant.businessName}`,
               description: `Merchant ${merchant.businessName} requested changes to: ${(APPROVAL_FIELDS as readonly string[]).filter((f) => f in afterSnapshot).join(', ')}. Reason: ${changeReason}`,
-              referenceId: merchant.id, referenceType: 'merchant', status: 'PENDING', priority: 2,
+              referenceId: merchant.id, referenceType: 'merchant', merchantId: merchant.id, status: 'PENDING', priority: 2,
               metadata: {
                 queueType: 'PROFILE_EDIT_REQUEST', requestedFields: afterSnapshot, originalValues: beforeSnapshot,
                 reason: changeReason, approvalFields: (APPROVAL_FIELDS as readonly string[]).filter((f) => f in afterSnapshot),

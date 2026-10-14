@@ -63,6 +63,7 @@ model Company {
   phone                String?                @db.VarChar(50)
   logoUrl              String?                @db.VarChar(500)
   website              String?                @db.VarChar(500)
+  socialLinks          Json?
   employeeCount        Int                    @default(0)
   status               CompanyStatus          @default(PENDING)
   addressLine1         String?                @db.VarChar(255)
@@ -94,6 +95,7 @@ model Company {
   complaints           Complaint[]
   reviews              MerchantReview[]
   merchantSuggestions  MerchantSuggestion[]
+  lead                 Lead?
 
   @@index([status])
   @@index([slug])
@@ -307,6 +309,7 @@ model Merchant {
   bannerBookings   BannerBooking[]
   account          Account?            @relation(fields: [accountId], references: [authUserId])
   sourceSuggestion MerchantSuggestion?
+  lead             Lead?
 
   @@index([status])
   @@index([slug])
@@ -675,16 +678,18 @@ model ActionQueueItem {
   status        ActionQueueStatus @default(PENDING)
   priority      Int               @default(0)
   assignedTo    String?           @db.Uuid
+  merchantId    String?           @db.Uuid
   metadata      Json?
   completedAt   DateTime?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
   admin         AdminUser?        @relation(fields: [assignedTo], references: [id])
-  merchant      Merchant          @relation(fields: [referenceId], references: [id])
+  merchant      Merchant?         @relation(fields: [merchantId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([type])
   @@index([assignedTo])
+  @@index([merchantId])
   @@index([status, type])
   @@index([referenceId, referenceType])
   @@map("action_queue_items")
@@ -1074,9 +1079,10 @@ enum AccountStatus {
 
 enum AdminRole {
   SUPER_ADMIN
+  ADMIN
   SUPPORT_ADMIN
   FINANCE_ADMIN
-  CONTENT_ADMIN
+  CONTENT_ADMIN // deprecated → ADMIN
 }
 
 enum MerchantStatus {
@@ -1102,6 +1108,25 @@ enum CompanyStatus {
   PAUSED
   SUSPENDED
   CANCELLED
+}
+
+enum LeadType {
+  MERCHANT
+  EMPLOYER
+  EMPLOYEE_ACCESS
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  REJECTED
+  CONVERTED
+}
+
+enum LeadSource {
+  PUBLIC_FORM
+  ADMIN_CREATED
+  CSV_IMPORT
 }
 
 enum BillingStatus {
@@ -1400,6 +1425,7 @@ enum ComplaintType {
   NON_FUNCTIONAL
   POLICY_VIOLATION
   APPLICATION_SUPPORT
+  OTHER
 }
 
 enum ComplaintStatus {
@@ -1505,8 +1531,8 @@ model MerchantSuggestion {
   companyId       String                   @db.Uuid
   merchantName    String                   @db.VarChar(255)
   merchantWebsite String?                  @db.VarChar(500)
-  merchantPhone   String                   @db.VarChar(50)
-  merchantEmail   String                   @db.VarChar(255)
+  merchantPhone   String?                  @db.VarChar(50)
+  merchantEmail   String?                  @db.VarChar(255)
   reason          String?
   status          MerchantSuggestionStatus @default(PENDING)
   adminNotes      String?
@@ -1527,4 +1553,67 @@ model MerchantSuggestion {
   @@index([merchantPhone])
   @@index([companyId])
   @@map("merchant_suggestions")
+}
+
+model Lead {
+  id       String     @id @default(uuid()) @db.Uuid
+  type     LeadType
+  source   LeadSource @default(PUBLIC_FORM)
+  status   LeadStatus @default(NEW)
+
+  // shared
+  firstName      String     @db.VarChar(100)
+  lastName       String     @db.VarChar(100)
+  email          String     @db.VarChar(255)
+  phone          String?    @db.VarChar(50)
+  companyName    String     @db.VarChar(255)
+  hearAbout      String?    @db.VarChar(255)
+  message        String?    @db.VarChar(2000)
+  consentAt      DateTime?
+  consentVersion String?    @db.VarChar(50)
+
+  // merchant-only (nullable)
+  industry   String?  @db.VarChar(100)
+  cities     String[]   @default([])
+  websiteUrl String?  @db.VarChar(500)
+  socialUrl  String?  @db.VarChar(500)
+
+  // employer-only (nullable)
+  companySize String? @db.VarChar(50)
+  hqCountry   String? @db.VarChar(100)
+  role        String? @db.VarChar(50)
+
+  // website forms (employer_enquiry / merchant_application / employee_access)
+  formKey           String?  @db.VarChar(50)
+  redemption        String?  @db.VarChar(20)
+  intent            String?  @db.VarChar(20)
+  /// Employee leads only. When false, staff must not name the employee to their employer.
+  shareWithEmployer Boolean  @default(false)
+  consents          Json?
+  attribution       Json?
+
+  // link to the real record, set on conversion
+  merchantId String?   @unique @db.Uuid
+  companyId  String?   @unique @db.Uuid
+  merchant   Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  company    Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([type, status])
+  @@index([email, type])
+  @@map("leads")
+}
+
+/// Fixed-window counter backing src/lib/rate-limit.ts. Swappable for Redis by
+/// replacing the RateLimiter implementation; no other module reads this table.
+model RateLimitCounter {
+  key         String   @id @db.VarChar(255)
+  count       Int      @default(0)
+  windowStart DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("rate_limit_counters")
 }

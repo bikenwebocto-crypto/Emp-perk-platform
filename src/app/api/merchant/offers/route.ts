@@ -9,7 +9,9 @@ import {
 import { logReplacementAudit, notifyReplacement } from "@/lib/offer-replacement-notifications";
 import { createAuditLog } from '@/services/audit-log.service';
 import { generateUniqueOfferCode } from '@/lib/offer-code';
+import { parseRepeatAfterHoursInput } from '@/lib/redemption-tracking';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
+import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
 const MIN_TITLE_LENGTH = 5;
 const MAX_TITLE_LENGTH = 255;
@@ -219,7 +221,8 @@ async function firePostCreateSideEffects(params: {
           title: `Offer Replacement: ${title}`,
           description: `Merchant ${merchantBusinessName} submitted a replacement offer`,
           referenceId: merchantId,
-          referenceType: "MERCHANT",
+          merchantId,
+          referenceType: "merchant",
           status: "PENDING",
           priority: 1,
           metadata: {
@@ -266,7 +269,8 @@ async function firePostCreateSideEffects(params: {
             title: `Offer Approval: ${title}`,
             description: `Merchant ${merchantBusinessName} submitted an offer for approval`,
             referenceId: merchantId,
-            referenceType: "MERCHANT",
+            merchantId,
+            referenceType: "merchant",
             status: "PENDING",
             priority: 1,
             metadata: { offerId },
@@ -306,6 +310,7 @@ async function firePostCreateSideEffects(params: {
 
 export async function GET(request: NextRequest) {
   try {
+    triggerOfferExpiry() // background, never awaited
     const merchant = await getMerchantFromSession();
     if (!merchant) return unauthorized();
 
@@ -477,6 +482,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const repeatAfterHours = parseRepeatAfterHoursInput(body.repeatAfterHours);
+    if (!repeatAfterHours.ok) {
+      return badRequest("repeatAfterHours must be a positive number");
+    }
+
     if (redemptionType === 'ONLINE_CODE' && !bookingUrl && !saveAsDraft) {
       return badRequest("Booking URL is required for ONLINE_CODE offers");
     }
@@ -621,6 +631,9 @@ export async function POST(request: NextRequest) {
       } else if (redemptionType === 'VIRTUAL_CARD_AUTO_VERIFY') {
         redemptionConfig.code = offerCodeValue;
         redemptionConfig.instructions = redemptionInstructions ?? null;
+      }
+      if (repeatAfterHours.value != null) {
+        redemptionConfig.repeatAfterHours = repeatAfterHours.value;
       }
 
       await tx.offerRedemption.create({

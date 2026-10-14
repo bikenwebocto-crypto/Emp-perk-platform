@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMerchantFromSession } from '@/lib/merchant-session'
+import { Prisma } from "@prisma/client";
 import { generateUniqueOfferCode } from '@/lib/offer-code';
+import { getRepeatAfterHours, parseRepeatAfterHoursInput, withRepeatAfterHours } from '@/lib/redemption-tracking';
 import { ensureOfferQRCode } from '@/lib/offer-qr';
 
 import { createAuditLog } from '@/services/audit-log.service';
@@ -102,7 +104,10 @@ export async function GET(
       });
     }
 
-    return NextResponse.json({ success: true, data: offer });
+    return NextResponse.json({
+      success: true,
+      data: { ...offer, repeatAfterHours: getRepeatAfterHours(offer.redemption?.configuration) },
+    });
   } catch (error) {
     return internalError(error);
   }
@@ -124,6 +129,11 @@ export async function PATCH(
     }
 
     const body = await request.json();
+
+    const repeatAfterHours = parseRepeatAfterHoursInput(body.repeatAfterHours);
+    if (!repeatAfterHours.ok) {
+      return badRequest("repeatAfterHours must be a positive number");
+    }
 
     const merchantOfferUpdatable: Record<string, unknown> = {};
     if (body.title !== undefined) merchantOfferUpdatable.title = body.title;
@@ -214,17 +224,27 @@ export async function PATCH(
         body.redemptionInstructions !== undefined ||
         body.bookingUrl !== undefined ||
         body.maxRedemptions !== undefined ||
-        body.daysOfWeek !== undefined
+        body.daysOfWeek !== undefined ||
+        repeatAfterHours.value !== undefined
       ) {
         const config = (existing.redemption?.configuration as Record<string, unknown>) ?? {};
-        const redemptionConfig: Record<string, unknown> = {
+        let redemptionConfig: Record<string, unknown> = {
           ...config,
         };
-        if (body.redemptionCode !== undefined) redemptionConfig.code = body.redemptionCode;
+        if (repeatAfterHours.value !== undefined) {
+          redemptionConfig = withRepeatAfterHours(redemptionConfig, repeatAfterHours.value);
+        }
+        if (typeof body.redemptionCode === 'string' && body.redemptionCode.trim()) {
+            redemptionConfig.code = body.redemptionCode.trim();
+          }
         if (body.redemptionInstructions !== undefined) redemptionConfig.instructions = body.redemptionInstructions;
         if (body.bookingUrl !== undefined) redemptionConfig.bookingUrl = body.bookingUrl;
 
-        if (body.redemptionType === 'ONLINE_CODE' && existing.redemption?.redemptionType !== 'ONLINE_CODE' && !config.code) {
+        const effectiveType = body.redemptionType ?? existing.redemption?.redemptionType;
+        if (
+          (effectiveType === 'ONLINE_CODE' || effectiveType === 'VIRTUAL_CARD_AUTO_VERIFY') &&
+          !redemptionConfig.code
+        ) {
           const newCode = await generateUniqueOfferCode();
           redemptionConfig.code = newCode;
           await createAuditLog({
@@ -234,9 +254,9 @@ export async function PATCH(
             entityType: "MERCHANT_OFFER",
             entityId: id,
             actorId: merchant?.accountId ?? null,
-            metadata: { offerCode: newCode, redemptionType: 'ONLINE_CODE' },
-          });
-        }
+            metadata: { offerCode: newCode, redemptionType: effectiveType },
+  });
+}
 
         if (body.regenerateOfferCode) {
           const newCode = await generateUniqueOfferCode();
@@ -265,6 +285,10 @@ export async function PATCH(
           update: {
             ...(body.redemptionType !== undefined && { redemptionType: body.redemptionType }),
             ...(Object.keys(redemptionConfig).length > 0 && { configuration: (redemptionConfig as any) }),
+            // Clearing the last key must still be written.
+            ...(repeatAfterHours.value !== undefined && Object.keys(redemptionConfig).length === 0 && {
+              configuration: Prisma.DbNull,
+            }),
             ...(body.maxRedemptions !== undefined && { maxRedemptions: body.maxRedemptions === null || body.maxRedemptions === '' ? null : Number(body.maxRedemptions) }),
             ...(body.daysOfWeek !== undefined && {
               daysOfWeek: Array.isArray(body.daysOfWeek) ? body.daysOfWeek : [0, 1, 2, 3, 4, 5, 6],

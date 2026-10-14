@@ -6,6 +6,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { cn } from '@/utils/cn'
 import { merchantDashboardKeys } from '@/hooks/queries/use-merchants'
+import { useNewLeadCount } from '@/hooks/queries/use-leads'
+import { useAdminSidebarCounts } from '@/hooks/queries/use-admin-sidebar-counts'
 import type { MerchantDashboardFilters } from '@/types'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
@@ -13,8 +15,9 @@ import { Loader2 } from 'lucide-react'
 import {
   LayoutDashboard, Store, Users, FileText, BarChart3, Settings, CreditCard,
   ShoppingBag, MapPin, Gift, Building2, UserCircle, Bell, Upload, LogOut,
-  Zap, Search, RefreshCw, Bookmark, Palette, Trash2, Lightbulb, Tags,
+  Zap, Search, RefreshCw, Bookmark, Palette, Trash2, Lightbulb, Tags, Inbox, KeyRound,
 } from 'lucide-react'
+import { canAdminAccessPath } from '@/lib/access/account-access'
 import { supabase } from '@/lib/supabase/client'
 import type { PublicBranding } from '@/features/admin/settings/login-branding/services/login-branding.service'
 
@@ -31,6 +34,8 @@ interface SidebarProps {
   userName?: string
   userEmail?: string
   userRole?: string | null
+  /** AdminUser.role — limits which admin items are shown (admins only). */
+  adminRole?: string | null
   companyName?: string | null
   branding?: PublicBranding | null
   avatarUrl?: string | null
@@ -49,6 +54,7 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Categories', href: '/admin/categories', icon: Tags },
     { label: 'Stores', href: '/admin/stores', icon: MapPin },
     { label: 'Companies', href: '/admin/companies', icon: Building2 },
+    { label: 'Leads', href: '/admin/leads', icon: Inbox },
     { label: 'Employees', href: '/admin/employees', icon: Users },
     { label: 'CSV Uploads', href: '/admin/csv-uploads', icon: Upload },
     { label: 'Audit Logs', href: '/admin/audit-logs', icon: Search },
@@ -56,6 +62,7 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Banners', href: '/admin/banners', icon: Palette },
     { label: 'Notifications', href: '/admin/notifications', icon: Bell },
     { label: 'Login Branding', href: '/admin/settings/login-branding', icon: Palette },
+    { label: 'Accounts', href: '/admin/accounts', icon: KeyRound },
     // { label: 'Theme Customizer', href: '/admin/themes/customize', icon: Palette },
   ],
   merchant: [
@@ -64,13 +71,13 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Analytics', href: '/merchant/analytics', icon: BarChart3 },
     { label: 'Branches', href: '/merchant/branches', icon: MapPin },
     { label: 'Redemptions', href: '/merchant/redemptions', icon: ShoppingBag },
-    { label: 'Issues', href: '/merchant/issues', icon: FileText },
+    // { label: 'Issues', href: '/merchant/issues', icon: FileText },
     { label: 'Tickets', href: '/merchant/complaints', icon: FileText },
     { label: 'Banners', href: '/merchant/banners', icon: Palette },
     { label: 'Profile', href: '/merchant/profile', icon: Store },
     { label: 'Store Map', href: '/merchant/profile/store-map', icon: MapPin },
     { label: 'Notifications', href: '/merchant/notifications', icon: Bell },
-    { label: 'Settings', href: '/merchant/settings', icon: Settings },
+    // { label: 'Settings', href: '/merchant/settings', icon: Settings },
   ],
   company_admin: [
     { label: 'Overview', href: '/company', icon: LayoutDashboard, exact: true },
@@ -150,9 +157,36 @@ function usePrefetchRegistry(queryClient: QueryClient): Record<string, PrefetchE
 
 type PrefetchEntry = () => void
 
-export function Sidebar({ userType, userName, userEmail, userRole, companyName, branding, avatarUrl }: SidebarProps) {
+export function Sidebar({ userType, userName, userEmail, userRole, adminRole, companyName, branding, avatarUrl }: SidebarProps) {
   const pathname = usePathname()
-  const navItems = navConfig[userType] ?? []
+  const isAdmin = userType === 'admin'
+  // SUPPORT_ADMIN only opens tickets + notifications: the leads query (and its
+  // /api/admin/leads request) must not fire for it. Sidebar counts are allowed
+  // and return the ticket count only for that role.
+  const isSupportAdmin = isAdmin && adminRole === 'SUPPORT_ADMIN'
+  const { data: newLeadCount } = useNewLeadCount(isAdmin && !isSupportAdmin)
+  const { data: counts } = useAdminSidebarCounts(isAdmin)
+  const navItems = useMemo(() => {
+    const badges: Record<string, number | undefined> = {
+      '/admin/leads': newLeadCount,
+      '/admin/action-queue': counts?.actionQueue,
+      '/admin/offers/replacements': counts?.replacements,
+      '/admin/merchants': counts?.merchants,
+      '/admin/merchant-suggestions': counts?.merchantSuggestions,
+      '/admin/complaints': counts?.tickets,
+    }
+    console.log('** [sidebar]', { userType, adminRole, userRole,
+  accounts: canAdminAccessPath(adminRole, '/admin/accounts') })
+
+    return (navConfig[userType] ?? [])
+      // Admins only see the pages their admin role may open (same rule the
+      // middleware enforces).
+      .filter((item) => !isAdmin || canAdminAccessPath(adminRole, item.href))
+      .map((item) => {
+        const count = isAdmin ? badges[item.href] : undefined
+        return count ? { ...item, badge: count > 99 ? '99+' : count } : item
+      })
+  }, [userType, isAdmin, adminRole, newLeadCount, counts])
   const router = useRouter()
   const queryClient = useQueryClient()
   const prefetchRegistry = usePrefetchRegistry(queryClient)
@@ -219,12 +253,12 @@ export function Sidebar({ userType, userName, userEmail, userRole, companyName, 
           {companyName && (
             <p className="truncate text-xs" style={{ color: `hsl(var(--sidebar-text-muted))` }}>{companyName}</p>
           )}
-          {userRole && (
+          {adminRole && (
             <span
               className="mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium"
               style={{ backgroundColor: `hsl(var(--sidebar-active-bg) / 0.1)`, color: `hsl(var(--sidebar-active-text))` }}
             >
-              {userRole.replace(/_/g, ' ')}
+              {adminRole.replace(/_/g, ' ')}
             </span>
           )}
         </div>

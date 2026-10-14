@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Package, Pencil, Trash2, MapPin, BarChart3,
   Image as ImageIcon, Phone, Mail, Globe, Store,
+  Instagram, Facebook, Twitter,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -111,8 +112,19 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
   ]
 
   // Build a readable address line from whatever fields are present
-  const addressParts = [merchant.address, merchant.city, merchant.country].filter(Boolean)
+  const addressParts = [merchant.addressLine1, merchant.city, merchant.country].filter(Boolean)
   const fullAddress = addressParts.length ? addressParts.join(', ') : null
+
+  // Email lives on the linked account; fall back to the merchant row for older data.
+  const email = merchant.account?.email ?? merchant.email ?? null
+
+  // Social links are stored as JSON: { instagram, facebook, twitter, tiktok }
+  const socialLinks = (merchant.socialLinks ?? {}) as Record<string, string | null | undefined>
+  const socialItems = [
+    { key: 'instagram', label: 'Instagram', Icon: Instagram, url: socialLinks.instagram },
+    { key: 'facebook', label: 'Facebook', Icon: Facebook, url: socialLinks.facebook },
+    { key: 'twitter', label: 'Twitter / X', Icon: Twitter, url: socialLinks.twitter },
+  ].filter((s) => !!s.url)
 
 
 const handleEditOffer = (offer: any) => {
@@ -259,16 +271,16 @@ const handleEditOffer = (offer: any) => {
 
               {/* Contact / location details */}
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                {merchant.email && (
+                {email && (
                   <span className="flex items-center gap-1">
                     <Mail className="h-3.5 w-3.5" />
-                    {merchant.email}
+                    {email}
                   </span>
                 )}
-                {merchant.phoneNumber && (
+                {merchant.contactPhone && (
                   <span className="flex items-center gap-1">
                     <Phone className="h-3.5 w-3.5" />
-                    {merchant.phoneNumber}
+                    {merchant.contactPhone}
                   </span>
                 )}
                 {fullAddress && (
@@ -289,6 +301,25 @@ const handleEditOffer = (offer: any) => {
                   </a>
                 )}
               </div>
+
+              {socialItems.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  {socialItems.map((s) => (
+                    <a
+                      key={s.key}
+                      href={s.url as string}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={s.label}
+                      title={s.label}
+                      className="flex items-center gap-1 hover:text-foreground hover:underline"
+                    >
+                      <s.Icon className="h-3.5 w-3.5" />
+                      {(s.url as string).replace(/^https?:\/\//, '')}
+                    </a>
+                  ))}
+                </div>
+              )}
 
               {merchant.adminNote && (
                 <p className="mt-1 text-xs text-amber-600">Note: {merchant.adminNote}</p>

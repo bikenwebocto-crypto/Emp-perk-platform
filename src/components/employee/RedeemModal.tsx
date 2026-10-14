@@ -273,6 +273,11 @@ export function RedeemModal({
 
   // ── Derived data ───────────────────────────────────────────
   const canRedeem = !!offer?.isVisible && !hasRedeemed;
+  const availableAgain = offer?.nextRedeemAt ? (
+    <span className="text-sm text-muted-foreground">
+      Available again on {new Date(offer.nextRedeemAt).toLocaleString()}
+    </span>
+  ) : null;
   const activeBranches = (offer?.merchant.branches ?? []).filter(
     (b) => b.isActive,
   );
@@ -671,9 +676,12 @@ export function RedeemModal({
           <div className="flex items-center gap-2">
             {o.redemptionType === "IN_STORE_QR" ? (
               hasRedeemed ? (
-                <Button size="lg" disabled className="w-full sm:w-auto">
-                  <CheckCircle2 className="mr-2 h-4 w-4" /> Already Redeemed
-                </Button>
+                <>
+                  <Button size="lg" disabled className="w-full sm:w-auto">
+                    <CheckCircle2 className="mr-2 h-4 w-4" /> Already Redeemed
+                  </Button>
+                  {availableAgain}
+                </>
               ) : (
                 <div className="flex w-full items-center gap-2 rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
                   <Info className="h-4 w-4 shrink-0" />
@@ -684,9 +692,12 @@ export function RedeemModal({
                 </div>
               )
             ) : hasRedeemed ? (
-              <Button size="lg" disabled className="w-full sm:w-auto">
-                <CheckCircle2 className="mr-2 h-4 w-4" /> Already Redeemed
-              </Button>
+              <>
+                <Button size="lg" disabled className="w-full sm:w-auto">
+                  <CheckCircle2 className="mr-2 h-4 w-4" /> Already Redeemed
+                </Button>
+                {availableAgain}
+              </>
             ) : (
               <Button
                 size="lg"

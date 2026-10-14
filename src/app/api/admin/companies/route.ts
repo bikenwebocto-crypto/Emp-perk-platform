@@ -11,6 +11,7 @@ import { getCityReadiness } from '@/lib/company-activation/city-readiness';
 import { sendLaunchPack } from '@/lib/company-activation/launch-pack';
 import { derivePrimaryAdmin, summarizeAdmins } from '@/lib/company-contact';
 import { createPerfTimer } from '@/lib/perf';
+import { cleanSocialLinks } from '@/lib/social-links';
 import type { CompanyStatus } from '@/types';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessToAdmins, publishBusinessToCompanyAdmins } from '@/services/business-notification.service';
 import { z } from 'zod';
@@ -38,6 +39,12 @@ const companySignupSchema = z.object({
   lastName: z.string().trim().min(1).max(100),
   phone: z.string().trim().max(30).optional().nullable(),
   website: z.string().trim().url().max(300).optional().nullable().or(z.literal('')),
+  socialLinks: z.object({
+    instagram: z.string().trim().url().max(500).optional().nullable().or(z.literal('')),
+    facebook: z.string().trim().url().max(500).optional().nullable().or(z.literal('')),
+    twitter: z.string().trim().url().max(500).optional().nullable().or(z.literal('')),
+    tiktok: z.string().trim().url().max(500).optional().nullable().or(z.literal('')),
+  }).optional().nullable(),
   employeeCount: z.number().int().min(0).max(1_000_000).optional().nullable(),
   addressLine1: z.string().trim().max(300).optional().nullable(),
   addressLine2: z.string().trim().max(300).optional().nullable(),
@@ -54,6 +61,12 @@ function unauthorized() {
     { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } },
     { status: 401 },
   );
+}
+
+class InvalidLeadError extends Error {
+  constructor() {
+    super('Lead is not eligible for company conversion');
+  }
 }
 
 function notFound(entity: string) {
@@ -234,7 +247,12 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    const { name, email, firstName, lastName, phone: rawPhone, website, employeeCount, addressLine1, addressLine2, city, state, postalCode, country, taxId } = parsed.data;
+    const { name, email, firstName, lastName, phone: rawPhone, website, socialLinks, employeeCount, addressLine1, addressLine2, city, state, postalCode, country, taxId } = parsed.data;
+
+    // Converting a lead is an admin-only action; public signup is unchanged.
+    const rawLeadId = (rawBody as { leadId?: unknown } | null)?.leadId;
+    const leadId = typeof rawLeadId === 'string' ? rawLeadId : null;
+    if (rawLeadId && (!user || user.userType !== 'admin')) return unauthorized();
 
     const phone = toE164(rawPhone);
     if (rawPhone && !phone) {
@@ -258,14 +276,29 @@ export async function POST(request: NextRequest) {
     timer.section('Database Queries')
     timer.point('$transaction (company + account + companyAdmin + billing + audit)')
     const result = await prisma.$transaction(async (tx) => {
+      // Validate the lead before any write so a rejected conversion leaves no partial state.
+      if (rawLeadId) {
+        if (!leadId) throw new InvalidLeadError();
+        const lead = await tx.lead.findUnique({ where: { id: leadId } });
+        if (!lead || lead.type !== 'EMPLOYER' || lead.companyId) throw new InvalidLeadError();
+      }
+
       const company = await tx.company.create({
         data: {
           name, slug, email, employeeCount: employeeCount ?? 0, phone, website,
+          socialLinks: (cleanSocialLinks(socialLinks) ?? undefined) as any,
           addressLine1, addressLine2, city, state, postalCode, country, taxId,
           status: requiresApproval ? 'PENDING' : 'APPROVED_PENDING_PAYMENT',
           approvedAt: requiresApproval ? null : new Date(),
         },
       });
+
+      if (leadId) {
+        await tx.lead.update({
+          where: { id: leadId },
+          data: { companyId: company.id, status: 'CONVERTED' },
+        });
+      }
 
       const pkId = crypto.randomUUID();
       await tx.account.create({
@@ -292,7 +325,11 @@ export async function POST(request: NextRequest) {
             referenceType: 'company',
             status: 'PENDING',
             priority: 2,
-            metadata: { queueType: 'COMPANY_ACTIVATION', source: user ? 'ADMIN' : 'PUBLIC_SIGNUP' },
+            metadata: {
+              queueType: 'COMPANY_ACTIVATION',
+              source: user ? 'ADMIN' : 'PUBLIC_SIGNUP',
+              companyName: company.name,
+            },
           },
         });
       }
@@ -329,6 +366,12 @@ export async function POST(request: NextRequest) {
     );
   } catch (error: any) {
     timer.end()
+    if (error instanceof InvalidLeadError) {
+      return NextResponse.json(
+        { success: false, error: { code: 'INVALID_LEAD', message: error.message } },
+        { status: 400 },
+      );
+    }
     if (error?.code === 'P2002') {
       return NextResponse.json(
         { success: false, error: { code: 'CONFLICT', message: 'A company with this email or slug already exists' } },

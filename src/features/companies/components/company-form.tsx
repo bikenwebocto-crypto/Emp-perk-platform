@@ -1,6 +1,8 @@
 'use client'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useLead } from '@/hooks/queries/use-leads'
+import { leadToCompanyPrefill } from '@/lib/leads/prefill'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PhoneInput } from '@/components/ui/phone-input'
@@ -11,6 +13,8 @@ import { ArrowLeft, Save, Upload } from 'lucide-react'
 import { CSVUploadDropzone } from '@/features/csv-uploads/components/csv-upload-dropzone'
 import { useCreateCompany } from '@/hooks/queries/use-companies'
 import { showToast } from '@/hooks/use-toast'
+import { SocialLinksInput } from '@/components/shared/social-links-input'
+import { cleanSocialLinks, type SocialLinks } from '@/lib/social-links'
 
 interface FormData {
   name: string
@@ -20,6 +24,7 @@ interface FormData {
   lastName: string
   phone: string
   website: string
+  socialLinks?: SocialLinks
   employeeCount: string
   industry: string
   addressLine1: string
@@ -49,6 +54,7 @@ export function CompanyForm() {
     lastName: '',
     phone: '',
     website: '',
+    socialLinks: {},
     employeeCount: '',
     industry: '',
     addressLine1: '',
@@ -60,6 +66,16 @@ export function CompanyForm() {
     taxId: '',
   })
 
+  // Converting a lead: /admin/companies/add?leadId=...
+  const leadId = useSearchParams().get('leadId')
+  const { data: lead } = useLead(leadId)
+  const prefilled = useRef(false)
+  useEffect(() => {
+    if (!lead || prefilled.current) return
+    prefilled.current = true
+    setForm((prev) => ({ ...prev, ...leadToCompanyPrefill(lead) }))
+  }, [lead])
+
   const setField = (field: keyof FormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
     if (errors[field]) {
@@ -69,6 +85,10 @@ export function CompanyForm() {
         return next
       })
     }
+  }
+
+  const setSocialLink = (platform: keyof SocialLinks, value: string) => {
+    setForm((prev) => ({ ...prev, socialLinks: { ...(prev.socialLinks ?? {}), [platform]: value } }))
   }
 
   const validate = (): boolean => {
@@ -90,11 +110,16 @@ export function CompanyForm() {
     if (!validate()) return
 
     createCompany.mutate(
-      { ...form, employeeCount: form.employeeCount ? parseInt(form.employeeCount) : 0 },
+      {
+        ...form,
+        socialLinks: cleanSocialLinks(form.socialLinks),
+        employeeCount: form.employeeCount ? parseInt(form.employeeCount) : 0,
+        ...(leadId ? { leadId } : {}),
+      },
       {
         onSuccess: (res) => {
           showToast({ type: 'success', title: res.message ?? 'Company created successfully' })
-          router.push('/admin/companies')
+          router.push(leadId ? `/admin/leads/${leadId}` : '/admin/companies')
         },
         onError: (err) => {
           showToast({ type: 'error', title: 'Failed to create company', description: err.message })
@@ -229,6 +254,9 @@ export function CompanyForm() {
             <div>
               <label className="mb-1 block text-sm font-medium">Website</label>
               <Input type="url" value={form.website} onChange={(e) => setField('website', e.target.value)} placeholder="https://company.com" />
+            </div>
+            <div>
+              <SocialLinksInput value={form.socialLinks} onChange={setSocialLink} />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Approx. Employee Count</label>

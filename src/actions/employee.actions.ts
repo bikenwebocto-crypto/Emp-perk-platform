@@ -41,6 +41,7 @@ export async function reportIssueAction(formData: FormData) {
       description: `New issue reported by employee. Category: ${parsed.category}`,
       referenceId: issue.id,
       referenceType: 'issue',
+      merchantId: issue.merchantId,
       status: 'PENDING',
       priority: 3,
     },

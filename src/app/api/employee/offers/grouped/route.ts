@@ -3,9 +3,11 @@ import { prisma } from '@/lib/prisma'
 import { getEmployeeFromSession, unauthorized, internalError, companyInactive } from '@/lib/employee-session'
 import { mapOfferRow } from '@/services/offer-mapper.service'
 import { safeQuery } from '@/lib/prisma/safe-query'
+import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
 export async function GET(_request: NextRequest) {
   try {
+    triggerOfferExpiry() // background, never awaited
     const employee = await getEmployeeFromSession()
     if (!employee) return unauthorized()
     if ('inactive' in employee) return companyInactive(employee.companyStatus)

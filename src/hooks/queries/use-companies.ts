@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { leadKeys } from './use-leads';
 
 export const companyKeys = {
   all: ['companies'] as const,
@@ -59,7 +60,8 @@ export function useCreateCompany() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: Record<string, unknown>) => {
+    // `leadId` in data converts that lead; it is sent through unchanged.
+    mutationFn: async (data: Record<string, unknown> & { leadId?: string }) => {
       const res = await fetch('/api/admin/companies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -69,8 +71,9 @@ export function useCreateCompany() {
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to create company');
       return json;
     },
-    onSuccess: () => {
+    onSuccess: (_res, data) => {
       queryClient.invalidateQueries({ queryKey: companyKeys.lists() });
+      if (data.leadId) queryClient.invalidateQueries({ queryKey: leadKeys.all });
     },
   });
 }

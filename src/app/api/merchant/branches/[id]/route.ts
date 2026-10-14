@@ -266,6 +266,7 @@ export async function PATCH(
           description: `Merchant ${merchant.businessName} updated branch location fields: ${locationCheck.fields.join(', ')}. Review and approve.`,
           referenceId: merchant.id,
           referenceType: 'merchant',
+          merchantId: merchant.id,
           status: 'PENDING',
           priority: 2,
           metadata: {

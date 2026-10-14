@@ -3,6 +3,7 @@ import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import {  getMobileHomeLight, type Location } from '@/services/mobile-home.service'
 import { createAuditLog } from '@/services/audit-log.service'
 import { internalError } from '@/lib/employee-helpers'
+import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
 // Parses optional `lat` / `lng` query parameters. Returns null when either
 // is missing or out of range so the service can fall back to its
@@ -20,6 +21,7 @@ function parseLocation(searchParams: URLSearchParams): Location | null {
 
 export async function GET(request: NextRequest) {
   try {
+    triggerOfferExpiry() // background, never awaited
     // Single source of truth for mobile auth. Enforces:
     //   - Supabase Bearer token validity
     //   - Account.status === 'ACTIVE'

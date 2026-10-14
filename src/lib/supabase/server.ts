@@ -7,10 +7,11 @@ import type { AuthResult } from '@/lib/auth';
 import type { PerfTimer } from '@/lib/perf';
 import type { Database } from './types';
 import type { User } from '@supabase/supabase-js';
+import type { AdminRole } from '@prisma/client';
 
 export async function createClient(timer?: PerfTimer) {
   const tCookies = performance.now()
-  const cookieStore = await cookies() 
+  const cookieStore = await cookies()
   timer?.point(`cookies(): ${(performance.now() - tCookies).toFixed(1)}ms`)
 
   const tClient = performance.now()
@@ -20,7 +21,7 @@ export async function createClient(timer?: PerfTimer) {
     {
       cookies: {
         getAll() { return cookieStore.getAll() },
-        setAll(cookiesToSet : { name: string; value: string; options?: any }[]) {
+        setAll(cookiesToSet: { name: string; value: string; options?: any }[]) {
           cookiesToSet.forEach(({ name, value, options }) =>
             cookieStore.set(name, value, options)
           )
@@ -50,6 +51,7 @@ export interface CurrentUser {
   profileId: string | null;
   profile: Record<string, unknown> | null;
   city?: string | null;
+  adminRole?: AdminRole | null;
 }
 
 function getCompanyName(ctx: { profileType: string; profile: any; company: any }): string | null {
@@ -58,9 +60,23 @@ function getCompanyName(ctx: { profileType: string; profile: any; company: any }
   return null
 }
 
+// Prefer ctx.adminRole if buildAuthContext sets it; otherwise read it
+// from the AdminUser profile. Non-admins always get null.
+function getAdminRole(ctx: any): AdminRole | null {
+  if (ctx.adminRole) return ctx.adminRole as AdminRole
+  if (ctx.profileType === 'ADMIN' && ctx.profile?.role) {
+    return ctx.profile.role as AdminRole   // CHECK: field name on AdminUser model
+  }
+  return null
+}
+
 function currentUserFromContext(ctx: any): CurrentUser {
   const userTypeMap: Record<string, 'admin' | 'merchant' | 'company_admin' | 'employee'> = {
     SUPER_ADMIN: 'admin',
+    ADMIN: 'admin',
+    SUPPORT_ADMIN: 'admin',
+    FINANCE_ADMIN: 'admin',
+    CONTENT_ADMIN: 'admin', // deprecated → ADMIN; keep until data is migrated
     MERCHANT: 'merchant',
     COMPANY_ADMIN: 'company_admin',
     EMPLOYEE: 'employee',
@@ -77,13 +93,12 @@ function currentUserFromContext(ctx: any): CurrentUser {
     companyStatus: ctx.companyStatus,
     profileType: ctx.profileType,
     profileId: ctx.profileId,
+    adminRole: getAdminRole(ctx),
     profile: ctx.profile as Record<string, unknown> | null,
   }
 }
 
 async function _getCurrentUser(timer?: PerfTimer): Promise<CurrentUser | null> {
-    console.log('>>> _getCurrentUser REAL EXECUTION', new Date().toISOString())  // ← move it HERE, first line inside the function
-
   const start = performance.now()
 
   try {
@@ -115,7 +130,6 @@ async function _getCurrentUser(timer?: PerfTimer): Promise<CurrentUser | null> {
 
     if (!authUser) {
       const supabase = await createClient(timer)
-
       const {
         data: { user },
       } = await supabase.auth.getUser()

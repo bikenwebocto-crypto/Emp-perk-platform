@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { internalError, notFound, badRequest } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
+import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
+import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
 // GET /api/mobile/offers
 //
@@ -10,6 +12,7 @@ import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 // app can reuse the same React Query hooks adapted to the smaller payload.
 export async function GET(request: NextRequest) {
   try {
+    triggerOfferExpiry() // background, never awaited
     const auth = await getAuthenticatedMobileEmployee(request)
     if (!auth.ok) return auth.response
 
@@ -105,16 +108,25 @@ export async function GET(request: NextRequest) {
       offerIds.length
         ? prisma.redemption.findMany({
             where: { employeeId: auth.employee.id, offerId: { in: offerIds } },
-            select: { offerId: true },
+            select: { offerId: true, createdAt: true },
           })
-        : Promise.resolve([] as { offerId: string }[]),
+        : Promise.resolve([] as { offerId: string; createdAt: Date }[]),
     ])
     const savedSet = new Set(saved.map((s) => s.referenceId))
-    const redeemedSet = new Set(redeemed.map((r) => r.offerId))
+    // Latest redemption per offer for this employee
+    const lastRedeemedAt = new Map<string, Date>()
+    for (const r of redeemed) {
+      const prev = lastRedeemedAt.get(r.offerId)
+      if (!prev || r.createdAt > prev) lastRedeemedAt.set(r.offerId, r.createdAt)
+    }
 
     const data = rows.map((o) => {
       const pricingConfig = (o.pricing?.configuration as Record<string, unknown>) ?? {}
       const redemptionConfig = (o.redemption?.configuration as Record<string, unknown>) ?? {}
+      const redeemState = getRedeemState(
+        lastRedeemedAt.get(o.id),
+        getRepeatAfterHours(o.redemption?.configuration),
+      )
       return {
         id: o.id,
         title: o.title,
@@ -138,7 +150,8 @@ export async function GET(request: NextRequest) {
         merchant: o.merchant,
         redemptionCount: o._count.redemptions,
         isSaved: savedSet.has(o.id),
-        isRedeemed: redeemedSet.has(o.id),
+        isRedeemed: redeemState.isRedeemed,
+        nextRedeemAt: redeemState.nextRedeemAt?.toISOString() ?? null,
       }
     })
 

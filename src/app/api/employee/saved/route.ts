@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getEmployeeFromSession, unauthorized, internalError, companyInactive, notFound, badRequest } from '@/lib/employee-session'
+import { effectiveOfferStatus } from '@/lib/offer-visibility'
+import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
 export async function GET(_request: NextRequest) {
   try {
+    triggerOfferExpiry() // background, never awaited
     const employee = await getEmployeeFromSession()
     if (!employee) return unauthorized()
     if ('inactive' in employee) return companyInactive(employee.companyStatus)
@@ -41,8 +44,10 @@ export async function GET(_request: NextRequest) {
         })
       : []
 
+    const now = new Date()
     const offerMap = new Map(offers.map((o) => {
       const pricingConfig = (o.pricing?.configuration as Record<string, unknown>) ?? {}
+      const status = effectiveOfferStatus(o.status, o.endDate, now)
       return [o.id, {
         id: o.id,
         title: o.title,
@@ -59,6 +64,11 @@ export async function GET(_request: NextRequest) {
         isExclusive: o.isExclusive,
         endDate: o.endDate,
         startDate: o.startDate,
+        status,
+        isExpired: status === 'EXPIRED',
+        // RedeemModal enables Redeem only when isVisible; the redeem route
+        // still re-checks merchant/branch rules.
+        isVisible: status === 'LIVE' && o.startDate <= now,
         merchant: o.merchant,
       }]
     }))

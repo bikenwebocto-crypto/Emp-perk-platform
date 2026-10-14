@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
@@ -16,6 +16,8 @@ import { showToast } from '@/hooks/use-toast'
 import { AlertTriangle, Pencil, Camera, Globe, ExternalLink, Eye, EyeOff, Check, Circle } from 'lucide-react'
 import { ImageUploader } from '@/components/shared/ImageUploader'
 import type { DeferredFile } from '@/components/shared/ImageUploader'
+import { SocialLinksInput } from '@/components/shared/social-links-input'
+import { cleanSocialLinks, type SocialLinks } from '@/lib/social-links'
 import { uploadImage, COMPANY_LOGO_OPTIONS } from '@/lib/upload/image'
 import { PhoneInput } from '@/components/ui/phone-input'
 import { isValidPhone, formatPhone } from '@/lib/phone'
@@ -329,6 +331,44 @@ function EditableCard({
   )
 }
 
+/* ================= social media links ================= */
+
+function SocialLinksCard({ company, onSave, saving }: { company: Company; onSave: SaveFn; saving: boolean }) {
+  const [value, setValue] = useState<SocialLinks>(() => ({ ...(company?.socialLinks ?? {}) }))
+
+  useEffect(() => {
+    setValue({ ...(company?.socialLinks ?? {}) })
+  }, [company])
+
+  const initial = JSON.stringify(cleanSocialLinks(company?.socialLinks) ?? {})
+  const current = JSON.stringify(cleanSocialLinks(value) ?? {})
+  const isDirty = initial !== current
+
+  const handleSave = async () => {
+    try {
+      await onSave({ socialLinks: cleanSocialLinks(value) ?? null })
+    } catch {
+      // toast shown by parent — keep form editable
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 pt-6">
+        <SocialLinksInput
+          value={value}
+          onChange={(platform, v) => setValue((prev) => ({ ...prev, [platform]: v }))}
+        />
+        <div className="flex justify-end border-t pt-4">
+          <LoadingButton onClick={handleSave} loading={saving} loadingText="Saving…" disabled={!isDirty}>
+            Save changes
+          </LoadingButton>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 /* ================= account status (read-only) ================= */
 
 function AccountStatusCard({ company, error }: { company: Company; error: unknown }) {
@@ -580,6 +620,10 @@ export default function CompanySettingsPage() {
               onSave={handleProfileSave}
               saving={updateProfile.isPending}
             />
+          </Section>
+
+          <Section title="Social media" description="Link your company's social profiles.">
+            <SocialLinksCard company={company} onSave={handleProfileSave} saving={updateProfile.isPending} />
           </Section>
 
           <Section title="Address" description="Update your company address.">

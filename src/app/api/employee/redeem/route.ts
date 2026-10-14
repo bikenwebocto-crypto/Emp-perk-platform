@@ -17,6 +17,7 @@ import {
   OfferNotActiveError,
   claimAttempt,
   ensureCapacityRow,
+  getRepeatAfterHours,
   linkAttemptToRedemption,
   releaseCapacity,
   reserveCapacity,
@@ -245,7 +246,12 @@ export async function POST(request: NextRequest) {
     try {
       const result = await prisma.$transaction(
         async (tx) => {
-          const claim = await claimAttempt(tx, offer.id, employee.id);
+          const claim = await claimAttempt(
+            tx,
+            offer.id,
+            employee.id,
+            getRepeatAfterHours(offer.redemption?.configuration),
+          );
           if (!claim.ok) {
             throw new AlreadyRedeemedError();
           }

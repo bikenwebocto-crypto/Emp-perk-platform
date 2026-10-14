@@ -61,6 +61,7 @@ export default function EditOfferPage({ params }: { params: Promise<{ id: string
             : offer.redemption?.maxRedemptions != null
               ? String(offer.redemption.maxRedemptions)
               : '',
+        repeatAfterHours: offer.repeatAfterHours != null ? String(offer.repeatAfterHours) : '',
         startDate: toDateTimeLocal(offer.startDate),
         endDate: toDateTimeLocal(offer.endDate),
         daysOfWeek: Array.isArray(offer.redemption?.daysOfWeek) ? offer.redemption.daysOfWeek.join(',') : '0,1,2,3,4,5,6',
