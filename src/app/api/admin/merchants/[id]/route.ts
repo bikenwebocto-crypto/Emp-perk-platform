@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { createAuditLog, fromCurrentUser } from '@/services/audit-log.service';
 import { deleteImage } from '@/lib/upload/image';
+import { mergeSocialLinks, validateSocialLinks } from '@/lib/social-links';
 
 export async function GET(
   _request: NextRequest,
@@ -94,6 +95,7 @@ export async function PATCH(
       "contactPhone",
       "description",
       "website",
+      "socialLinks",
       "categoryId",
       "logoUrl",
       "coverImageUrl",
@@ -110,6 +112,19 @@ export async function PATCH(
     const data: Record<string, unknown> = {};
     for (const field of updatableFields) {
       if (body[field] !== undefined) data[field] = body[field];
+    }
+
+    // Merge social links over what's stored so editing one platform never
+    // wipes the others, and drop empty values.
+    if (data.socialLinks !== undefined) {
+      const socialError = validateSocialLinks(data.socialLinks);
+      if (socialError) {
+        return NextResponse.json(
+          { success: false, error: { code: "VALIDATION", message: socialError } },
+          { status: 400 },
+        );
+      }
+      data.socialLinks = (mergeSocialLinks(merchant.socialLinks, data.socialLinks) ?? null) as any;
     }
 
     if (data.status && data.status !== merchant.status) {

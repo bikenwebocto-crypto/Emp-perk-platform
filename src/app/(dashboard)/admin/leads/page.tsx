@@ -1,7 +1,7 @@
 'use client'
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { Mail, Store, Building2 } from 'lucide-react'
+import { Mail, Store, Building2, User } from 'lucide-react'
 import { PageHeader } from '@/components/shared/page-header'
 import { FilterBar } from '@/components/shared/filter-bar'
 import { DataTable } from '@/components/shared/data-table'
@@ -13,13 +13,14 @@ import { useTablePagination } from '@/hooks/use-table-pagination'
 import { LeadActions } from '@/features/leads/components/lead-actions'
 import type { ColumnDef } from '@/types'
 
-type TypeTab = 'ALL' | 'MERCHANT' | 'EMPLOYER'
+type TypeTab = 'ALL' | 'MERCHANT' | 'EMPLOYER' | 'EMPLOYEE_ACCESS'
 type StatusFilter = 'ALL' | 'NEW' | 'CONTACTED' | 'REJECTED' | 'CONVERTED'
 
 const TABS: { label: string; value: TypeTab }[] = [
   { label: 'All', value: 'ALL' },
   { label: 'Merchants', value: 'MERCHANT' },
   { label: 'Employers', value: 'EMPLOYER' },
+  { label: 'Waitlist', value: 'EMPLOYEE_ACCESS' },
 ]
 
 export default function LeadsPage() {
@@ -48,9 +49,16 @@ export default function LeadsPage() {
         <span className="inline-flex items-center gap-1.5 text-sm">
           {l.type === 'MERCHANT'
             ? <><Store className="h-3.5 w-3.5 text-muted-foreground" /> Merchant</>
-            : <><Building2 className="h-3.5 w-3.5 text-muted-foreground" /> Employer</>}
+            : l.type === 'EMPLOYEE_ACCESS'
+              ? <><User className="h-3.5 w-3.5 text-muted-foreground" /> Employee</>
+              : <><Building2 className="h-3.5 w-3.5 text-muted-foreground" /> Employer</>}
         </span>
       ),
+    },
+    {
+      key: 'intent',
+      header: 'Intent',
+      render: (l: Lead) => <span className="text-sm">{l.intent ?? '—'}</span>,
     },
     {
       key: 'companyName',
@@ -99,7 +107,7 @@ export default function LeadsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Leads" description="Merchant and employer enquiries from the public forms" />
+      <PageHeader title="Leads" description="Merchant, employer and employee enquiries from the public forms" />
       <div className="flex gap-1 border-b">
         {TABS.map((tab) => (
           <Button

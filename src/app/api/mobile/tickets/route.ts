@@ -20,6 +20,7 @@ const OFFER_COMPLAINT_TYPES = [
   'INVALID_TERMS',
   'NON_FUNCTIONAL',
   'POLICY_VIOLATION',
+  'OTHER',
 ] as const
 
 // The only status transitions a mobile employee (the reporter) may initiate.

@@ -20,8 +20,7 @@ export const MERCHANT_SUGGESTION_STATUSES = [
   'CONVERTED',
 ] as const satisfies readonly MerchantSuggestionStatus[]
 
-// Suggestions still being worked on. An employee may not file a second
-// suggestion for the same email/phone while one of these is open.
+// Suggestions still being worked on (not yet rejected or converted).
 export const OPEN_SUGGESTION_STATUSES: MerchantSuggestionStatus[] = [
   'PENDING',
   'UNDER_REVIEW',
@@ -134,8 +133,8 @@ export function normalizeEmail(raw: string): string | null {
 export interface MerchantSuggestionInput {
   merchantName: string
   merchantWebsite: string | null
-  merchantPhone: string
-  merchantEmail: string
+  merchantPhone: string | null
+  merchantEmail: string | null
   reason: string | null
 }
 
@@ -175,29 +174,35 @@ export function validateMerchantSuggestionInput(body: unknown): ValidationResult
     }
   }
 
-  // merchantPhone — required
-  let merchantPhone = ''
-  if (typeof input.merchantPhone !== 'string' || !input.merchantPhone.trim()) {
-    errors.merchantPhone = 'Phone number is required'
-  } else {
-    const normalized = normalizePhone(input.merchantPhone)
-    if (!normalized) {
-      errors.merchantPhone = 'Phone number must contain 7–15 digits (optionally starting with +)'
-    } else {
-      merchantPhone = normalized
+  // merchantPhone — optional
+  let merchantPhone: string | null = null
+  const rawPhone = input.merchantPhone
+  if (rawPhone !== undefined && rawPhone !== null && rawPhone !== '') {
+    if (typeof rawPhone !== 'string') {
+      errors.merchantPhone = 'Phone number must be a string'
+    } else if (rawPhone.trim()) {
+      const normalized = normalizePhone(rawPhone)
+      if (!normalized) {
+        errors.merchantPhone = 'Phone number must contain 7–15 digits (optionally starting with +)'
+      } else {
+        merchantPhone = normalized
+      }
     }
   }
 
-  // merchantEmail — required
-  let merchantEmail = ''
-  if (typeof input.merchantEmail !== 'string' || !input.merchantEmail.trim()) {
-    errors.merchantEmail = 'Email is required'
-  } else {
-    const normalized = normalizeEmail(input.merchantEmail)
-    if (!normalized) {
-      errors.merchantEmail = 'Email must be a valid email address'
-    } else {
-      merchantEmail = normalized
+  // merchantEmail — optional
+  let merchantEmail: string | null = null
+  const rawEmail = input.merchantEmail
+  if (rawEmail !== undefined && rawEmail !== null && rawEmail !== '') {
+    if (typeof rawEmail !== 'string') {
+      errors.merchantEmail = 'Email must be a string'
+    } else if (rawEmail.trim()) {
+      const normalized = normalizeEmail(rawEmail)
+      if (!normalized) {
+        errors.merchantEmail = 'Email must be a valid email address'
+      } else {
+        merchantEmail = normalized
+      }
     }
   }
 

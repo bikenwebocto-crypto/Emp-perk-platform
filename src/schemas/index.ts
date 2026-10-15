@@ -87,6 +87,12 @@ export const registerCompanySchema = z.object({
   lastName: z.string().min(1).max(100),
   phone: phoneSchema,
   website: urlSchema,
+  socialLinks: z.object({
+    instagram: z.string().url().optional().nullable(),
+    facebook: z.string().url().optional().nullable(),
+    twitter: z.string().url().optional().nullable(),
+    tiktok: z.string().url().optional().nullable(),
+  }).optional(),
   employeeCount: z.coerce.number().int().min(1).max(100000),
   addressLine1: z.string().min(1).max(255),
   addressLine2: z.string().max(255).optional(),

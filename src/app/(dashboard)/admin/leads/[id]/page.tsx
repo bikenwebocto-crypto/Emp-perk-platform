@@ -39,6 +39,9 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   if (error || !lead) return <p className="py-6 text-sm text-destructive">{(error as Error)?.message ?? 'Lead not found'}</p>
 
   const isMerchant = lead.type === 'MERCHANT'
+  const isEmployee = lead.type === 'EMPLOYEE_ACCESS'
+  const typeLabel = isMerchant ? 'Merchant' : isEmployee ? 'Employee' : 'Employer'
+  const attribution = Object.entries(lead.attribution ?? {})
 
   return (
     <div className="space-y-6 py-6">
@@ -51,11 +54,17 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
               {lead.companyName} <StatusBadge status={lead.status} />
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">{isMerchant ? 'Merchant' : 'Employer'} lead · {fmt(lead.createdAt)}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{typeLabel} lead · {fmt(lead.createdAt)}</p>
           </div>
         </div>
         <LeadActions lead={lead} />
       </div>
+
+      {isEmployee && !lead.shareWithEmployer && (
+        <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-4 text-sm font-medium text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300">
+          Do not name this employee when contacting their employer.
+        </div>
+      )}
 
       {lead.status === 'CONVERTED' && (lead.merchant || lead.company) && (
         <Card>
@@ -85,23 +94,34 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-lg">{isMerchant ? 'Business' : 'Employer'}</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-lg">{isMerchant ? 'Business' : isEmployee ? 'Employee' : 'Employer'}</CardTitle></CardHeader>
           <CardContent>
             <dl className="grid grid-cols-2 gap-4">
               {isMerchant ? (
                 <>
-                  <Field label="Industry">{lead.industry}</Field>
+                  <Field label="Category">{lead.industry}</Field>
+                  <Field label="Redemption">{lead.redemption}</Field>
+                  <Field label="Role">{lead.role}</Field>
                   <Field label="Cities">{lead.cities.length ? lead.cities.join(', ') : null}</Field>
                   <Field label="Website"><ExtLink href={lead.websiteUrl} /></Field>
-                  <Field label="Social"><ExtLink href={lead.socialUrl} /></Field>
+                  <Field label="Instagram / social">{lead.socialUrl}</Field>
+                </>
+              ) : isEmployee ? (
+                <>
+                  <Field label="Intent">{lead.intent}</Field>
+                  <Field label="Role">{lead.role}</Field>
+                  <Field label="Share with employer">{lead.shareWithEmployer ? 'Yes' : 'No'}</Field>
                 </>
               ) : (
                 <>
                   <Field label="Company size">{lead.companySize}</Field>
                   <Field label="HQ country">{lead.hqCountry}</Field>
                   <Field label="Role">{lead.role}</Field>
+                  <Field label="Website"><ExtLink href={lead.websiteUrl} /></Field>
+                  <Field label="Instagram / social">{lead.socialUrl}</Field>
                 </>
               )}
+              <Field label="Form">{lead.formKey}</Field>
             </dl>
           </CardContent>
         </Card>
@@ -113,7 +133,22 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               <div className="sm:col-span-2"><Field label="Message">{lead.message}</Field></div>
               <Field label="Consent given at">{fmt(lead.consentAt)}</Field>
               <Field label="Consent version">{lead.consentVersion}</Field>
+              <Field label="Consent 1">{lead.consents?.['consent-1'] ?? null}</Field>
+              <Field label="Consent 2">{lead.consents?.['consent-2'] ?? null}</Field>
             </dl>
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader><CardTitle className="text-lg">Attribution</CardTitle></CardHeader>
+          <CardContent>
+            {attribution.length ? (
+              <dl className="grid gap-4 sm:grid-cols-2">
+                {attribution.map(([key, value]) => <Field key={key} label={key}>{value}</Field>)}
+              </dl>
+            ) : (
+              <p className="text-sm text-muted-foreground">No attribution data</p>
+            )}
           </CardContent>
         </Card>
       </div>

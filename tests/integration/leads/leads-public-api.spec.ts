@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('@/lib/prisma', () => {
   const prisma: any = {
     $executeRaw: vi.fn(),
-    lead: { findFirst: vi.fn(), create: vi.fn() },
+    lead: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     account: { create: vi.fn() },
     merchant: { create: vi.fn() },
     company: { create: vi.fn() },
@@ -175,17 +175,22 @@ describe('POST /api/leads validation', () => {
 })
 
 describe('POST /api/leads dedupe', () => {
-  it('returns 200 without creating a row when the same email and type is already NEW', async () => {
-    db.lead.findFirst.mockResolvedValue({ id: 'lead-existing', createdAt: new Date('2026-01-01') })
+  it('updates the open lead instead of creating a row when the same email and type is NEW or CONTACTED', async () => {
+    db.lead.findFirst.mockResolvedValue({ id: 'lead-existing', attribution: null })
 
     const { status, json } = await post(merchantBody)
 
-    expect(status).toBe(200)
+    expect(status).toBe(201)
+    expect(json.id).toBe('lead-existing')
     expect(json.data).toEqual({ id: 'lead-existing', deduplicated: true })
     expect(db.lead.create).not.toHaveBeenCalled()
-    expect(db.lead.findFirst).toHaveBeenCalledWith({
-      where: { email: 'founder@example.com', type: 'MERCHANT', status: 'NEW' },
-      select: { id: true, createdAt: true },
+    expect(db.lead.update).toHaveBeenCalledTimes(1)
+    expect(db.lead.update.mock.calls[0][0].where).toEqual({ id: 'lead-existing' })
+    expect(db.lead.update.mock.calls[0][0].data).not.toHaveProperty('createdAt')
+    expect(db.lead.findFirst.mock.calls[0][0].where).toEqual({
+      email: 'founder@example.com',
+      type: 'MERCHANT',
+      status: { in: ['NEW', 'CONTACTED'] },
     })
     expect(publishBusinessToAdmins).not.toHaveBeenCalled()
   })

@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-export type LeadType = 'MERCHANT' | 'EMPLOYER';
+export type LeadType = 'MERCHANT' | 'EMPLOYER' | 'EMPLOYEE_ACCESS';
 export type LeadStatus = 'NEW' | 'CONTACTED' | 'REJECTED' | 'CONVERTED';
 
 export interface Lead {
@@ -26,6 +26,12 @@ export interface Lead {
   companySize: string | null;
   hqCountry: string | null;
   role: string | null;
+  formKey: string | null;
+  redemption: string | null;
+  intent: string | null;
+  shareWithEmployer: boolean;
+  consents: Record<string, string | null> | null;
+  attribution: Record<string, string> | null;
   merchantId: string | null;
   companyId: string | null;
   merchant?: { id: string; businessName: string } | null;

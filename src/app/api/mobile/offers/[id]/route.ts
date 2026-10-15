@@ -40,6 +40,7 @@ export async function GET(
             description: true,
             averageRating: true,
             totalRedemptions: true,
+            socialLinks: true,
             category: { select: { id: true, name: true, icon: true } },
             branches: { where: { deletedAt: null, status: 'ACTIVE' } },
           },

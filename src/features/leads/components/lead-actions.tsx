@@ -18,7 +18,8 @@ export function LeadActions({ lead, compact = false }: { lead: Pick<Lead, 'id' |
   const [reason, setReason] = useState('')
 
   const canChangeStatus = lead.status === 'NEW'
-  const canConvert = lead.status !== 'CONVERTED' && lead.status !== 'REJECTED'
+  // Employee leads are never converted to a company or merchant.
+  const canConvert = lead.type !== 'EMPLOYEE_ACCESS' && lead.status !== 'CONVERTED' && lead.status !== 'REJECTED'
   if (!canChangeStatus && !canConvert) return null
 
   const close = () => { setPending(null); setReason('') }

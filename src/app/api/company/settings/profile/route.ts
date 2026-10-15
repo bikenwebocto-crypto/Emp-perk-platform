@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCompanyAdmin, handleApiError } from '../../helpers'
+import { mergeSocialLinks, validateSocialLinks } from '@/lib/social-links'
 
 // GET /api/company/settings/profile
 // Returns the logged-in company admin's own company profile + billing.
@@ -33,8 +34,18 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json()
     const {
       name, phone, website, addressLine1, addressLine2, city, state,
-      postalCode, country, industry, approvedDomain, taxId, logoUrl,
+      postalCode, country, industry, approvedDomain, taxId, logoUrl, socialLinks,
     } = body
+
+    if (socialLinks !== undefined) {
+      const socialError = validateSocialLinks(socialLinks)
+      if (socialError) {
+        return NextResponse.json(
+          { success: false, error: { code: 'VALIDATION', message: socialError } },
+          { status: 400 },
+        )
+      }
+    }
 
     const updatable: any = {}
     if (name !== undefined) updatable.name = name
@@ -50,6 +61,7 @@ export async function PATCH(request: NextRequest) {
     if (approvedDomain !== undefined) updatable.approvedDomain = approvedDomain
     if (taxId !== undefined) updatable.taxId = taxId
     if (logoUrl !== undefined) updatable.logoUrl = logoUrl
+    if (socialLinks !== undefined) updatable.socialLinks = mergeSocialLinks(company.socialLinks, socialLinks) ?? null
 
     if (Object.keys(updatable).length === 0) {
       return NextResponse.json(

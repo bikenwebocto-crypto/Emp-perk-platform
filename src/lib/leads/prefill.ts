@@ -33,7 +33,7 @@ export interface CompanyPrefill {
 }
 
 /** Where the Convert action sends the admin for each lead type. */
-export function convertHref(lead: { id: string; type: 'MERCHANT' | 'EMPLOYER' }): string {
+export function convertHref(lead: { id: string; type: 'MERCHANT' | 'EMPLOYER' | 'EMPLOYEE_ACCESS' }): string {
   const base = lead.type === 'MERCHANT' ? '/admin/merchants/add' : '/admin/companies/add'
   return `${base}?leadId=${encodeURIComponent(lead.id)}`
 }

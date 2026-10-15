@@ -14,6 +14,8 @@ import type { DeferredFile } from '@/components/shared/ImageUploader'
 import { uploadImage, MERCHANT_LOGO_OPTIONS, MERCHANT_COVER_OPTIONS } from '@/lib/upload/image'
 import type { UploadImageOptions } from '@/lib/upload/image'
 import { BusinessOverview } from '@/components/shared/business-overview'
+import { SocialLinksInput } from '@/components/shared/social-links-input'
+import type { SocialLinks } from '@/lib/social-links'
 import { PhoneInput } from '@/components/ui/phone-input'
 import { isValidPhone } from '@/lib/phone'
 
@@ -117,6 +119,13 @@ export default function MerchantProfilePage() {
   const values: any = form ?? profile
   const setField = (k: string, v: unknown) => {
     setForm((prev) => ({ ...(prev ?? profile), [k]: v } as any))
+  }
+  const setSocialLink = (platform: keyof SocialLinks, v: string) => {
+    setForm((prev) => {
+      const base = prev ?? profile
+      const current = (base?.socialLinks ?? {}) as SocialLinks
+      return { ...base, socialLinks: { ...current, [platform]: v } }
+    })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -306,10 +315,10 @@ export default function MerchantProfilePage() {
       </Card>
 
       {/* ─── Business Overview ─── */}
-      <div>
+      {/* <div>
         <h3 className="mb-3 text-lg font-semibold tracking-tight">Business Overview</h3>
         <BusinessOverview merchantId={profile.id} scope="merchant" />
-      </div>
+      </div> */}
 
       {/* ─── Pending Approval Banner ─── */}
       {isPendingApproval && (
@@ -351,13 +360,14 @@ export default function MerchantProfilePage() {
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    value={values.email ?? ''}
+                    value={values.account?.email ?? ''}
                     readOnly
                     className="bg-muted/40 pl-9"
                   />
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  <Lock className="inline h-3 w-3" /> Email cannot be changed here. Go to Settings.
+                <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  <Lock className="h-3.5 w-3.5" />
+                  Email is locked — linked to your account and cannot be changed.
                 </p>
               </div>
             </div>
@@ -412,6 +422,15 @@ export default function MerchantProfilePage() {
                 />
               </div>
               {errors.website && <p className="mt-1 text-xs text-destructive">{errors.website}</p>}
+            </div>
+
+            <div>
+              <SocialLinksInput
+                value={values.socialLinks}
+                onChange={setSocialLink}
+                labelClassName="mb-1.5 block text-xs font-medium text-muted-foreground"
+              />
+              {errors.socialLinks && <p className="mt-1 text-xs text-destructive">{errors.socialLinks}</p>}
             </div>
           </CardContent>
         </Card>
