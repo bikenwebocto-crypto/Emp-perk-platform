@@ -91,12 +91,16 @@ export async function POST(request: NextRequest) {
           ? (existing.attribution as Record<string, unknown>)
           : {};
         const attribution = input.attribution ? { ...previous, ...input.attribution } : undefined;
+        const nextCities = Array.isArray(input.data.cities)
+          ? Array.from(new Set([...input.data.cities, 'Limassol']))
+          : ['Limassol'];
+
         await tx.lead.update({
           where: { id: existing.id },
           data: {
             ...input.data,
-            city: 'Limassol',
-            country: 'Cyprus',
+            cities: nextCities,
+            hqCountry: input.data.hqCountry ?? 'Cyprus',
             ...(attribution ? { attribution: attribution as Prisma.InputJsonObject } : {}),
           },
         });
