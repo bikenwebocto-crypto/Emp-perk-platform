@@ -6,6 +6,7 @@ import { sendLaunchPack, sendBillingReminder } from '@/lib/company-activation/la
 import { derivePrimaryAdmin, ensurePrimaryAdmin, summarizeAdmins } from '@/lib/company-contact';
 import { createAuditLog, fromCurrentUser } from '@/services/audit-log.service';
 import { forbidden } from '@/lib/api-auth';
+import { getCompanyDetail } from '@/lib/company-detail/service';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessToCompanyAdmins } from '@/services/business-notification.service';
 
 export async function GET(
@@ -14,7 +15,6 @@ export async function GET(
 ) {
   try {
     const user = await getCurrentUser();
-    console.log('Company detail request by user:', user?.id, user?.email, user?.userType, user?.role);
     if (!user) {
       return NextResponse.json(
         { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } },
@@ -26,77 +26,12 @@ export async function GET(
     }
 
     const { id } = await params;
-
-    // Auto-fix primary admin: if the company has admins but none flagged
-    // isPrimary, promote the oldest ACTIVE admin (per spec). Safe to run
-    // on every read — it's a no-op when the invariant is already met.
-    try {
-      await ensurePrimaryAdmin(id)
-    } catch (err) {
-      console.error('ensurePrimaryAdmin failed for company', id, err)
-    }
-
-    const company = await prisma.company.findUnique({
-      where: { id },
-      include: {
-        billing: true,
-        statusHistory: {
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-          include: { company: { select: { name: true } } },
-        },
-        _count: { select: { employees: true, redemptions: true, csvUploads: true } },
-        companyAdmins: {
-          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
-          include: { account: { select: { email: true, status: true } } },
-        },
-      },
-    });
-
-    if (!company || company.deletedAt) {
+    const data = await getCompanyDetail(id, 'super_admin');
+    if (!data) {
       return NextResponse.json(
         { success: false, error: { code: 'NOT_FOUND', message: 'Company not found' } },
         { status: 404 },
       );
-    }
-
- // Email lives on the linked account; fill it in after summarizing
-const emailByAdminId = new Map(
-  company.companyAdmins.map((a) => [a.id, a.account?.email ?? '']),
-)
-
-const admins = summarizeAdmins(company.companyAdmins).map((a) => ({
-  ...a,
-  email: a.email || emailByAdminId.get(a.id) || '',
-}))
-
-const derived = derivePrimaryAdmin(company.companyAdmins)
-const primaryAdmin = derived
-  ? { ...derived, email: derived.email || emailByAdminId.get(derived.id) || '' }
-  : null
-    const activeAdminCount = admins.filter((a) => a.isActive).length
-
-    const data = {
-      ...company,
-      companyContact: {
-        id: company.id,
-        companyName: company.name,
-        companyEmail: company.email,
-        phone: company.phone,
-        website: company.website,
-        socialLinks: company.socialLinks,
-        status: company.status,
-        city: company.city,
-        country: company.country,
-        industry: company.industry,
-        logoUrl: company.logoUrl,
-        employeeCount: company._count?.employees ?? 0,
-        createdAt: company.createdAt,
-      },
-      primaryAdmin,
-      admins,
-      adminCount: admins.length,
-      activeAdminCount,
     }
 
     return NextResponse.json({ success: true, data });
