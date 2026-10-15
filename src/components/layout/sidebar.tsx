@@ -77,7 +77,7 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Profile', href: '/merchant/profile', icon: Store },
     { label: 'Store Map', href: '/merchant/profile/store-map', icon: MapPin },
     { label: 'Notifications', href: '/merchant/notifications', icon: Bell },
-    // { label: 'Settings', href: '/merchant/settings', icon: Settings },
+    { label: 'Settings', href: '/merchant/settings', icon: Settings },
   ],
   company_admin: [
     { label: 'Overview', href: '/company', icon: LayoutDashboard, exact: true },

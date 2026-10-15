@@ -15,6 +15,7 @@ import { uploadImage, MERCHANT_LOGO_OPTIONS, MERCHANT_COVER_OPTIONS } from '@/li
 import type { UploadImageOptions } from '@/lib/upload/image'
 import { BusinessOverview } from '@/components/shared/business-overview'
 import { SocialLinksInput } from '@/components/shared/social-links-input'
+import { ChangePasswordCard } from '@/components/shared/change-password-card'
 import type { SocialLinks } from '@/lib/social-links'
 import { PhoneInput } from '@/components/ui/phone-input'
 import { isValidPhone } from '@/lib/phone'
@@ -602,6 +603,9 @@ export default function MerchantProfilePage() {
           </Button>
         </div>
       </form>
+
+      {/* ─── Password ─── */}
+      <ChangePasswordCard />
     </div>
   )
 }

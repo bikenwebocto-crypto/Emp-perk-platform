@@ -3,13 +3,11 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/shared/page-header'
 import { showToast } from '@/hooks/use-toast'
-import { Eye, EyeOff, Check, Circle } from 'lucide-react'
 
 interface Prefs {
   newRedemption: boolean
@@ -90,40 +88,6 @@ function Switch({ checked, onChange, id }: { checked: boolean; onChange: (v: boo
   )
 }
 
-function PasswordInput(props: { id: string; value: string; onChange: (v: string) => void; autoComplete: string }) {
-  const [show, setShow] = useState(false)
-  return (
-    <div className="relative">
-      <Input
-        id={props.id}
-        type={show ? 'text' : 'password'}
-        value={props.value}
-        autoComplete={props.autoComplete}
-        onChange={(e) => props.onChange(e.target.value)}
-        className="pr-10"
-        required
-      />
-      <button
-        type="button"
-        onClick={() => setShow((s) => !s)}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-        aria-label={show ? 'Hide password' : 'Show password'}
-      >
-        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-      </button>
-    </div>
-  )
-}
-
-function Rule({ ok, text }: { ok: boolean; text: string }) {
-  return (
-    <li className={`flex items-center gap-1.5 text-xs ${ok ? 'text-green-600' : 'text-muted-foreground'}`}>
-      {ok ? <Check className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
-      {text}
-    </li>
-  )
-}
-
 /* ---------- page ---------- */
 
 export default function MerchantSettingsPage() {
@@ -137,15 +101,6 @@ export default function MerchantSettingsPage() {
     () => !!draft && !!saved && (Object.keys(saved) as (keyof Prefs)[]).some((k) => draft[k] !== saved[k]),
     [draft, saved],
   )
-
-  const [pwd, setPwd] = useState({ current: '', next: '', confirm: '' })
-  const [pwdError, setPwdError] = useState<string | null>(null)
-  const rules = {
-    length: pwd.next.length >= 8,
-    different: pwd.next.length > 0 && pwd.next !== pwd.current,
-    match: pwd.confirm.length > 0 && pwd.next === pwd.confirm,
-  }
-  const canSubmitPwd = pwd.current.length > 0 && rules.length && rules.different && rules.match
 
   const savePrefs = useMutation({
     mutationFn: async (preferences: Prefs) => {
@@ -166,104 +121,9 @@ export default function MerchantSettingsPage() {
     onError: (e: any) => showToast({ type: 'error', title: 'Save failed', description: e?.message }),
   })
 
-  const changePwd = useMutation({
-    mutationFn: async (body: { currentPassword: string; newPassword: string }) => {
-      const res = await fetch('/api/merchant/settings/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to change password')
-      return json
-    },
-    onSuccess: () => {
-      setPwd({ current: '', next: '', confirm: '' })
-      setPwdError(null)
-      showToast({ type: 'success', title: 'Password changed' })
-    },
-    onError: (e: any) => setPwdError(e?.message ?? 'Failed to change password'),
-  })
-
-  function handlePwdSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setPwdError(null)
-    if (!canSubmitPwd) return
-    changePwd.mutate({ currentPassword: pwd.current, newPassword: pwd.next })
-  }
-
   return (
     <div className="max-w-5xl space-y-10">
-      <PageHeader title="Settings" description="Manage your password and how we notify you" />
-
-      {/* ---- Password ---- */}
-      <Section
-        title="Password"
-        description="Use a strong password you don't use anywhere else. You'll stay signed in on this device."
-      >
-        <Card>
-          <CardContent className="pt-6">
-            <form onSubmit={handlePwdSubmit} className="space-y-4">
-              <div>
-                <label htmlFor="current-password" className="mb-1 block text-xs font-medium text-muted-foreground">
-                  Current password
-                </label>
-                <PasswordInput
-                  id="current-password"
-                  autoComplete="current-password"
-                  value={pwd.current}
-                  onChange={(v) => setPwd((p) => ({ ...p, current: v }))}
-                />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label htmlFor="new-password" className="mb-1 block text-xs font-medium text-muted-foreground">
-                    New password
-                  </label>
-                  <PasswordInput
-                    id="new-password"
-                    autoComplete="new-password"
-                    value={pwd.next}
-                    onChange={(v) => setPwd((p) => ({ ...p, next: v }))}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="confirm-password" className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Confirm new password
-                  </label>
-                  <PasswordInput
-                    id="confirm-password"
-                    autoComplete="new-password"
-                    value={pwd.confirm}
-                    onChange={(v) => setPwd((p) => ({ ...p, confirm: v }))}
-                  />
-                </div>
-              </div>
-
-              {pwd.next.length > 0 && (
-                <ul className="space-y-1">
-                  <Rule ok={rules.length} text="At least 8 characters" />
-                  <Rule ok={rules.different} text="Different from current password" />
-                  <Rule ok={rules.match} text="Passwords match" />
-                </ul>
-              )}
-
-              {pwdError && <p className="text-sm text-destructive">{pwdError}</p>}
-
-              <div className="flex justify-end border-t pt-4">
-                <LoadingButton
-                  type="submit"
-                  loading={changePwd.isPending}
-                  loadingText="Updating…"
-                  disabled={!canSubmitPwd}
-                >
-                  Update password
-                </LoadingButton>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      </Section>
+      <PageHeader title="Settings" description="Manage how we notify you" />
 
       {/* ---- Notifications ---- */}
       <Section
