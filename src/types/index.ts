@@ -64,6 +64,8 @@ export interface CompanyAdminSummary {
   isActive: boolean
   lastLoginAt: Date | null
   createdAt: Date
+  /** True when the admin was promoted from an employee and can be reverted. */
+  hasEmployeeRecord?: boolean
 }
 
 export interface CompanyWithAdmins extends CompanyContact {

@@ -13,6 +13,7 @@ import {
   Power,
   PowerOff,
   Send,
+  ShieldCheck,
   Users,
   XCircle,
 } from "lucide-react";
@@ -37,10 +38,22 @@ import {
   useCompanyDetailEmployees,
   useConfirmCompanyCsvImport,
   useInvalidateCompanyDetail,
+  usePromoteCompanyDetailEmployee,
+  useRevertCompanyDetailAdmin,
   useUpdateCompanyDetailAdmin,
 } from "@/hooks/queries/use-company-detail-view";
 import { CSVUploadDropzone } from "@/features/csv-uploads/components/csv-upload-dropzone";
 import type { ColumnDef, CompanyAdminSummary } from "@/types";
+import {
+  ActionImpact,
+  deactivateEmployeeCopy,
+  disableAdminCopy,
+  PROMOTED_BADGE_TOOLTIP,
+  promoteCopy,
+  reactivateAdminCopy,
+  reactivateEmployeeCopy,
+  revertCopy,
+} from "@/features/employees/components/action-impact";
 import { TableActionButton } from "./primitives";
 import {
   ActivityLogCard,
@@ -141,6 +154,29 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
 
   const addCompanyAdmin = useAddCompanyDetailAdmin(scope, companyIdProp);
   const updateCompanyAdmin = useUpdateCompanyDetailAdmin(scope, companyIdProp);
+  const revertAdmin = useRevertCompanyDetailAdmin(scope, companyIdProp);
+  const [revertingAdmin, setRevertingAdmin] = useState<CompanyAdminSummary | null>(null);
+  const promoteEmployee = usePromoteCompanyDetailEmployee(scope, companyIdProp);
+  const [promotingEmployee, setPromotingEmployee] = useState<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    status?: string;
+  } | null>(null);
+  // One confirmation for the admin/employee actions that would otherwise run
+  // on a single click.
+  type PendingConfirm =
+    | { kind: "disableAdmin" | "reactivateAdmin"; admin: CompanyAdminSummary }
+    | { kind: "deactivateEmployee" | "reactivateEmployee"; employee: { id: string; firstName: string; lastName: string } };
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
+  const promoteDialogCopy = promoteCopy({
+    name: promotingEmployee ? `${promotingEmployee.firstName} ${promotingEmployee.lastName}` : "this employee",
+    companyName: company?.name ?? "this company",
+    employeeStatus: promotingEmployee?.status,
+  });
+  const revertDialogCopy = revertCopy(
+    revertingAdmin ? `${revertingAdmin.firstName} ${revertingAdmin.lastName}` : "this admin",
+  );
   const deactivateEmployee = useDeactivateCompanyEmployee();
   const reactivateEmployee = useReactivateCompanyEmployee();
 
@@ -148,6 +184,11 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
     () => (company?.admins as CompanyAdminSummary[] | undefined) ?? [],
     [company?.admins],
   );
+  // A promoted employee's account is no longer an EMPLOYEE account; fall back to
+  // the admin list (CompanyAdmin.id === account id) if the role isn't loaded.
+  const adminAccountIds = useMemo(() => new Set(admins.map((a) => a.id)), [admins]);
+  const isPromotedEmployee = (e: { accountId?: string | null; account?: { role?: string } | null }) =>
+    e.account?.role ? e.account.role !== "EMPLOYEE" : !!e.accountId && adminAccountIds.has(e.accountId);
   const primaryAdmin: CompanyAdminSummary | null =
     (company?.primaryAdmin as CompanyAdminSummary | null) ?? null;
 
@@ -214,29 +255,50 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
     {
       key: "status",
       header: "Status",
-      render: (e: any) => <StatusBadge status={e.status} />,
+      render: (e: any) =>
+        isPromotedEmployee(e) ? (
+          <span title={PROMOTED_BADGE_TOOLTIP} className="inline-flex cursor-help items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+            <ShieldCheck className="h-3 w-3" /> Promoted to Admin
+          </span>
+        ) : (
+          <StatusBadge status={e.status} />
+        ),
     },
     {
       key: "actions",
       header: "Actions",
-      render: (e: any) =>
-        e.status === "ACTIVE" ? (
-          <TableActionButton
-            variant="destructive"
-            onClick={() => handleDeactivateEmployee(e.id)}
-            title="Deactivate"
-          >
-            <PowerOff className="mr-1 h-3 w-3" /> Deactivate
-          </TableActionButton>
-        ) : (
-          <TableActionButton
-            variant="success"
-            onClick={() => handleReactivateEmployee(e.id)}
-            title="Activate"
-          >
-            <Power className="mr-1 h-3 w-3" /> Activate
-          </TableActionButton>
-        ),
+      render: (e: any) => (
+        isPromotedEmployee(e) ? null : (
+        <div className="inline-flex flex-wrap items-center gap-1">
+          {(e.status === "ACTIVE" || e.status === "INACTIVE") && (
+              <TableActionButton
+                onClick={() => setPromotingEmployee(e)}
+                disabled={promoteEmployee.isPending}
+                title="Promote to Company Admin"
+              >
+                <ShieldCheck className="mr-1 h-3 w-3" /> Make Admin
+              </TableActionButton>
+            )}
+          {e.status === "ACTIVE" ? (
+            <TableActionButton
+              variant="destructive"
+              onClick={() => setPendingConfirm({ kind: "deactivateEmployee", employee: e })}
+              title="Deactivate"
+            >
+              <PowerOff className="mr-1 h-3 w-3" /> Deactivate
+            </TableActionButton>
+          ) : (
+            <TableActionButton
+              variant="success"
+              onClick={() => setPendingConfirm({ kind: "reactivateEmployee", employee: e })}
+              title="Activate"
+            >
+              <Power className="mr-1 h-3 w-3" /> Activate
+            </TableActionButton>
+          )}
+        </div>
+        )
+      ),
     },
   ];
 
@@ -526,18 +588,32 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
         setTransferPromptOpen(true);
         return;
       }
+      setPendingConfirm({ kind: "disableAdmin", admin });
+    },
+    [admins, permissions.transferPrimary],
+  );
+
+  const disableAdmin = useCallback(
+    (admin: CompanyAdminSummary, onDone: () => void) => {
       updateCompanyAdmin.mutate(
         { adminId: admin.id, status: "INACTIVE" },
         {
           onSuccess: () => {
-            showToast({ type: "success", title: `${admin.firstName} ${admin.lastName} disabled` });
+            showToast({
+              type: "success",
+              title: `${admin.firstName} ${admin.lastName} disabled`,
+              description: admin.hasEmployeeRecord
+                ? "To make them an employee again, choose Revert to Employee."
+                : undefined,
+            });
+            onDone();
           },
           onError: (err: Error) =>
             showToast({ type: "error", title: "Failed to disable admin", description: err.message }),
         },
       );
     },
-    [admins, updateCompanyAdmin, permissions.transferPrimary],
+    [updateCompanyAdmin],
   );
 
   const closeTransferPrompt = useCallback(() => {
@@ -576,12 +652,13 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
   }, [pendingDisableId, transferTargetId, updateCompanyAdmin, closeTransferPrompt]);
 
   const reactivate = useCallback(
-    (admin: CompanyAdminSummary) => {
+    (admin: CompanyAdminSummary, onDone: () => void) => {
       updateCompanyAdmin.mutate(
         { adminId: admin.id, status: "ACTIVE" },
         {
           onSuccess: () => {
             showToast({ type: "success", title: `${admin.firstName} ${admin.lastName} reactivated` });
+            onDone();
           },
           onError: (err: Error) =>
             showToast({ type: "error", title: "Failed to reactivate admin", description: err.message }),
@@ -590,6 +667,36 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
     },
     [updateCompanyAdmin],
   );
+
+  const confirmCopy = useMemo(() => {
+    if (!pendingConfirm) return null;
+    if ("admin" in pendingConfirm) {
+      const { admin } = pendingConfirm;
+      const params = { name: `${admin.firstName} ${admin.lastName}`, hasEmployeeRecord: admin.hasEmployeeRecord };
+      return pendingConfirm.kind === "disableAdmin" ? disableAdminCopy(params) : reactivateAdminCopy(params);
+    }
+    const name = `${pendingConfirm.employee.firstName} ${pendingConfirm.employee.lastName}`;
+    return pendingConfirm.kind === "deactivateEmployee"
+      ? deactivateEmployeeCopy(name)
+      : reactivateEmployeeCopy(name);
+  }, [pendingConfirm]);
+
+  const runPendingConfirm = useCallback(() => {
+    if (!pendingConfirm) return;
+    const done = () => setPendingConfirm(null);
+    switch (pendingConfirm.kind) {
+      case "disableAdmin":
+        return disableAdmin(pendingConfirm.admin, done);
+      case "reactivateAdmin":
+        return reactivate(pendingConfirm.admin, done);
+      case "deactivateEmployee":
+        handleDeactivateEmployee(pendingConfirm.employee.id);
+        return done();
+      case "reactivateEmployee":
+        handleReactivateEmployee(pendingConfirm.employee.id);
+        return done();
+    }
+  }, [pendingConfirm, disableAdmin, reactivate, handleDeactivateEmployee, handleReactivateEmployee]);
 
   if (isLoading) {
     return (
@@ -650,12 +757,13 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
         admins={admins}
         primaryAdminId={primaryAdmin?.id ?? null}
         permissions={permissions}
-        busy={updateCompanyAdmin.isPending}
+        busy={updateCompanyAdmin.isPending || revertAdmin.isPending}
         onAdd={openAddAdminModal}
         onEdit={openEditAdminModal}
         onMakePrimary={makePrimary}
         onDisable={attemptDisable}
-        onReactivate={reactivate}
+        onReactivate={(admin) => setPendingConfirm({ kind: "reactivateAdmin", admin })}
+        onRevertToEmployee={setRevertingAdmin}
       />
 
       {/* Admin Actions (platform-level company lifecycle) */}
@@ -852,6 +960,89 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
         onClose={closeAdminModal}
         onSubmit={submitAdminForm}
       />
+
+      <ConfirmDialog
+        open={!!promotingEmployee}
+        title="Promote to Company Admin"
+        variant="default"
+        confirmLabel="Promote"
+        loading={promoteEmployee.isPending}
+        message={promoteDialogCopy.message}
+        onConfirm={() => {
+          if (!promotingEmployee) return;
+          promoteEmployee.mutate(
+            { employeeId: promotingEmployee.id },
+            {
+              onSuccess: () => {
+                showToast({ type: "success", title: "Employee promoted to Company Admin" });
+                setPromotingEmployee(null);
+              },
+              onError: (err: Error) =>
+                showToast({ type: "error", title: "Promotion failed", description: err.message }),
+            },
+          );
+        }}
+        onCancel={() => setPromotingEmployee(null)}
+      >
+        <ActionImpact copy={promoteDialogCopy} />
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={!!pendingConfirm && !!confirmCopy}
+        title={
+          pendingConfirm?.kind === "disableAdmin"
+            ? "Disable Administrator"
+            : pendingConfirm?.kind === "reactivateAdmin"
+              ? "Reactivate Administrator"
+              : pendingConfirm?.kind === "deactivateEmployee"
+                ? "Deactivate Employee"
+                : "Reactivate Employee"
+        }
+        variant={
+          pendingConfirm?.kind === "disableAdmin" || pendingConfirm?.kind === "deactivateEmployee"
+            ? "destructive"
+            : "default"
+        }
+        confirmLabel={
+          pendingConfirm?.kind === "disableAdmin"
+            ? "Disable"
+            : pendingConfirm?.kind === "deactivateEmployee"
+              ? "Deactivate"
+              : "Reactivate"
+        }
+        loading={updateCompanyAdmin.isPending || deactivateEmployee.isPending || reactivateEmployee.isPending}
+        message={confirmCopy?.message ?? ""}
+        onConfirm={runPendingConfirm}
+        onCancel={() => setPendingConfirm(null)}
+      >
+        {confirmCopy && <ActionImpact copy={confirmCopy} />}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={!!revertingAdmin}
+        title="Revert to Employee"
+        variant="default"
+        confirmLabel="Revert"
+        loading={revertAdmin.isPending}
+        message={revertDialogCopy.message}
+        onConfirm={() => {
+          if (!revertingAdmin) return;
+          revertAdmin.mutate(
+            { adminId: revertingAdmin.id },
+            {
+              onSuccess: () => {
+                showToast({ type: "success", title: "Admin reverted to employee" });
+                setRevertingAdmin(null);
+              },
+              onError: (err: Error) =>
+                showToast({ type: "error", title: "Revert failed", description: err.message }),
+            },
+          );
+        }}
+        onCancel={() => setRevertingAdmin(null)}
+      >
+        <ActionImpact copy={revertDialogCopy} />
+      </ConfirmDialog>
 
       <PasswordRevealModal value={newPasswordForAdmin} onClose={() => setNewPasswordForAdmin(null)} />
 

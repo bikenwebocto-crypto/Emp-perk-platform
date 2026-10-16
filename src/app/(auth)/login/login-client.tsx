@@ -4,6 +4,8 @@ import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { supabase } from "@/lib/supabase/client";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { clearClientSession } from "@/lib/auth/clear-client-session";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +18,7 @@ interface LoginClientProps {
 
 export function LoginClient({ branding }: LoginClientProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const syncedRef = useRef(false);
   // Invite links (bulk employee upload) must set a password before the
   // account is synced and redirected.
@@ -113,6 +116,9 @@ export function LoginClient({ branding }: LoginClientProps) {
       }
 
       const redirectPath = body.redirectTo || "/login";
+      // Start the new session from the server's view of the user, not from
+      // whatever the previous session left in the client cache.
+      clearClientSession(queryClient);
       router.push(redirectPath);
       router.refresh();
     } catch {

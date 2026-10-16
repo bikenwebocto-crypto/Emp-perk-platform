@@ -22,8 +22,13 @@ interface RoleInfo {
   adminRole: string | null;
 }
 
+// Per-instance cache of the account role. Middleware runs on the Edge runtime,
+// in a different isolate from the Node API routes that change roles (e.g.
+// promoteEmployeeToCompanyAdmin), so those routes cannot invalidate this map.
+// Keep the TTL short so a role change is picked up within 30s; the dashboard
+// shell also redirects on the client from the live /api/auth/me user.
 const roleCache = new Map<string, RoleInfo & { timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000;
+const CACHE_TTL = 30 * 1000;
 
 const PUBLIC_API_ROUTES = [
   "/api/auth/sync-admin",

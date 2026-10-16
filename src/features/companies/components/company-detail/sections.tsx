@@ -12,6 +12,7 @@ import {
   PowerOff,
   ShieldAlert,
   Star,
+  Undo2,
   UserCog,
   UserPlus,
   UserX,
@@ -341,6 +342,8 @@ interface AdministratorsCardProps {
   onMakePrimary: (admin: CompanyAdminSummary) => void;
   onDisable: (admin: CompanyAdminSummary) => void;
   onReactivate: (admin: CompanyAdminSummary) => void;
+  /** Revert an inactive admin that was promoted from an employee. */
+  onRevertToEmployee: (admin: CompanyAdminSummary) => void;
 }
 
 export function AdministratorsCard({
@@ -353,6 +356,7 @@ export function AdministratorsCard({
   onMakePrimary,
   onDisable,
   onReactivate,
+  onRevertToEmployee,
 }: AdministratorsCardProps) {
   return (
     <Card>
@@ -400,6 +404,14 @@ export function AdministratorsCard({
                             <KeyRound className="h-3 w-3" /> Primary
                           </span>
                         )}
+                        {a.hasEmployeeRecord && (
+                          <span
+                            title="Promoted from an employee. Disabling does not give back mobile app access. To make them an employee again, disable them, then choose Revert to Employee."
+                            className="ml-2 inline-flex cursor-help items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground"
+                          >
+                            From employee
+                          </span>
+                        )}
                         {isSelf && (
                           <span className="ml-2 text-xs font-normal text-muted-foreground">
                             (you)
@@ -444,18 +456,30 @@ export function AdministratorsCard({
                               <TableActionButton
                                 onClick={() => onDisable(a)}
                                 disabled={busy}
+                                title="Block this admin from signing in"
                                 className="text-destructive hover:text-destructive"
                               >
                                 <PowerOff className="mr-1 h-3 w-3" /> Disable
                               </TableActionButton>
                             )
                           ) : (
-                            <TableActionButton
-                              onClick={() => onReactivate(a)}
-                              disabled={busy}
-                            >
-                              <Power className="mr-1 h-3 w-3" /> Reactivate
-                            </TableActionButton>
+                            <>
+                              <TableActionButton
+                                onClick={() => onReactivate(a)}
+                                disabled={busy}
+                              >
+                                <Power className="mr-1 h-3 w-3" /> Reactivate
+                              </TableActionButton>
+                              {a.hasEmployeeRecord && (
+                                <TableActionButton
+                                  onClick={() => onRevertToEmployee(a)}
+                                  disabled={busy}
+                                  title="Remove admin access and give them back their employee account and mobile app access"
+                                >
+                                  <Undo2 className="mr-1 h-3 w-3" /> Revert to Employee
+                                </TableActionButton>
+                              )}
+                            </>
                           )}
                         </div>
                       </td>

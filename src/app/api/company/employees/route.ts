@@ -59,10 +59,12 @@ export async function GET(request: NextRequest) {
           invitedAt: true,
           lastLoginAt: true,
           joinMethod: true,
+          accountId: true,
 
           account: {
             select: {
               email: true,
+              role: true,
             },
           },
 

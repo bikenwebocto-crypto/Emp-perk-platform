@@ -5,13 +5,22 @@ import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/shared/status-badge'
+import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCurrentUser } from '@/hooks/queries/use-current-user'
-import { useCompanyEmployees, useCreateCompanyEmployee, useDeactivateCompanyEmployee, useReactivateCompanyEmployee, useUpdateCompanyEmployee, useEmployeeExport } from '@/hooks/queries/use-company-employees'
+import { useCompanyEmployees, useCreateCompanyEmployee, useDeactivateCompanyEmployee, useReactivateCompanyEmployee, useUpdateCompanyEmployee, useEmployeeExport, usePromoteCompanyEmployee } from '@/hooks/queries/use-company-employees'
+import type { EmployeeListItem } from '@/hooks/queries/use-company-employees'
 import { showToast } from '@/hooks/use-toast'
 import { EmployeeEditModal } from '@/components/shared/employee-edit-modal'
 import { BulkEmployeeUpload } from '@/features/employees/components/bulk-employee-upload'
-import { Search, Download, Plus, UserX, UserCheck, Pencil, Upload } from 'lucide-react'
+import {
+  ActionImpact,
+  deactivateEmployeeCopy,
+  PROMOTED_BADGE_TOOLTIP,
+  promoteCopy,
+  reactivateEmployeeCopy,
+} from '@/features/employees/components/action-impact'
+import { Search, Download, Plus, UserX, UserCheck, Pencil, Upload, ShieldCheck } from 'lucide-react'
 
 export default function CompanyEmployeesPage() {
   const { data: currentUser } = useCurrentUser()
@@ -22,12 +31,14 @@ export default function CompanyEmployeesPage() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', department: '', jobTitle: '' })
   const [editingEmployee, setEditingEmployee] = useState<any | null>(null)
+  const [promotingEmployee, setPromotingEmployee] = useState<EmployeeListItem | null>(null)
 
   const { data, isLoading } = useCompanyEmployees({ page, pageSize: 20, status: statusFilter, q: search })
   const createEmployee = useCreateCompanyEmployee()
   const deactivate = useDeactivateCompanyEmployee()
   const reactivate = useReactivateCompanyEmployee()
   const updateEmployee = useUpdateCompanyEmployee()
+  const promoteEmployee = usePromoteCompanyEmployee()
   const exportCsv = useEmployeeExport()
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -41,6 +52,22 @@ export default function CompanyEmployeesPage() {
       showToast({ type: 'error', title: 'Failed', description: err.message })
     }
   }
+
+  const [statusChange, setStatusChange] = useState<{
+    emp: EmployeeListItem
+    action: 'deactivate' | 'reactivate'
+  } | null>(null)
+  const promoteDialogCopy = promoteCopy({
+    name: promotingEmployee ? `${promotingEmployee.firstName} ${promotingEmployee.lastName}` : 'this employee',
+    companyName: currentUser?.companyName ?? 'your company',
+    employeeStatus: promotingEmployee?.status,
+  })
+  const statusChangeName = statusChange ? `${statusChange.emp.firstName} ${statusChange.emp.lastName}` : ''
+  const statusChangeCopy = statusChange
+    ? statusChange.action === 'deactivate'
+      ? deactivateEmployeeCopy(statusChangeName)
+      : reactivateEmployeeCopy(statusChangeName)
+    : null
 
   const handleDeactivate = async (id: string) => {
     try {
@@ -135,12 +162,22 @@ export default function CompanyEmployeesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  { data?.data.map((emp) => (
+                  { data?.data.map((emp) => {
+                    const isPromoted = !!emp.account?.role && emp.account.role !== 'EMPLOYEE'
+                    return (
                     <tr key={emp.id} className="border-b transition-colors hover:bg-muted/50">
                       <td className="p-3 font-medium">{emp.firstName} {emp.lastName}</td>
                       <td className="p-3 text-muted-foreground">{emp.account ? emp.account?.email : null}</td>
                       <td className="p-3 text-muted-foreground">{emp.department ?? '-'}</td>
-                      <td className="p-3"><StatusBadge status={emp.status} /></td>
+                      <td className="p-3">
+                        {isPromoted ? (
+                          <span title={PROMOTED_BADGE_TOOLTIP} className="inline-flex cursor-help items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                            <ShieldCheck className="h-3 w-3" /> Promoted to Admin
+                          </span>
+                        ) : (
+                          <StatusBadge status={emp.status} />
+                        )}
+                      </td>
                       <td className="p-3">{emp._count.redemptions}</td>
                       <td className="p-3">
                         <div className="flex items-center gap-1">
@@ -154,19 +191,46 @@ export default function CompanyEmployeesPage() {
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          {emp.status === 'ACTIVE' ? (
-                            <Button variant="ghost" size="sm" onClick={() => handleDeactivate(emp.id)} disabled={deactivate.isPending}>
+                          {!isPromoted && (emp.status === 'ACTIVE' || emp.status === 'INACTIVE') && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setPromotingEmployee(emp)}
+                              disabled={promoteEmployee.isPending}
+                              title="Promote to Company Admin"
+                              aria-label="Promote to Company Admin"
+                            >
+                              <ShieldCheck className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {isPromoted ? null : emp.status === 'ACTIVE' ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setStatusChange({ emp, action: 'deactivate' })}
+                              disabled={deactivate.isPending}
+                              title="Deactivate employee"
+                              aria-label="Deactivate employee"
+                            >
                               <UserX className="h-4 w-4 text-destructive" />
                             </Button>
                           ) : (
-                            <Button variant="ghost" size="sm" onClick={() => handleReactivate(emp.id)} disabled={reactivate.isPending}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setStatusChange({ emp, action: 'reactivate' })}
+                              disabled={reactivate.isPending}
+                              title="Reactivate employee"
+                              aria-label="Reactivate employee"
+                            >
                               <UserCheck className="h-4 w-4 text-success" />
                             </Button>
                           )}
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                   {(!data?.data || data.data.length === 0) && (
                     <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No employees found</td></tr>
                   )}
@@ -187,6 +251,50 @@ export default function CompanyEmployeesPage() {
       {currentUser?.companyId && (
         <BulkEmployeeUpload open={showUpload} onOpenChange={setShowUpload} companyId={currentUser.companyId} />
       )}
+      <ConfirmDialog
+        open={!!promotingEmployee}
+        title="Promote to Company Admin"
+        variant="default"
+        confirmLabel="Promote"
+        loading={promoteEmployee.isPending}
+        message={promoteDialogCopy.message}
+        onConfirm={() => {
+          if (!promotingEmployee?.id) return
+          promoteEmployee.mutate(
+            { id: promotingEmployee.id },
+            {
+              onSuccess: () => {
+                showToast({ type: 'success', title: 'Employee promoted to Company Admin' })
+                setPromotingEmployee(null)
+              },
+              onError: (err: Error) =>
+                showToast({ type: 'error', title: 'Promotion failed', description: err.message }),
+            },
+          )
+        }}
+        onCancel={() => setPromotingEmployee(null)}
+      >
+        <ActionImpact copy={promoteDialogCopy} />
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={!!statusChange && !!statusChangeCopy}
+        title={statusChange?.action === 'deactivate' ? 'Deactivate Employee' : 'Reactivate Employee'}
+        variant={statusChange?.action === 'deactivate' ? 'destructive' : 'default'}
+        confirmLabel={statusChange?.action === 'deactivate' ? 'Deactivate' : 'Reactivate'}
+        loading={deactivate.isPending || reactivate.isPending}
+        message={statusChangeCopy?.message ?? ''}
+        onConfirm={async () => {
+          if (!statusChange) return
+          if (statusChange.action === 'deactivate') await handleDeactivate(statusChange.emp.id)
+          else await handleReactivate(statusChange.emp.id)
+          setStatusChange(null)
+        }}
+        onCancel={() => setStatusChange(null)}
+      >
+        {statusChangeCopy && <ActionImpact copy={statusChangeCopy} />}
+      </ConfirmDialog>
+
       <EmployeeEditModal
         open={!!editingEmployee}
         onClose={() => setEditingEmployee(null)}

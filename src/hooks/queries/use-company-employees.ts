@@ -15,8 +15,10 @@ export interface EmployeeListItem {
   invitedAt: string | null
   lastLoginAt: string | null
   joinMethod: string | null
+  accountId: string | null
   account: {
     email: string
+    role: string
   } | null
   _count: { redemptions: number }
 }
@@ -131,6 +133,31 @@ export function useUpdateCompanyEmployee() {
   })
 }
 
+/**
+ * Promote an ACTIVE employee of the signed-in company admin's own company to
+ * a Company Admin. The company is taken from the session server-side. On
+ * success refresh the employee lists and the company detail (administrators).
+ */
+export function usePromoteCompanyEmployee() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ id }: { id: string }) => {
+      const res = await fetch(`/api/company/employees/${id}/promote`, { method: 'POST' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error?.message ?? 'Failed to promote employee')
+      return body
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: companyEmployeeKeys.all })
+      queryClient.invalidateQueries({ queryKey: companyDashboardKeys.all })
+      queryClient.invalidateQueries({ queryKey: ['company-self'] })
+      queryClient.invalidateQueries({ queryKey: ['company-detail-employees'] })
+      queryClient.invalidateQueries({ queryKey: companyKeys.all })
+    },
+  })
+}
+
 export function useEmployeeExport() {
   return useMutation({
     mutationFn: async () => {
@@ -149,3 +176,4 @@ export function useEmployeeExport() {
 }
 
 import { companyDashboardKeys } from './use-company-dashboard'
+import { companyKeys } from './use-companies'

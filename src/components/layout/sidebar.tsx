@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { canAdminAccessPath } from '@/lib/access/account-access'
 import { supabase } from '@/lib/supabase/client'
+import { clearClientSession } from '@/lib/auth/clear-client-session'
 import type { PublicBranding } from '@/features/admin/settings/login-branding/services/login-branding.service'
 
 interface NavItem {
@@ -158,7 +159,7 @@ function usePrefetchRegistry(queryClient: QueryClient): Record<string, PrefetchE
 
 type PrefetchEntry = () => void
 
-export function Sidebar({ userType, userName, userEmail, userRole, adminRole, companyName, branding, avatarUrl }: SidebarProps) {
+export function Sidebar({ userType, userName, userEmail, adminRole, companyName, branding, avatarUrl }: SidebarProps) {
   const pathname = usePathname()
   const isAdmin = userType === 'admin'
   // SUPPORT_ADMIN only opens tickets + notifications: the leads query (and its
@@ -176,9 +177,6 @@ export function Sidebar({ userType, userName, userEmail, userRole, adminRole, co
       '/admin/merchant-suggestions': counts?.merchantSuggestions,
       '/admin/complaints': counts?.tickets,
     }
-    console.log('** [sidebar]', { userType, adminRole, userRole,
-  accounts: canAdminAccessPath(adminRole, '/admin/accounts') })
-
     return (navConfig[userType] ?? [])
       // Admins only see the pages their admin role may open (same rule the
       // middleware enforces).
@@ -217,6 +215,9 @@ export function Sidebar({ userType, userName, userEmail, userRole, adminRole, co
     setSigningOut(true)
     try {
       await supabase.auth.signOut()
+      // Drop the cached session user (and its userType) so the next login
+      // never starts from the previous user's role.
+      clearClientSession(queryClient)
       router.push('/login')
     } catch (error) {
       console.error('Logout failed:', error)

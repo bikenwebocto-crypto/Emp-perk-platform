@@ -2,6 +2,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { companyEmployeeKeys } from '@/hooks/queries/use-company-employees';
+import { companyKeys } from '@/hooks/queries/use-companies';
+import { companyDashboardKeys } from '@/hooks/queries/use-company-dashboard';
 import type { BulkRowInput, ValidatedBulkRow } from '@/lib/employees/bulk-validate';
 
 export const employeeKeys = {
@@ -158,6 +160,33 @@ export function useBulkDeleteEmployees() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: employeeKeys.lists() });
+    },
+  });
+}
+
+/**
+ * Promote an ACTIVE employee to a Company Admin (Super Admin scope). The
+ * person's existing account is switched to COMPANY_ADMIN and their employee
+ * row is deactivated — so refresh both employee lists and the company detail
+ * (which holds the administrators list).
+ */
+export function usePromoteEmployee() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id }: { id: string }) => {
+      const res = await fetch(`/api/admin/employees/${id}/promote`, { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to promote employee');
+      return json;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: employeeKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: companyEmployeeKeys.all });
+      queryClient.invalidateQueries({ queryKey: companyKeys.all });
+      queryClient.invalidateQueries({ queryKey: companyDashboardKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['company-self'] });
+      queryClient.invalidateQueries({ queryKey: ['company-detail-employees'] });
     },
   });
 }

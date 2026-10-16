@@ -15,6 +15,7 @@ import { buildAuditData, createAuditLog, fromCurrentUser } from '@/services/audi
 import { validateUserEmail } from '@/services/user-validation.service'
 import { sendCompanyAdminInvitation } from '@/services/company-admin-invitation.service'
 import { inviteAuthUser, normalizeEmail, rollbackAuthUser } from '@/services/employee-invite.service'
+import { emailService } from '@/lib/email/email'
 
 /**
  * Company Detail operations shared by the Super Admin routes
@@ -71,10 +72,28 @@ export async function getCompanyDetail(companyId: string, scope: CompanyDetailSc
     company.companyAdmins.map((a) => [a.id, a.account?.email ?? '']),
   )
 
-  const admins = summarizeAdmins(company.companyAdmins).map((a) => ({
-    ...a,
-    email: a.email || emailByAdminId.get(a.id) || '',
-  }))
+  // Admins promoted from an employee keep their Employee row; only those can
+  // be reverted back to an employee.
+  const adminAccountIds = company.companyAdmins
+    .map((a) => a.accountId)
+    .filter((id): id is string => !!id)
+  const employeeAccounts = adminAccountIds.length
+    ? await prisma.employee.findMany({
+        where: { companyId, deletedAt: null, accountId: { in: adminAccountIds } },
+        select: { accountId: true },
+      })
+    : []
+  const accountIdsWithEmployee = new Set(employeeAccounts.map((e) => e.accountId))
+  const accountIdByAdminId = new Map(company.companyAdmins.map((a) => [a.id, a.accountId]))
+
+  const admins = summarizeAdmins(company.companyAdmins).map((a) => {
+    const accountId = accountIdByAdminId.get(a.id)
+    return {
+      ...a,
+      email: a.email || emailByAdminId.get(a.id) || '',
+      hasEmployeeRecord: !!accountId && accountIdsWithEmployee.has(accountId),
+    }
+  })
 
   const derived = derivePrimaryAdmin(company.companyAdmins)
   const primaryAdmin = derived
@@ -554,4 +573,387 @@ export async function confirmEmployeeCsv(user: User, companyId: string, body: Co
     console.error('CSV confirm error:', error)
     return apiError(500, 'INTERNAL', 'Internal server error')
   }
+}
+
+// ----- Employee → Company Admin promotion -----------------------------
+
+export interface PromoteEmployeeParams {
+  employeeId: string
+  /** The acting admin / company admin, used for the audit trail. */
+  actor: User
+  /**
+   * Set when a Company Admin performs the promotion. The employee must
+   * belong to this company, otherwise we answer 404 (never 403) so other
+   * companies' employee ids are not leaked.
+   */
+  scopeCompanyId?: string
+}
+
+/** Domain error thrown inside the promotion transaction; the routes map it to HTTP. */
+export class PromotionError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'PromotionError'
+  }
+}
+
+/**
+ * Promote an existing employee to a Company Admin.
+ *
+ * Option A — SWITCH ROLE: the employee's EXISTING account (a real Supabase
+ * auth user) is reused and switched to COMPANY_ADMIN. No new auth user is
+ * created and no invite is sent, so the person keeps their password. They
+ * lose mobile app access (employee-only surfaces) and gain the web company
+ * dashboard.
+ *
+ * The Employee row is KEPT and only marked INACTIVE — redemption / savings
+ * history is never deleted. Everything runs in one transaction so a failure
+ * leaves the account and employee untouched.
+ *
+ * `Company.employeeCount` is NOT touched: it is a manually-declared value set
+ * on company create/update (see the company form), never incremented per
+ * employee; the live headcount is computed from Employee rows.
+ */
+export async function promoteEmployeeToCompanyAdmin(params: PromoteEmployeeParams) {
+  const { employeeId, actor, scopeCompanyId } = params
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const employee = await tx.employee.findUnique({
+        where: { id: employeeId },
+        include: { account: true, company: true },
+      })
+
+      if (!employee || employee.deletedAt) {
+        throw new PromotionError(404, 'NOT_FOUND', 'Employee not found')
+      }
+      if (scopeCompanyId && employee.companyId !== scopeCompanyId) {
+        // 404 (not 403) so a company admin cannot probe other companies.
+        throw new PromotionError(404, 'NOT_FOUND', 'Employee not found')
+      }
+
+      const account = employee.account
+      if (!employee.accountId || !account) {
+        throw new PromotionError(422, 'NOT_ELIGIBLE', 'Employee has no login account')
+      }
+      if (account.status !== 'ACTIVE') {
+        throw new PromotionError(
+          422,
+          'NOT_ELIGIBLE',
+          'Employee must be active and have accepted their invite',
+        )
+      }
+      // Deactivated employees can be promoted too; their login account is
+      // still ACTIVE (deactivating an employee does not touch the account).
+      if (employee.status !== 'ACTIVE' && employee.status !== 'INACTIVE') {
+        throw new PromotionError(
+          422,
+          'NOT_ELIGIBLE',
+          'Only active or deactivated employees can be promoted',
+        )
+      }
+      if (account.role !== 'EMPLOYEE') {
+        throw new PromotionError(409, 'CONFLICT', 'This account is not an employee account')
+      }
+
+      // A person who was promoted before and later reverted keeps their
+      // (inactive) Company Admin row — reuse it instead of creating a new one.
+      // createCompanyAdmin() sets CompanyAdmin.id === account.authUserId, so
+      // also match on id to guard against an id collision.
+      const existingAdmin = await tx.companyAdmin.findFirst({
+        where: { OR: [{ accountId: account.authUserId }, { id: account.authUserId }] },
+        select: { id: true, isActive: true, companyId: true, accountId: true },
+      })
+      if (
+        existingAdmin &&
+        (existingAdmin.isActive ||
+          existingAdmin.companyId !== employee.companyId ||
+          existingAdmin.accountId !== account.authUserId)
+      ) {
+        throw new PromotionError(409, 'CONFLICT', 'Already a company admin')
+      }
+
+      const company = employee.company
+      if (
+        !company ||
+        company.deletedAt ||
+        company.status === 'CANCELLED' ||
+        company.status === 'PAUSED' ||
+        company.status === 'SUSPENDED'
+      ) {
+        throw new PromotionError(422, 'NOT_ELIGIBLE', "The company's access is currently inactive")
+      }
+
+      // 1. Switch the existing account to a Company Admin (keeps password + auth user).
+      await tx.account.update({
+        where: { authUserId: account.authUserId },
+        data: { role: 'COMPANY_ADMIN', profileType: 'COMPANY' },
+      })
+
+      // 2. Reactivate the previous Company Admin row, or create one using the
+      //    SAME id/accountId convention as createCompanyAdmin() (id === account.authUserId).
+      const created = existingAdmin
+        ? await tx.companyAdmin.update({
+            where: { id: existingAdmin.id },
+            data: {
+              firstName: employee.firstName,
+              lastName: employee.lastName,
+              isPrimary: false,
+              isActive: true,
+            },
+          })
+        : await tx.companyAdmin.create({
+            data: {
+              id: account.authUserId,
+              companyId: employee.companyId,
+              accountId: account.authUserId,
+              firstName: employee.firstName,
+              lastName: employee.lastName,
+              isPrimary: false,
+              isActive: true,
+            },
+          })
+
+      // 3. Deactivate the employee row (keep deletedAt null so history stays).
+      await tx.employee.update({
+        where: { id: employee.id },
+        data: { status: 'INACTIVE' },
+      })
+
+      // 4. Auto-assign primary if this company has no active primary yet.
+      await ensurePrimaryAdmin(employee.companyId, tx)
+
+      const refreshed = await tx.companyAdmin.findUnique({ where: { id: created.id } })
+
+      return {
+        admin: refreshed ?? created,
+        accountId: account.authUserId,
+        companyId: employee.companyId,
+        companyName: company.name,
+        email: account.email,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        employeeId: employee.id,
+        reactivated: !!existingAdmin,
+      }
+    })
+
+    // After commit: the person no longer uses the mobile app — drop any
+    // employee push tokens so they stop receiving employee notifications.
+    // DeviceToken.role uses the lowercase 'employee' value (see device-token.service).
+    // The promotion is committed at this point, so these side effects are
+    // best-effort: a failure must not turn a successful promotion into a 500.
+    try {
+      await prisma.deviceToken.deleteMany({
+        where: { userId: result.accountId, role: 'employee' },
+      })
+    } catch (error) {
+      console.error('Promotion device token cleanup failed:', error)
+    }
+
+    try {
+      await createAuditLog(
+        fromCurrentUser(actor, 'EMPLOYEE_PROMOTED_TO_COMPANY_ADMIN', 'company_admin', result.admin.id, {
+          metadata: {
+            companyId: result.companyId,
+            employeeId: result.employeeId,
+            companyAdminId: result.admin.id,
+            source: 'promotion',
+            reactivatedExistingAdmin: result.reactivated,
+          },
+        }),
+      )
+    } catch (error) {
+      console.error('Promotion audit log failed:', error)
+    }
+
+    await sendPromotionEmail({
+      to: result.email,
+      firstName: result.firstName,
+      companyName: result.companyName,
+    })
+
+    return NextResponse.json({
+      success: true,
+      data: toAdminSummary(result.admin, result.email),
+      message: `${result.firstName} ${result.lastName} is now a Company Admin.`,
+    })
+  } catch (error) {
+    if (error instanceof PromotionError) {
+      return apiError(error.status, error.code, error.message)
+    }
+    if ((error as { code?: string })?.code === 'P2002') {
+      return apiError(409, 'CONFLICT', 'A company admin for this account already exists')
+    }
+    console.error('Promote employee to company admin error:', error)
+    return apiError(500, 'INTERNAL', 'Internal server error')
+  }
+}
+
+// ----- Company Admin → Employee revert --------------------------------
+
+export interface RevertAdminParams {
+  adminId: string
+  /** Company the admin must belong to (Super Admin: from the URL; Company Admin: from the session). */
+  companyId: string
+  /** The acting admin / company admin, used for the audit trail. */
+  actor: User
+}
+
+/**
+ * Revert a DEACTIVATED Company Admin back to an employee of the same company.
+ * The inverse of promoteEmployeeToCompanyAdmin: the same account is switched
+ * back to EMPLOYEE (keeping the password) and their kept Employee row is set
+ * ACTIVE again. The Company Admin row stays as an inactive record so its
+ * history is kept, and is reused if the person is promoted again.
+ *
+ * Only inactive admins are eligible, so the primary-admin rules enforced on
+ * disable (assertCanDisableAdmin) have already been applied.
+ */
+export async function revertCompanyAdminToEmployee(params: RevertAdminParams) {
+  const { adminId, companyId, actor } = params
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const admin = await tx.companyAdmin.findUnique({
+        where: { id: adminId },
+        include: { account: true, company: true },
+      })
+      if (!admin || admin.companyId !== companyId) {
+        throw new PromotionError(404, 'NOT_FOUND', 'Company admin not found in this company')
+      }
+      if (admin.isActive) {
+        throw new PromotionError(
+          422,
+          'NOT_ELIGIBLE',
+          'Deactivate the admin before reverting them to an employee',
+        )
+      }
+
+      const account = admin.account
+      if (!admin.accountId || !account) {
+        throw new PromotionError(422, 'NOT_ELIGIBLE', 'Admin has no login account')
+      }
+      if (account.role !== 'COMPANY_ADMIN') {
+        throw new PromotionError(409, 'CONFLICT', 'This account is not a company admin account')
+      }
+
+      const employee = await tx.employee.findFirst({
+        where: { accountId: account.authUserId, companyId, deletedAt: null },
+      })
+      if (!employee) {
+        throw new PromotionError(
+          422,
+          'NOT_ELIGIBLE',
+          'This admin has no employee record in this company to revert to',
+        )
+      }
+
+      const company = admin.company
+      if (!company || company.deletedAt) {
+        throw new PromotionError(404, 'NOT_FOUND', 'Company not found')
+      }
+
+      // 1. Switch the account back to an employee. Disabling the admin set the
+      //    account INACTIVE; the employee needs it ACTIVE to sign in again.
+      await tx.account.update({
+        where: { authUserId: account.authUserId },
+        data: { role: 'EMPLOYEE', profileType: 'EMPLOYEE', status: 'ACTIVE' },
+      })
+
+      // 2. Restore the employee row.
+      await tx.employee.update({
+        where: { id: employee.id },
+        data: { status: 'ACTIVE' },
+      })
+
+      // 3. Keep the admin row as an inactive, non-primary record.
+      if (admin.isPrimary) {
+        await tx.companyAdmin.update({ where: { id: admin.id }, data: { isPrimary: false } })
+      }
+      await ensurePrimaryAdmin(companyId, tx)
+
+      return {
+        adminId: admin.id,
+        employeeId: employee.id,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+      }
+    })
+
+    try {
+      await createAuditLog(
+        fromCurrentUser(actor, 'COMPANY_ADMIN_REVERTED_TO_EMPLOYEE', 'company_admin', result.adminId, {
+          metadata: {
+            companyId,
+            employeeId: result.employeeId,
+            companyAdminId: result.adminId,
+            source: 'revert',
+          },
+        }),
+      )
+    } catch (error) {
+      console.error('Revert audit log failed:', error)
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: { employeeId: result.employeeId, adminId: result.adminId },
+      message: `${result.firstName} ${result.lastName} is an employee again.`,
+    })
+  } catch (error) {
+    if (error instanceof PromotionError) {
+      return apiError(error.status, error.code, error.message)
+    }
+    console.error('Revert company admin to employee error:', error)
+    return apiError(500, 'INTERNAL', 'Internal server error')
+  }
+}
+
+/**
+ * Short transactional email telling the person they now have web admin
+ * access. Deliberately NOT the invitation template (which implies setting a
+ * password) — they keep their existing password. Best-effort: failures are
+ * logged, never surfaced.
+ */
+async function sendPromotionEmail(params: {
+  to: string
+  firstName: string
+  companyName: string
+}): Promise<void> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL
+  if (!appUrl) {
+    console.warn('Promotion notification email skipped: NEXT_PUBLIC_APP_URL is not set')
+    return
+  }
+  const loginUrl = escapeHtml(`${appUrl.replace(/\/+$/, '')}/login`)
+  const firstName = escapeHtml(params.firstName)
+  const companyName = escapeHtml(params.companyName)
+  try {
+    await emailService.sendEmail({
+      to: params.to,
+      subject: `You are now a Company Admin for ${params.companyName}`,
+      html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">
+        <h2>You are now a Company Admin</h2>
+        <p>Hi ${firstName},</p>
+        <p>You now have administrator access for <strong>${companyName}</strong>.</p>
+        <p>Sign in at <a href="${loginUrl}">${loginUrl}</a> using your existing password.</p>
+        <p>Note: your access to the mobile app as an employee has been deactivated. Your savings history is kept.</p>
+        <p>Best Regards,<br/>The Perks &amp; More Team</p>
+      </div>`,
+    })
+  } catch (error) {
+    console.error('Promotion notification email failed:', error)
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }

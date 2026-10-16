@@ -141,6 +141,42 @@ export function useUpdateCompanyDetailAdmin(scope: CompanyDetailScope, companyId
   });
 }
 
+/** Promote an active or deactivated employee of this company to a Company Admin. */
+export function usePromoteCompanyDetailEmployee(scope: CompanyDetailScope, companyId: string) {
+  const invalidate = useInvalidateCompanyDetail(scope, companyId);
+  return useMutation({
+    mutationFn: ({ employeeId }: { employeeId: string }) =>
+      request(
+        scope === 'super_admin'
+          ? `/api/admin/employees/${employeeId}/promote`
+          : `/api/company/employees/${employeeId}/promote`,
+        { method: 'POST' },
+        'Failed to promote employee',
+      ),
+    onSuccess: () => {
+      invalidate.detail();
+      invalidate.employees();
+    },
+  });
+}
+
+/** Revert a deactivated admin (promoted from an employee) back to an employee. */
+export function useRevertCompanyDetailAdmin(scope: CompanyDetailScope, companyId: string) {
+  const invalidate = useInvalidateCompanyDetail(scope, companyId);
+  return useMutation({
+    mutationFn: ({ adminId }: { adminId: string }) =>
+      request(
+        `${companyDetailEndpoints(scope, companyId).admins}/${adminId}/revert`,
+        { method: 'POST' },
+        'Failed to revert admin to employee',
+      ),
+    onSuccess: () => {
+      invalidate.detail();
+      invalidate.employees();
+    },
+  });
+}
+
 export function useConfirmCompanyCsvImport(scope: CompanyDetailScope, companyId: string) {
   const invalidate = useInvalidateCompanyDetail(scope, companyId);
   return useMutation({
