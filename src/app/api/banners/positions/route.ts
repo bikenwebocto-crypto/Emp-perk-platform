@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { safeQuery } from '@/lib/prisma/safe-query'
+import { bookableBannerWhere } from '@/features/banners/utils/banner-availability'
 
 function unauthorized() {
   return NextResponse.json(
@@ -26,7 +27,8 @@ export async function GET() {
     const positions = await safeQuery(
       () =>
         prisma.banner.findMany({
-          where: { isActive: true },
+          // Bookable right now: active, started and not yet expired.
+          where: bookableBannerWhere(),
           select: {
             id: true,
             name: true,

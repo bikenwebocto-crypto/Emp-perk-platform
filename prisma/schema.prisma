@@ -1366,6 +1366,10 @@ model Banner {
   minDays      Int             @default(7)
   maxDays      Int             @default(30)
   isActive     Boolean         @default(true)
+  // Optional campaign window. NULL = open-ended, so existing rows keep working.
+  // Availability is derived from these dates + isActive at read time; there is
+  // no scheduler that flips a stored status.
+  startDate    DateTime?
   expiresAt    DateTime?
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt

@@ -593,7 +593,7 @@ async function buildMostRedeemed(now: Date): Promise<MobileHomeOffer[]> {
   return rows.map((o) => mapOffer(o, null))
 }
 
-const EXPIRING_SOON_DAYS = 45
+const EXPIRING_SOON_DAYS = 2
 
 async function buildExpiringSoon(now: Date): Promise<MobileHomeOffer[]> {
   const cutoff = new Date(now.getTime() + EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000)

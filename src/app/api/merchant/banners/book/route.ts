@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { getMerchantFromSession } from "@/lib/merchant-session";
 import { assignFreeSlot } from "@/lib/banner-slots";
+import { getBannerAvailability } from "@/features/banners/utils/banner-availability";
+import { formatBannerDate } from "@/features/banners/utils/format-date";
 import {
   deleteOfferImage,
   uploadOfferImage,
@@ -206,8 +208,17 @@ export async function POST(request: NextRequest) {
       return badRequest("Banner slot not found");
     }
 
-    if (!banner.isActive) {
-      return badRequest("Banner slot is not active");
+    // Same rule as everywhere else: the banner must be ACTIVE right now
+    // (derived from isActive + startDate/expiresAt, never from a stored flag).
+    const availability = getBannerAvailability(banner, new Date());
+    if (availability !== "ACTIVE") {
+      return badRequest(
+        availability === "SCHEDULED"
+          ? "Banner slot is not open for booking yet"
+          : availability === "EXPIRED"
+            ? "Banner slot has expired"
+            : "Banner slot is not active",
+      );
     }
 
     /*
@@ -246,6 +257,15 @@ export async function POST(request: NextRequest) {
     if (days > banner.maxDays) {
       return badRequest(
         `Maximum booking period is ${banner.maxDays} days`,
+      );
+    }
+
+    if (
+      banner.startDate &&
+      start < banner.startDate
+    ) {
+      return badRequest(
+        `Booking cannot start before the banner opens (${formatBannerDate(banner.startDate)})`,
       );
     }
 

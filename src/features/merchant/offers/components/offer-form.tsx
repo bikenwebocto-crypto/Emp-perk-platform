@@ -919,7 +919,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     <option value="IN_STORE_QR">In-Store QR Code</option>
                     <option value="ONLINE_CODE">Online Code</option>
 
-                    <option value="BOOKING_LINK">Booking Link</option>
+                     {/*<option value="BOOKING_LINK">Booking Link</option> */}
                     <option value="VIRTUAL_CARD_AUTO_VERIFY">
                       Virtual Card (Auto Verify)
                     </option>
