@@ -175,7 +175,7 @@ export async function seedLimassolMerchants(prisma: PrismaClient) {
         },
       });
     }
-    console.log(`Seeded merchant: ${merchant.businessName} (${merchant.slug})`);
+    
   }
 }
 
@@ -282,7 +282,6 @@ export async function seedLimassolFoodMerchants(prisma: PrismaClient) {
         },
       });
     }
-    console.log(`Seeded food merchant: ${merchant.businessName} (${merchant.slug})`);
   }
 }
 
@@ -541,6 +540,5 @@ export async function seedLimassolOffers(prisma: PrismaClient) {
       },
     });
 
-    console.log(`Seeded offer: ${def.title} (${def.redemptionType})`);
   }
 }

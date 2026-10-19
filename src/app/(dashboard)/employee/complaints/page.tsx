@@ -14,7 +14,6 @@ import { useTablePagination } from '@/hooks/use-table-pagination'
 import { Plus, AlertTriangle } from 'lucide-react'
 import { PRIORITY_STYLES } from '@/features/complaints/constants'
 
-console.log(`[RENDER] EmployeeComplaintsPage module loaded: ${(performance.now() - pageModuleLoad).toFixed(1)}ms`)
 
 interface Complaint {
   id: string
