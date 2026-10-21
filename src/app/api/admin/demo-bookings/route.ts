@@ -7,6 +7,7 @@ import { DEMO_BOOKING_STATUSES, isDemoBookingStatus } from '@/lib/demo-bookings/
 
 const LEAD_SELECT = {
   id: true,
+  type: true,
   firstName: true,
   lastName: true,
   email: true,

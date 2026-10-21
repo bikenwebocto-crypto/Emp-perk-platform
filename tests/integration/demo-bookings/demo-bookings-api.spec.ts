@@ -281,8 +281,22 @@ describe('POST /api/demo-bookings validation', () => {
     expect(db.demoBooking.create).not.toHaveBeenCalled()
   })
 
+  it('accepts a merchant demo and stores the lead as MERCHANT', async () => {
+    const { status } = await post(validBody({ type: 'MERCHANT' }))
+    expect(status).toBe(201)
+    expect(db.lead.create.mock.calls[0][0].data.type).toBe('MERCHANT')
+    expect(db.lead.findFirst.mock.calls[0][0].where.type).toBe('MERCHANT')
+  })
+
+  it('requires the audience type', async () => {
+    const { status, json } = await post(validBody({ type: undefined }))
+    expect(status).toBe(400)
+    expect(json.error.details).toHaveProperty('type')
+    expect(db.lead.create).not.toHaveBeenCalled()
+  })
+
   it('rejects an unknown audience', async () => {
-    const { status, json } = await post(validBody({ type: 'MERCHANT' }))
+    const { status, json } = await post(validBody({ type: 'EMPLOYEE' }))
     expect(status).toBe(400)
     expect(json.error.details).toHaveProperty('type')
   })

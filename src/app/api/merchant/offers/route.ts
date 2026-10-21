@@ -10,6 +10,7 @@ import { logReplacementAudit, notifyReplacement } from "@/lib/offer-replacement-
 import { createAuditLog } from '@/services/audit-log.service';
 import { generateUniqueOfferCode } from '@/lib/offer-code';
 import { parseRepeatAfterHoursInput } from '@/lib/redemption-tracking';
+import { validateFlashWindow } from '@/lib/offers/flash';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
@@ -110,6 +111,8 @@ function runQualityChecks(body: any): {
   ) {
     errors.endDate = "End date must be after start date";
   }
+  const flashError = validateFlashWindow(body.isFlash, body.startDate, body.endDate);
+  if (flashError && !errors.endDate) errors.endDate = flashError;
   if (!body.termsAndConditions) {
     errors.termsAndConditions = "Terms and conditions are required";
   }
@@ -450,6 +453,7 @@ export async function POST(request: NextRequest) {
       minimumSpend,
       isFeatured,
       isExclusive,
+      isFlash,
       maxRedemptions,
       startDate,
       endDate,
@@ -574,6 +578,7 @@ export async function POST(request: NextRequest) {
           offerType,
           isFeatured: !!isFeatured,
           isExclusive: !!isExclusive,
+          isFlash: !!isFlash,
           // redemption: redemptionType ?? null,
           status: targetStatus,
           startDate: new Date(startDate),

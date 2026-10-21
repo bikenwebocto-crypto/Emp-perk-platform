@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
 
     const result = await scheduleDemoBooking({
       lead: input.lead,
+      type: input.type,
       email: input.email,
       startsAt: input.booking.startsAt,
       timezone: input.booking.timezone,
@@ -95,14 +96,14 @@ export async function POST(request: NextRequest) {
       action: 'demo_booking.created',
       entityType: 'demo_booking',
       entityId: booking.id,
-      metadata: { reference: booking.reference, leadId: booking.leadId, startsAt: booking.startsAt.toISOString(), overlapCount },
+      metadata: { reference: booking.reference, leadId: booking.leadId, leadType: input.type, startsAt: booking.startsAt.toISOString(), overlapCount },
     });
 
     // Notifications are best-effort: a failure must not lose the booking.
     try {
       await publishBusinessToAdmins({
         type: 'SYSTEM',
-        title: `New demo request: ${input.lead.companyName}`,
+        title: `New ${input.type === 'MERCHANT' ? 'merchant' : 'employer'} demo request: ${input.lead.companyName}`,
         message: `${input.lead.firstName} ${input.lead.lastName} (${input.email}) requested a ${booking.durationMinutes}-minute ${MEETING_MODE.toLowerCase()} on ${formatBusinessLocal(booking.startsAt)} (Nicosia time).${
           overlapCount > 0 ? ` This overlaps ${overlapCount} other booking(s) — reschedule one of them.` : ''
         }`,

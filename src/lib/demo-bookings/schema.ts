@@ -4,7 +4,7 @@ import { cleanText, normaliseEmail, normalisePhone } from '@/lib/leads/normalise
 import { fieldErrors } from '@/lib/leads/schemas';
 
 // Request contract for the public "Book a Demo" form (camelCase, like the
-// legacy leads payload). The demo is always for an employer.
+// legacy leads payload). `type` says whether the visitor is an employer or a merchant.
 //
 // Availability policy (working hours, notice, collisions, allowed durations) is
 // NOT validated here — the scheduling service validates it so there is one
@@ -50,11 +50,17 @@ const privacyAccepted = z.preprocess(
   z.boolean().refine((v) => v, 'Please accept the privacy policy'),
 );
 
+export const DEMO_LEAD_TYPES = ['EMPLOYER', 'MERCHANT'] as const;
+export type DemoLeadType = (typeof DEMO_LEAD_TYPES)[number];
+
 export const demoBookingSchema = z.object({
-  // The audience is fixed; accept it only so a misconfigured form fails loudly.
+  // Required: the form must say whether the visitor is an employer or a merchant.
   type: z.preprocess(
-    (v) => cleanText(v) ?? 'EMPLOYER',
-    z.enum(['EMPLOYER'], { errorMap: () => ({ message: 'Demos are for employers' }) }),
+    (v) => cleanText(v)?.toUpperCase() ?? undefined,
+    z.enum(DEMO_LEAD_TYPES, {
+      errorMap: (issue) =>
+        issue.code === 'invalid_type' ? { message: REQUIRED } : { message: 'Choose employer or merchant' },
+    }),
   ),
   firstName: requiredText(100),
   lastName: requiredText(100),
@@ -70,6 +76,7 @@ export const demoBookingSchema = z.object({
 });
 
 export interface ParsedDemoBooking {
+  type: DemoLeadType;
   email: string;
   /** Contact + company details, mapped onto the existing Lead model. */
   lead: {
@@ -151,6 +158,7 @@ export function parseDemoBooking(
   return {
     ok: true,
     input: {
+      type: f.type,
       email: f.email,
       lead: {
         firstName: f.firstName,

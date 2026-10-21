@@ -393,6 +393,8 @@ model MerchantOffer {
   expiresAt     DateTime?
   isFeatured    Boolean     @default(false)
   isExclusive   Boolean     @default(false)
+  /// Short-duration offer; its window is still startDate → endDate.
+  isFlash       Boolean     @default(false)
   sortOrder     Int         @default(0)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt

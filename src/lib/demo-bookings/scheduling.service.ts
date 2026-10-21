@@ -1,6 +1,7 @@
 import type { DemoBookingStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateDemoBookingReference } from './reference';
+import type { DemoLeadType } from './schema';
 import { canTransition, getAllowedNextStatuses } from './status';
 import {
   availableSlots,
@@ -26,9 +27,6 @@ import {
 // the lock. Availability shown in the browser is never trusted.
 // ─────────────────────────────────────────────────────────────
 
-/** Demos are for employers only. */
-const LEAD_TYPE = 'EMPLOYER' as const;
-
 export const CONFLICT_MESSAGE = 'That time was just taken. Please pick another available slot.';
 
 export interface DemoLeadContact {
@@ -44,6 +42,8 @@ export interface DemoLeadContact {
 
 export interface ScheduleDemoBookingInput {
   lead: DemoLeadContact;
+  /** Whether the visitor books as an employer or a merchant. */
+  type: DemoLeadType;
   email: string;
   /** UTC instant. */
   startsAt: Date;
@@ -91,7 +91,7 @@ export async function scheduleDemoBooking(
     // only counted so the admin notification can flag them. Locks are taken in
     // a fixed order (day, then lead) so concurrent requests cannot deadlock.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`demo_booking_slot:${dayKey}`}))`;
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`demo_booking_lead:${input.email}:${LEAD_TYPE}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`demo_booking_lead:${input.email}:${input.type}`}))`;
 
     const nearby = await tx.demoBooking.findMany({
       where: candidateOverlapWhere(candidate),
@@ -100,7 +100,7 @@ export async function scheduleDemoBooking(
     const overlapCount = findCollisions(candidate, nearby as BookingInterval[]).length;
 
     const existing = await tx.lead.findFirst({
-      where: { email: input.email, type: LEAD_TYPE, status: { in: ['NEW', 'CONTACTED'] } },
+      where: { email: input.email, type: input.type, status: { in: ['NEW', 'CONTACTED'] } },
       orderBy: { createdAt: 'desc' },
       select: { id: true },
     });
@@ -111,7 +111,7 @@ export async function scheduleDemoBooking(
           await tx.lead.create({
             data: {
               ...input.lead,
-              type: LEAD_TYPE,
+              type: input.type,
               email: input.email,
               source: 'PUBLIC_FORM',
               status: 'NEW',

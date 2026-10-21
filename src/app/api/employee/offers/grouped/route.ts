@@ -95,6 +95,7 @@ export async function GET(_request: NextRequest) {
           offerType: true,
           isFeatured: true,
           isExclusive: true,
+          isFlash: true,
           endDate: true,
           startDate: true,
           status: true,

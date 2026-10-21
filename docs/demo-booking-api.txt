@@ -1,0 +1,120 @@
+DEMO BOOKING API
+================
+
+Endpoint : POST https://staging.perksandmore.com/api/demo-bookings
+Auth     : None (public endpoint)
+Headers  : Content-Type: application/json
+           Origin: <must be an allowed public site origin>
+Rate     : 5 submissions per IP every 10 minutes
+
+
+REQUEST PAYLOAD
+---------------
+{
+  "type": "EMPLOYER",
+  "firstName": "Devson",
+  "lastName": "Johnson",
+  "email": "rautitue@mailinator.com",
+  "phone": "+35799123466",
+  "companyName": "BBnc Ltd",
+  "startsAt": "2026-10-23T09:00:00+03:00",
+  "timezone": "Europe/Nicosia",
+  "durationMinutes": 30,
+  "notes": "Interested in 100 seats",
+  "referralSource": "LinkedIn",
+  "privacyAccepted": true,
+  "pm_hp": ""
+}
+
+
+FIELDS
+------
+Field            Type     Required  Rules
+---------------  -------  --------  ---------------------------------------------
+type             string   No        Only "EMPLOYER" is accepted (default EMPLOYER)
+firstName        string   Yes       Max 100 characters
+lastName         string   Yes       Max 100 characters
+email            string   Yes       Valid email, max 255 characters
+phone            string   No        International format, e.g. +35799123466
+companyName      string   Yes       Max 255 characters
+startsAt         string   Yes       ISO-8601 with timezone offset or Z,
+                                    e.g. 2026-10-23T09:00:00+03:00
+timezone         string   Yes       Valid IANA zone, e.g. Europe/Nicosia
+durationMinutes  number   No        Only 30 allowed (default 30)
+notes            string   No        Max 2000 characters
+referralSource   string   No        Max 255 characters
+privacyAccepted  boolean  Yes       Must be true
+pm_hp            string   Yes*      Honeypot - always send "" (empty).
+                                    If filled, request is ignored silently.
+
+Booking time rules (checked on server):
+- Monday to Friday, 09:00 - 17:00 Europe/Nicosia time
+- Slots start every 30 minutes
+- At least 24 hours from now, at most 60 days ahead
+
+
+SUCCESS RESPONSE  (201 Created)
+-------------------------------
+{
+  "success": true,
+  "reference": "DEMO-6XSPJPGSZT",
+  "status": "PENDING",
+  "message": "Thank you — we've received your demo request and will be in touch to confirm."
+}
+
+reference : Booking reference to show to the user
+status    : Always "PENDING" on creation (admin confirms later)
+
+
+ERROR RESPONSES
+---------------
+400 Validation error
+{
+  "success": false,
+  "errors": { "email": "Enter a valid email address" },
+  "error": {
+    "code": "VALIDATION",
+    "message": "Validation failed",
+    "details": { "email": "Enter a valid email address" }
+  }
+}
+
+403 Origin not allowed
+{ "success": false, "error": { "code": "FORBIDDEN", "message": "Origin not allowed" } }
+
+413 Payload too large
+{ "success": false, "error": { "code": "PAYLOAD_TOO_LARGE", "message": "..." } }
+
+429 Too many requests  (header: Retry-After: <seconds>)
+{
+  "success": false,
+  "error": { "code": "RATE_LIMITED", "message": "Too many submissions. Please try again later." },
+  "meta": { "retryAfterSeconds": 540 }
+}
+
+500 Server error
+{ "success": false, "error": { "code": "INTERNAL", "message": "Something went wrong. Please try again later." } }
+
+
+AVAILABLE SLOTS (optional helper)
+---------------------------------
+GET https://staging.perksandmore.com/api/demo-bookings/availability?date=2026-10-23&durationMinutes=30
+
+200 OK
+{
+  "success": true,
+  "date": "2026-10-23",
+  "timezone": "Europe/Nicosia",
+  "durationMinutes": 30,
+  "slots": [
+    { "startsAt": "2026-10-23T06:00:00.000Z", "endAt": "2026-10-23T06:30:00.000Z" }
+  ]
+}
+
+
+CURL EXAMPLE
+------------
+curl -X POST https://staging.perksandmore.com/api/demo-bookings \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://perksandmore.com" \
+  -d '{"type":"EMPLOYER","firstName":"Devson","lastName":"Johnson","email":"rautitue@mailinator.com","phone":"+35799123466","companyName":"BBnc Ltd","startsAt":"2026-10-23T09:00:00+03:00","timezone":"Europe/Nicosia","durationMinutes":30,"notes":"Interested in 100 seats","referralSource":"LinkedIn","privacyAccepted":true,"pm_hp":""}'

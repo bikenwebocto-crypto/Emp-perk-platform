@@ -24,6 +24,8 @@ import { OfferBannerInfo } from "@/components/merchant/offers/OfferBannerInfo";
 import { showToast } from "@/hooks/use-toast";
 import { uploadImage, OFFER_IMAGE_OPTIONS } from "@/lib/upload/image";
 import { deleteOfferImage } from "@/lib/upload-offer-image";
+import { Checkbox } from "@/components/ui/checkbox";
+import { FLASH_MAX_DAYS, flashMaxEndLocal, validateFlashWindow } from "@/lib/offers/flash";
 
 interface FormData {
   title: string;
@@ -55,6 +57,7 @@ interface FormData {
   qrCodeUrl: string;
   isFeatured: boolean;
   isExclusive: boolean;
+  isFlash: boolean;
 }
 
 /** "2026-10-08T23:59" (local, from datetime-local) → UTC ISO string. Empty/invalid stays as-is. */
@@ -223,6 +226,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     qrCodeUrl: initialData?.qrCodeUrl ?? "",
     isFeatured: initialData?.isFeatured ?? false,
     isExclusive: initialData?.isExclusive ?? false,
+    isFlash: initialData?.isFlash ?? false,
   });
 
   const set =
@@ -406,6 +410,10 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       new Date(form.endDate) <= new Date(form.startDate)
     )
       errs.endDate = "End date must be after start date";
+    else {
+      const flashError = validateFlashWindow(form.isFlash, form.startDate, form.endDate);
+      if (flashError) errs.endDate = flashError;
+    }
     if (isReplacement && !form.termsAndConditions.trim())
       errs.termsAndConditions =
         "Terms and conditions are required for replacement offers"; // Days of week validation
@@ -437,6 +445,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     termsAndConditions: form.termsAndConditions || null,
     isFeatured: form.isFeatured,
     isExclusive: form.isExclusive,
+    isFlash: form.isFlash,
     imageUrls: form.imageUrls,
     offerType: OFFER_TYPE_MAP[form.offerType] ?? form.offerType,
     discountValue: form.discountValue ? Number(form.discountValue) : null,
@@ -1420,7 +1429,14 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                       type="datetime-local"
                       value={form.endDate}
                       onChange={set("endDate")}
+                      min={form.startDate || undefined}
+                      max={form.isFlash ? flashMaxEndLocal(form.startDate) || undefined : undefined}
                     />
+                    {form.isFlash && form.startDate && !errors.endDate && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Flash offers must end within {FLASH_MAX_DAYS} days of the start date
+                      </p>
+                    )}
 
                     {errors.endDate && (
                       <p className="mt-1 text-xs text-destructive">
@@ -1429,6 +1445,26 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     )}
                   </div>
                 </div>
+
+                <label
+                  htmlFor="isFlash"
+                  className="flex cursor-pointer items-center justify-between gap-4 rounded-lg border p-4"
+                >
+                  <div>
+                    <span className="text-sm font-medium">Flash Offer</span>
+                    <p className="text-xs text-muted-foreground">
+                      Create a short-duration offer that is available for a limited time
+                      (up to {FLASH_MAX_DAYS} days between start and end).
+                    </p>
+                  </div>
+                  <Checkbox
+                    id="isFlash"
+                    checked={form.isFlash}
+                    onCheckedChange={(checked) =>
+                      setForm((prev) => ({ ...prev, isFlash: checked === true }))
+                    }
+                  />
+                </label>
                 {/* Days of Week */}
                 <div>
                   <label className={labelClass}>Available Days</label>

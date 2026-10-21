@@ -6,6 +6,7 @@ export interface OfferRow {
   offerType: string
   isFeatured: boolean
   isExclusive: boolean
+  isFlash?: boolean
   endDate: Date
   startDate: Date
   status: string
@@ -107,6 +108,7 @@ export function mapOfferRow(
     currentRedemptions: o.capacity?.redeemedCount ?? 0,
     isFeatured: o.isFeatured,
     isExclusive: o.isExclusive,
+    isFlash: !!o.isFlash,
     startDate: o.startDate.toISOString(),
     endDate: o.endDate.toISOString(),
     merchant: o.merchant,

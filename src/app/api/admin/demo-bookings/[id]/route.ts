@@ -26,6 +26,7 @@ function apiError(status: number, code: string, message: string, extra: Record<s
 
 const LEAD_DETAIL_SELECT = {
   id: true,
+  type: true,
   firstName: true,
   lastName: true,
   email: true,

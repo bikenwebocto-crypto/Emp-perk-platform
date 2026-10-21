@@ -3,7 +3,8 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { MapPin, Star, Store, Sparkles, Gift, Tag } from "lucide-react";
+import { MapPin, Star, Store, Sparkles, Gift, Tag, Zap } from "lucide-react";
+import { formatTimeLeft } from "@/lib/offers/flash";
 import { SaveButton } from "./SaveButton";
 import { type EmployeeOffer } from "./offers/employee-offer";
 
@@ -89,6 +90,8 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
     }
   };
 
+  const flashTimeLeft = offer.isFlash ? formatTimeLeft(offer.endDate) : null;
+
   const handleOpen = () => onOpen?.(offer);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -124,8 +127,14 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
           </div>
         )}
 
-        {/* Featured/Exclusive badges */}
+        {/* Flash/Featured/Exclusive badges */}
         <div className="absolute left-2 top-2 flex flex-wrap gap-1">
+          {offer.isFlash && (
+            <Badge className="bg-amber-500 text-white text-[10px] leading-none shadow-md px-1.5 py-0.5 hover:bg-amber-500">
+              <Zap className="mr-0.5 h-2.5 w-2.5" /> Flash Offer
+              {flashTimeLeft && <span className="ml-1 font-normal">· Ends in {flashTimeLeft}</span>}
+            </Badge>
+          )}
           {(offer?.isFeatured || offer?.isExclusive) && (
             <>
               {offer.isFeatured && (
