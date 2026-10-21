@@ -39,6 +39,7 @@ const PUBLIC_API_ROUTES = [
   "/api/health",
   "/api/categories",
   "/api/leads",
+  "/api/demo-bookings", // public "Book a Demo" form + availability; /api/admin/demo-bookings stays protected
   "/api/cron", // protected by CRON_SECRET inside each route
 ];
 

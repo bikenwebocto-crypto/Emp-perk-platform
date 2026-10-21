@@ -1129,6 +1129,13 @@ enum LeadSource {
   CSV_IMPORT
 }
 
+enum DemoBookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
 enum BillingStatus {
   ACTIVE
   INVOICE_OVERDUE
@@ -1602,6 +1609,8 @@ model Lead {
   merchant   Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
   company    Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
+  demoBookings DemoBooking[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1609,6 +1618,40 @@ model Lead {
   @@index([type, status])
   @@index([email, type])
   @@map("leads")
+}
+
+/// A "Book a Demo" request from a public website visitor. The visitor is a lead,
+/// so the contact/company details live on the linked Lead; this row holds the
+/// scheduling request itself. One lead can have several bookings (e.g. a
+/// reschedule after a cancellation), so the relation is one-to-many.
+///
+/// The meeting occupies the half-open interval [startsAt, startsAt + durationMinutes).
+/// startsAt is stored in UTC; `timezone` is the visitor's IANA zone, kept only so
+/// the time can be shown back to them in their own clock.
+model DemoBooking {
+  id        String @id @default(uuid()) @db.Uuid
+  /// Public, human-readable reference returned to the visitor — never the row id.
+  reference String @unique @db.VarChar(24)
+
+  leadId String @db.Uuid
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  /// Meeting start, stored in UTC.
+  startsAt        DateTime
+  /// Meeting length in minutes; collision checks use the real interval.
+  durationMinutes Int
+  /// IANA zone (e.g. "Europe/Nicosia") for display only.
+  timezone        String   @db.VarChar(64)
+  notes           String?  @db.VarChar(2000)
+  /// PENDING reserves its slot; only CANCELLED frees it.
+  status          DemoBookingStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([status, startsAt])
+  @@map("demo_bookings")
 }
 
 /// Fixed-window counter backing src/lib/rate-limit.ts. Swappable for Redis by

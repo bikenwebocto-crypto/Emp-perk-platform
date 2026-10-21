@@ -69,6 +69,11 @@ function createTransporter() {
     port: config.port,
     secure: config.secure,
     auth: config.auth,
+    // Callers await sendEmail inside API requests; without these, nodemailer's
+    // defaults let a slow or refusing SMTP server hold a request for ~1 minute.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 15_000,
   });
 }
 

@@ -16,17 +16,18 @@ export async function GET() {
       )
     }
 
-    const [actionQueue, replacements, merchants, merchantSuggestions, tickets] = await Promise.all([
+    const [actionQueue, replacements, merchants, merchantSuggestions, demoBookings, tickets] = await Promise.all([
       prisma.actionQueueItem.count({ where: { status: { in: ['PENDING', 'IN_PROGRESS'] } } }),
       prisma.offerReplacementRequest.count({ where: { status: { in: ['PENDING', 'AWAITING_APPROVAL'] } } }),
       prisma.merchant.count({ where: { status: 'PENDING', deletedAt: null } }),
       prisma.merchantSuggestion.count({ where: { status: { in: ['PENDING', 'UNDER_REVIEW'] } } }),
+      prisma.demoBooking.count({ where: { status: 'PENDING' } }),
       prisma.complaint.count({ where: { status: { notIn: ['RESOLVED', 'REJECTED'] } } }),
     ])
 
     return NextResponse.json({
       success: true,
-      data: { actionQueue, replacements, merchants, merchantSuggestions, tickets },
+      data: { actionQueue, replacements, merchants, merchantSuggestions, demoBookings, tickets },
     })
   } catch (error) {
     console.error('[GET /api/admin/sidebar-counts]', error)

@@ -16,6 +16,7 @@ import {
   LayoutDashboard, Store, Users, FileText, BarChart3, Settings, CreditCard,
   ShoppingBag, MapPin, Gift, Building2, UserCircle, Bell, Upload, LogOut,
   Zap, Search, RefreshCw, Bookmark, Palette, Trash2, Lightbulb, Tags, Inbox, KeyRound,
+  CalendarClock,
 } from 'lucide-react'
 import { canAdminAccessPath } from '@/lib/access/account-access'
 import { supabase } from '@/lib/supabase/client'
@@ -52,6 +53,7 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
     { label: 'Merchants', href: '/admin/merchants', icon: Store },
     { label: 'Merchant Suggestions', href: '/admin/merchant-suggestions', icon: Lightbulb },
+    { label: 'Demo Bookings', href: '/admin/demo-bookings', icon: CalendarClock },
     { label: 'Categories', href: '/admin/categories', icon: Tags },
     { label: 'Stores', href: '/admin/stores', icon: MapPin },
     { label: 'Companies', href: '/admin/companies', icon: Building2 },
@@ -175,6 +177,7 @@ export function Sidebar({ userType, userName, userEmail, adminRole, companyName,
       '/admin/offers/replacements': counts?.replacements,
       '/admin/merchants': counts?.merchants,
       '/admin/merchant-suggestions': counts?.merchantSuggestions,
+      '/admin/demo-bookings': counts?.demoBookings,
       '/admin/complaints': counts?.tickets,
     }
     return (navConfig[userType] ?? [])

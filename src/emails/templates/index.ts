@@ -17,3 +17,12 @@ export {
 export {
   renderCompanyAdminInvitationTemplate,
 } from './company-admin-invitation'
+
+export {
+  renderDemoBookingRescheduledTemplate,
+} from './demo-booking-rescheduled'
+
+export {
+  renderDemoBookingConfirmedTemplate,
+  renderDemoBookingCancelledTemplate,
+} from './demo-booking-status'
