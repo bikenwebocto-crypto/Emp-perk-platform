@@ -269,7 +269,7 @@ export async function rescheduleDemoBooking(
     requester: {
       email: booking.lead.email,
       firstName: booking.lead.firstName,
-      companyName: booking.lead.companyName,
+      companyName: booking.lead.companyName ?? '',
     },
   };
 }
@@ -370,7 +370,7 @@ export async function changeDemoBookingStatus(
     requester: {
       email: booking.lead.email,
       firstName: booking.lead.firstName,
-      companyName: booking.lead.companyName,
+      companyName: booking.lead.companyName ?? '',
     },
   };
 }
@@ -410,6 +410,7 @@ export async function getDayCalendar(dateKey: string): Promise<CalendarEntry[]> 
     .filter((row) => toBusinessWallClock(row.startsAt).dateKey === dateKey)
     .map((row) => ({
       ...row,
+      lead: { ...row.lead, companyName: row.lead.companyName ?? '' },
       overlapsWith: findCollisions(row, rows, row.id).map((other) => other.reference),
     }));
 }

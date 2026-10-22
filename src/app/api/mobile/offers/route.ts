@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
      const now = new Date()
     const where: Record<string, unknown> = {
       status: 'LIVE',
-      isFlash: true, // flash offers are served by /api/mobile/flash
+      // flash offers are served by /api/mobile/flash
       startDate: { lte: now },
       endDate: { gt: now },
       merchant: {

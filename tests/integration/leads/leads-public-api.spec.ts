@@ -37,27 +37,33 @@ function fakeLimiter(overrides: Partial<RateLimiter> = {}): RateLimiter {
 }
 
 const merchantBody = {
-  type: 'MERCHANT',
-  firstName: '  Ada  ',
-  lastName: 'Lovelace',
+  form_key: 'merchant_application',
+  first_name: '  Ada  ',
+  last_name: 'Lovelace',
   email: '  Founder@Example.COM ',
-  companyName: '  Acme Coffee ',
-  industry: 'Food',
-  cities: [' London ', 'Bristol'],
-  websiteUrl: 'https://acme.test',
-  consentVersion: '2026-01',
+  phone: '99 123456',
+  company: '  Acme Coffee ',
+  role: 'Owner',
+  website: 'acme.test',
+  category: 'Food & Drinks',
+  redemption: 'Both',
+  'consent-1': 'I am authorised to submit this application on behalf of the business.',
+  'consent-2': 'I agree to the privacy policy',
+  consent_version: '2026-10-12',
 }
 
 const employerBody = {
-  type: 'EMPLOYER',
-  firstName: 'Grace',
-  lastName: 'Hopper',
+  form_key: 'employer_enquiry',
+  first_name: 'Grace',
+  last_name: 'Hopper',
   email: 'grace@example.com',
-  companyName: 'Navy Labs',
-  companySize: '250-500',
-  hqCountry: 'United Kingdom',
+  phone: '99123456',
+  company: 'Navy Labs',
   role: 'Head of People',
-  consentVersion: '2026-01',
+  website: 'navylabs.cy',
+  company_size: '250+',
+  'consent-1': 'I agree to the privacy policy',
+  consent_version: '2026-10-12',
 }
 
 function request(body: unknown, ip = IP) {
@@ -95,10 +101,13 @@ describe('POST /api/leads validation', () => {
     expect(data.source).toBe('PUBLIC_FORM')
     expect(data.status).toBe('NEW')
     expect(data.firstName).toBe('Ada')
+    expect(data.lastName).toBe('Lovelace')
     expect(data.companyName).toBe('Acme Coffee')
     expect(data.email).toBe('founder@example.com')
-    expect(data.cities).toEqual(['London', 'Bristol'])
-    expect(data.consentVersion).toBe('2026-01')
+    expect(data.phone).toBe('+35799123456')
+    expect(data.cities).toEqual(['Limassol'])
+    expect(data.hqCountry).toBe('Cyprus')
+    expect(data.consentVersion).toBe('2026-10-12')
     expect(data.consentAt).toBeInstanceOf(Date)
     expect(data.consentAt.getTime()).toBeGreaterThanOrEqual(before)
     expect(data.consentAt.getTime()).toBeLessThanOrEqual(after)
@@ -112,40 +121,12 @@ describe('POST /api/leads validation', () => {
     const data = db.lead.create.mock.calls[0][0].data
     expect(data).toMatchObject({
       type: 'EMPLOYER',
-      companySize: '250-500',
-      hqCountry: 'United Kingdom',
+      companySize: '250+',
+      hqCountry: 'Cyprus',
       role: 'Head of People',
     })
     expect(data.industry).toBeUndefined()
-    expect(data.cities).toBeUndefined()
-  })
-
-  it('defaults cities to an empty array and treats blank optional strings as null', async () => {
-    await post({ ...merchantBody, cities: undefined, industry: '   ', message: '', websiteUrl: '' })
-
-    const data = db.lead.create.mock.calls[0][0].data
-    expect(data.cities).toEqual([])
-    expect(data.industry).toBeNull()
-    expect(data.message).toBeNull()
-    expect(data.websiteUrl).toBeNull()
-  })
-
-  it('requires consentVersion', async () => {
-    const { consentVersion: _dropped, ...withoutConsent } = merchantBody
-    const { status, json } = await post(withoutConsent)
-
-    expect(status).toBe(400)
-    expect(json.error.code).toBe('VALIDATION')
-    expect(json.error.details).toHaveProperty('consentVersion')
-    expect(db.lead.create).not.toHaveBeenCalled()
-  })
-
-  it('rejects an unknown type', async () => {
-    const { status, json } = await post({ ...merchantBody, type: 'OTHER' })
-
-    expect(status).toBe(400)
-    expect(json.error.code).toBe('VALIDATION')
-    expect(db.lead.create).not.toHaveBeenCalled()
+    expect(data.redemption).toBeUndefined()
   })
 
   it('rejects a malformed email and an over-long field', async () => {
@@ -153,19 +134,20 @@ describe('POST /api/leads validation', () => {
     expect(bad.status).toBe(400)
     expect(bad.json.error.details).toHaveProperty('email')
 
-    const long = await post({ ...merchantBody, companyName: 'x'.repeat(256) })
+    const long = await post({ ...merchantBody, company: 'x'.repeat(256) })
     expect(long.status).toBe(400)
-    expect(long.json.error.details).toHaveProperty('companyName')
+    expect(long.json.error.details).toHaveProperty('company')
 
     expect(db.lead.create).not.toHaveBeenCalled()
   })
 
-  it('rejects employer-only fields sent on a merchant lead and vice versa', async () => {
-    const { status } = await post({ ...merchantBody, companySize: '250-500' })
-    expect(status).toBe(400)
+  it('rejects an unknown form', async () => {
+    const { status, json } = await post({ ...merchantBody, form_key: 'other' })
 
-    const employerWithCities = await post({ ...employerBody, cities: ['London'] })
-    expect(employerWithCities.status).toBe(400)
+    expect(status).toBe(400)
+    expect(json.error.code).toBe('VALIDATION')
+    expect(json.errors).toEqual({ form_key: 'Unsupported form' })
+    expect(db.lead.create).not.toHaveBeenCalled()
   })
 
   it('rejects a non-JSON body', async () => {
@@ -235,15 +217,15 @@ describe('POST /api/leads rate limit', () => {
     await post(merchantBody, '198.51.100.7')
     await post(merchantBody, '198.51.100.8')
 
-    expect(vi.mocked(limiter.consume).mock.calls[0][0]).toBe('leads:198.51.100.7')
-    expect(vi.mocked(limiter.consume).mock.calls[1][0]).toBe('leads:198.51.100.8')
+    expect(vi.mocked(limiter.consume).mock.calls[0]?.[0]).toBe('leads:198.51.100.7')
+    expect(vi.mocked(limiter.consume).mock.calls[1]?.[0]).toBe('leads:198.51.100.8')
   })
 
   it('counts rate-limited requests before validation runs', async () => {
     const limiter = fakeLimiter()
     setRateLimiter(limiter)
 
-    await post({ type: 'MERCHANT' })
+    await post({ form_key: 'merchant_application' })
 
     expect(limiter.consume).toHaveBeenCalledTimes(1)
     expect(db.lead.create).not.toHaveBeenCalled()
@@ -264,10 +246,25 @@ describe('POST /api/leads side effects', () => {
     await post(merchantBody)
 
     expect(publishBusinessToAdmins).toHaveBeenCalledTimes(1)
-    const payload = vi.mocked(publishBusinessToAdmins).mock.calls[0][0] as any
+    const payload = vi.mocked(publishBusinessToAdmins).mock.calls[0]?.[0] as any
     expect(payload.referenceType).toBe('lead')
     expect(payload.referenceId).toBe('lead-1')
     expect(payload.metadata).toMatchObject({ leadId: 'lead-1', type: 'MERCHANT' })
+    expect(payload.title).toContain('Acme Coffee')
+  })
+
+  it('uses the contact name when the lead has no company', async () => {
+    await post({
+      form_key: 'contact_message',
+      first_name: 'Kostas',
+      last_name: 'Kyprianou',
+      email: 'kostas@example.com',
+      message: 'Hello there.',
+      'consent-1': 'I agree',
+    })
+
+    const payload = vi.mocked(publishBusinessToAdmins).mock.calls[0]?.[0] as any
+    expect(payload.title).toContain('Kostas Kyprianou')
   })
 
   it('still returns 201 when the admin notification fails', async () => {

@@ -3,12 +3,22 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { clientIpFromRequest, getRateLimiter } from '@/lib/rate-limit';
 import { corsHeaders, isOriginAllowed } from '@/lib/leads/cors';
-import { parseLeadSubmission, readLeadBody } from '@/lib/leads/parse';
+import { parseLeadSubmission, readLeadBody, type LeadInput } from '@/lib/leads/parse';
 import { channels, publishBusinessToAdmins } from '@/services/business-notification.service';
 
 const RATE_LIMIT = { limit: 10, windowMs: 10 * 60 * 1000 } as const;
 
-const LEAD_LABEL = { MERCHANT: 'merchant', EMPLOYER: 'employer', EMPLOYEE_ACCESS: 'employee access' } as const;
+const LEAD_LABEL = {
+  MERCHANT: 'merchant',
+  EMPLOYER: 'employer',
+  INDIVIDUAL_WAITLIST: 'waitlist',
+  CONTACT_MESSAGE: 'contact',
+} as const;
+
+/** Employers and merchants have a company, so they get the default cities and country. */
+function isCompanyLead(type: LeadInput['type']) {
+  return type === 'EMPLOYER' || type === 'MERCHANT';
+}
 
 function json(origin: string | null, body: unknown, status: number, headers: Record<string, string> = {}) {
   return NextResponse.json(body, { status, headers: { ...corsHeaders(origin), ...headers } });
@@ -31,7 +41,7 @@ export function OPTIONS(request: NextRequest) {
 }
 
 // POST /api/leads — public website forms (employer_enquiry, merchant_application,
-// employee_access) and the legacy camelCase payload
+// individual_waitlist, contact_message)
 export async function POST(request: NextRequest) {
   const origin = request.headers.get('origin');
   try {
@@ -77,34 +87,40 @@ export async function POST(request: NextRequest) {
     // when the earlier lead is REJECTED or CONVERTED, a new lead is created.
     // The check and write run under one advisory lock so two identical submissions
     // cannot both create a row.
+    // A contact message is never deduplicated: every message is kept as its own lead.
+    const companyLead = isCompanyLead(input.type);
     const outcome = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lead_submit:${input.email}:${input.type}`}))`;
+      if (input.type !== 'CONTACT_MESSAGE') {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lead_submit:${input.email}:${input.type}`}))`;
 
-      const existing = await tx.lead.findFirst({
-        where: { email: input.email, type: input.type, status: { in: ['NEW', 'CONTACTED'] } },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, attribution: true },
-      });
-
-      if (existing) {
-        const previous = existing.attribution && typeof existing.attribution === 'object' && !Array.isArray(existing.attribution)
-          ? (existing.attribution as Record<string, unknown>)
-          : {};
-        const attribution = input.attribution ? { ...previous, ...input.attribution } : undefined;
-        const nextCities = Array.isArray(input.data.cities)
-          ? Array.from(new Set([...input.data.cities, 'Limassol']))
-          : ['Limassol'];
-
-        await tx.lead.update({
-          where: { id: existing.id },
-          data: {
-            ...input.data,
-            cities: nextCities,
-            hqCountry: input.data.hqCountry ?? 'Cyprus',
-            ...(attribution ? { attribution: attribution as Prisma.InputJsonObject } : {}),
-          },
+        const existing = await tx.lead.findFirst({
+          where: { email: input.email, type: input.type, status: { in: ['NEW', 'CONTACTED'] } },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, attribution: true },
         });
-        return { kind: 'updated' as const, id: existing.id };
+
+        if (existing) {
+          const previous = existing.attribution && typeof existing.attribution === 'object' && !Array.isArray(existing.attribution)
+            ? (existing.attribution as Record<string, unknown>)
+            : {};
+          const attribution = input.attribution ? { ...previous, ...input.attribution } : undefined;
+          const previousCities = Array.isArray(input.data.cities) ? input.data.cities : [];
+          const nextCities = companyLead
+            ? Array.from(new Set([...previousCities, 'Limassol']))
+            : undefined;
+
+          await tx.lead.update({
+            where: { id: existing.id },
+            data: {
+              ...input.data,
+              ...(companyLead
+                ? { cities: nextCities, hqCountry: input.data.hqCountry ?? 'Cyprus' }
+                : {}),
+              ...(attribution ? { attribution: attribution as Prisma.InputJsonObject } : {}),
+            },
+          });
+          return { kind: 'updated' as const, id: existing.id };
+        }
       }
 
       const lead = await tx.lead.create({
@@ -114,8 +130,7 @@ export async function POST(request: NextRequest) {
           email: input.email,
           source: 'PUBLIC_FORM',
           status: 'NEW',
-          cities: ['Limassol'],
-          hqCountry: 'Cyprus',
+          ...(companyLead ? { cities: ['Limassol'], hqCountry: 'Cyprus' } : {}),
           consentAt: input.data.consentAt ?? new Date(),
           ...(input.attribution ? { attribution: input.attribution } : {}),
         },
@@ -127,9 +142,10 @@ export async function POST(request: NextRequest) {
     if (outcome.kind === 'created') {
       // Notifications are best-effort: a failure must not lose the lead.
       try {
+        const leadName = input.data.companyName ?? `${input.data.firstName} ${input.data.lastName}`.trim();
         await publishBusinessToAdmins({
           type: 'SYSTEM',
-          title: `New ${LEAD_LABEL[input.type]} lead: ${input.data.companyName}`,
+          title: `New ${LEAD_LABEL[input.type]} lead: ${leadName}`,
           message: `${input.data.firstName} ${input.data.lastName} (${input.email}) submitted a ${LEAD_LABEL[input.type]} enquiry.`,
           priority: 'NORMAL',
           channels: channels('IN_APP'),

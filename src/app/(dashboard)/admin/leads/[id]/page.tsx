@@ -39,8 +39,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   if (error || !lead) return <p className="py-6 text-sm text-destructive">{(error as Error)?.message ?? 'Lead not found'}</p>
 
   const isMerchant = lead.type === 'MERCHANT'
-  const isEmployee = lead.type === 'EMPLOYEE_ACCESS'
-  const typeLabel = isMerchant ? 'Merchant' : isEmployee ? 'Employee' : 'Employer'
+  const isEmployer = lead.type === 'EMPLOYER'
+  const typeLabel = isMerchant ? 'Merchant' : isEmployer ? 'Employer' : lead.type === 'INDIVIDUAL_WAITLIST' ? 'Individual' : 'Message'
   const attribution = Object.entries(lead.attribution ?? {})
 
   return (
@@ -52,19 +52,13 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           </Button>
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-              {lead.companyName} <StatusBadge status={lead.status} />
+              {lead.companyName ?? `${lead.firstName} ${lead.lastName}`} <StatusBadge status={lead.status} />
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">{typeLabel} lead · {fmt(lead.createdAt)}</p>
           </div>
         </div>
         <LeadActions lead={lead} />
       </div>
-
-      {isEmployee && !lead.shareWithEmployer && (
-        <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-4 text-sm font-medium text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300">
-          Do not name this employee when contacting their employer.
-        </div>
-      )}
 
       {lead.status === 'CONVERTED' && (lead.merchant || lead.company) && (
         <Card>
@@ -87,14 +81,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               <Field label="Phone">{lead.phone}</Field>
               <Field label="Company">{lead.companyName}</Field>
               <Field label="Source">{lead.source}</Field>
-              <Field label="Heard about us">{lead.hearAbout}</Field>
+              <Field label="Heard about us">{lead.referralSource ?? lead.hearAbout}</Field>
               <Field label="Last updated">{fmt(lead.updatedAt)}</Field>
             </dl>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-lg">{isMerchant ? 'Business' : isEmployee ? 'Employee' : 'Employer'}</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-lg">{isMerchant ? 'Business' : isEmployer ? 'Employer' : lead.type === 'INDIVIDUAL_WAITLIST' ? 'Individual' : 'Message'}</CardTitle></CardHeader>
           <CardContent>
             <dl className="grid grid-cols-2 gap-4">
               {isMerchant ? (
@@ -104,21 +98,19 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   <Field label="Role">{lead.role}</Field>
                   <Field label="Cities">{lead.cities.length ? lead.cities.join(', ') : null}</Field>
                   <Field label="Website"><ExtLink href={lead.websiteUrl} /></Field>
-                  <Field label="Instagram / social">{lead.socialUrl}</Field>
+                  <Field label="Instagram">{lead.socialUrl}</Field>
                 </>
-              ) : isEmployee ? (
-                <>
-                  <Field label="Intent">{lead.intent}</Field>
-                  <Field label="Role">{lead.role}</Field>
-                  <Field label="Share with employer">{lead.shareWithEmployer ? 'Yes' : 'No'}</Field>
-                </>
-              ) : (
+              ) : isEmployer ? (
                 <>
                   <Field label="Company size">{lead.companySize}</Field>
                   <Field label="HQ country">{lead.hqCountry}</Field>
                   <Field label="Role">{lead.role}</Field>
                   <Field label="Website"><ExtLink href={lead.websiteUrl} /></Field>
-                  <Field label="Instagram / social">{lead.socialUrl}</Field>
+                  <Field label="LinkedIn"><ExtLink href={lead.linkedin} /></Field>
+                </>
+              ) : (
+                <>
+                  <Field label="Role">{lead.role}</Field>
                 </>
               )}
               <Field label="Form">{lead.formKey}</Field>

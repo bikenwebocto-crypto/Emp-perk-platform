@@ -1,11 +1,11 @@
 import type { LeadType, Prisma } from '@prisma/client';
-import { parseLegacyLead } from './legacy';
 import { cleanText } from './normalise';
 import { ATTRIBUTION_FIELDS, FORM_KEY_TO_TYPE, type SupportedFormKey } from './options';
 import {
-  employeeAccessSchema,
+  contactMessageSchema,
   employerEnquirySchema,
   fieldErrors,
+  individualWaitlistSchema,
   merchantApplicationSchema,
 } from './schemas';
 
@@ -72,13 +72,138 @@ function buildConsents(consent1: string | null, consent2: string | null, version
 
 export type ParseLeadResult = { ok: true; input: LeadInput } | { ok: false; errors: Record<string, string> };
 
-/** Maps either the website (snake_case + form_key) or the legacy camelCase payload onto LeadInput. */
-export function parseLeadSubmission(body: Record<string, unknown>, now = new Date()): ParseLeadResult {
-  if (!('form_key' in body)) {
-    if ('type' in body) return parseLegacyLead(body);
-    return { ok: false, errors: { form_key: 'Unsupported form' } };
-  }
+/** employer_enquiry → EMPLOYER. */
+function parseEmployerEnquiry(
+  body: Record<string, unknown>,
+  attribution: Record<string, string> | null,
+  now: Date,
+): ParseLeadResult {
+  const parsed = employerEnquirySchema.safeParse(body);
+  if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
+  const f = parsed.data;
+  return {
+    ok: true,
+    input: {
+      type: 'EMPLOYER',
+      email: f.email,
+      attribution,
+      data: {
+        formKey: 'employer_enquiry',
+        firstName: f.first_name,
+        lastName: f.last_name,
+        phone: f.phone,
+        companyName: f.company,
+        role: f.role,
+        websiteUrl: f.website,
+        linkedin: f.linkedin,
+        companySize: f.company_size,
+        referralSource: f.source,
+        consents: buildConsents(f['consent-1'], null, f.consent_version, now),
+        consentAt: now,
+        consentVersion: f.consent_version,
+      },
+    },
+  };
+}
 
+/** merchant_application → MERCHANT. */
+function parseMerchantApplication(
+  body: Record<string, unknown>,
+  attribution: Record<string, string> | null,
+  now: Date,
+): ParseLeadResult {
+  const parsed = merchantApplicationSchema.safeParse(body);
+  if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
+  const f = parsed.data;
+  return {
+    ok: true,
+    input: {
+      type: 'MERCHANT',
+      email: f.email,
+      attribution,
+      data: {
+        formKey: 'merchant_application',
+        firstName: f.first_name,
+        lastName: f.last_name,
+        phone: f.phone,
+        companyName: f.company,
+        role: f.role,
+        websiteUrl: f.website,
+        socialUrl: f.instagram,
+        industry: f.category,
+        redemption: f.redemption,
+        referralSource: f.source,
+        consents: buildConsents(f['consent-1'], f['consent-2'], f.consent_version, now),
+        consentAt: now,
+        consentVersion: f.consent_version,
+      },
+    },
+  };
+}
+
+/** individual_waitlist → INDIVIDUAL_WAITLIST (no company). */
+function parseIndividualWaitlist(
+  body: Record<string, unknown>,
+  attribution: Record<string, string> | null,
+  now: Date,
+): ParseLeadResult {
+  const parsed = individualWaitlistSchema.safeParse(body);
+  if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
+  const f = parsed.data;
+  return {
+    ok: true,
+    input: {
+      type: 'INDIVIDUAL_WAITLIST',
+      email: f.email,
+      attribution,
+      data: {
+        formKey: 'individual_waitlist',
+        firstName: f.first_name,
+        lastName: f.last_name,
+        referralSource: f.source,
+        consents: buildConsents(f['consent-1'], null, f.consent_version, now),
+        consentAt: now,
+        consentVersion: f.consent_version,
+      },
+    },
+  };
+}
+
+/** contact_message → CONTACT_MESSAGE (a free-text message, never deduplicated). */
+function parseContactMessage(
+  body: Record<string, unknown>,
+  attribution: Record<string, string> | null,
+  now: Date,
+): ParseLeadResult {
+  const parsed = contactMessageSchema.safeParse(body);
+  if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
+  const f = parsed.data;
+  return {
+    ok: true,
+    input: {
+      type: 'CONTACT_MESSAGE',
+      email: f.email,
+      attribution,
+      data: {
+        formKey: 'contact_message',
+        firstName: f.first_name,
+        lastName: f.last_name,
+        phone: f.phone,
+        message: f.message,
+        referralSource: f.source,
+        consents: buildConsents(f['consent-1'], null, f.consent_version, now),
+        consentAt: now,
+        consentVersion: f.consent_version,
+      },
+    },
+  };
+}
+
+/**
+ * Maps a website submission (snake_case + form_key) onto LeadInput.
+ * Only the four website forms are accepted; anything else is a `form_key` error.
+ */
+export function parseLeadSubmission(body: Record<string, unknown>, now = new Date()): ParseLeadResult {
   const formKey = cleanText(body.form_key);
   if (!formKey || !Object.hasOwn(FORM_KEY_TO_TYPE, formKey)) {
     return { ok: false, errors: { form_key: 'Unsupported form' } };
@@ -86,86 +211,14 @@ export function parseLeadSubmission(body: Record<string, unknown>, now = new Dat
   const key = formKey as SupportedFormKey;
   const attribution = pickAttribution(body);
 
-  if (key === 'employer_enquiry') {
-    const parsed = employerEnquirySchema.safeParse(body);
-    if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
-    const f = parsed.data;
-    return {
-      ok: true,
-      input: {
-        type: 'EMPLOYER',
-        email: f.email,
-        attribution,
-        data: {
-          formKey: key,
-          firstName: f.first_name,
-          lastName: f.last_name,
-          phone: f.phone,
-          companyName: f.company,
-          role: f.role,
-          websiteUrl: f.website,
-          socialUrl: f.instagram,
-          companySize: f.company_size,
-          consents: buildConsents(f['consent-1'], null, f.consent_version, now),
-          consentAt: now,
-          consentVersion: f.consent_version,
-        },
-      },
-    };
+  switch (key) {
+    case 'employer_enquiry':
+      return parseEmployerEnquiry(body, attribution, now);
+    case 'merchant_application':
+      return parseMerchantApplication(body, attribution, now);
+    case 'individual_waitlist':
+      return parseIndividualWaitlist(body, attribution, now);
+    case 'contact_message':
+      return parseContactMessage(body, attribution, now);
   }
-
-  if (key === 'merchant_application') {
-    const parsed = merchantApplicationSchema.safeParse(body);
-    if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
-    const f = parsed.data;
-    return {
-      ok: true,
-      input: {
-        type: 'MERCHANT',
-        email: f.email,
-        attribution,
-        data: {
-          formKey: key,
-          firstName: f.first_name,
-          lastName: f.last_name,
-          phone: f.phone,
-          companyName: f.company,
-          role: f.role,
-          websiteUrl: f.website,
-          socialUrl: f.instagram,
-          industry: f.category,
-          redemption: f.redemption,
-          consents: buildConsents(f['consent-1'], f['consent-2'], f.consent_version, now),
-          consentAt: now,
-          consentVersion: f.consent_version,
-        },
-      },
-    };
-  }
-
-  const parsed = employeeAccessSchema.safeParse(body);
-  if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
-  const f = parsed.data;
-  return {
-    ok: true,
-    input: {
-      type: 'EMPLOYEE_ACCESS',
-      email: f.email,
-      attribution,
-      data: {
-        formKey: key,
-        firstName: f.first_name,
-        lastName: f.last_name,
-        phone: f.phone,
-        companyName: f.company,
-        role: f.role,
-        intent: f.intent,
-        // Privacy rule: only a ticked consent-2 lets staff name the employee to their employer.
-        shareWithEmployer: f['consent-2'] !== null,
-        consents: buildConsents(f['consent-1'], f['consent-2'], f.consent_version, now),
-        consentAt: now,
-        consentVersion: f.consent_version,
-      },
-    },
-  };
 }

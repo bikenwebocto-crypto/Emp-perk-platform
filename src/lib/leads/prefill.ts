@@ -6,7 +6,7 @@ export interface PrefillLead {
   lastName: string
   email: string
   phone: string | null
-  companyName: string
+  companyName: string | null
   industry?: string | null
   cities?: string[] | null
   websiteUrl?: string | null
@@ -32,8 +32,13 @@ export interface CompanyPrefill {
   country: string
 }
 
+/** Lead types that can be converted into a company or a merchant. */
+export const CONVERTIBLE_LEAD_TYPES = ['MERCHANT', 'EMPLOYER'] as const
+
+export type LeadType = 'MERCHANT' | 'EMPLOYER' | 'INDIVIDUAL_WAITLIST' | 'CONTACT_MESSAGE'
+
 /** Where the Convert action sends the admin for each lead type. */
-export function convertHref(lead: { id: string; type: 'MERCHANT' | 'EMPLOYER' | 'EMPLOYEE_ACCESS' }): string {
+export function convertHref(lead: { id: string; type: LeadType }): string {
   const base = lead.type === 'MERCHANT' ? '/admin/merchants/add' : '/admin/companies/add'
   return `${base}?leadId=${encodeURIComponent(lead.id)}`
 }
@@ -54,7 +59,7 @@ export function leadToMerchantPrefill(
   categories: { id: string; name: string }[],
 ): MerchantPrefill {
   return {
-    businessName: lead.companyName,
+    businessName: lead.companyName?.trim() || `${lead.firstName} ${lead.lastName}`.trim(),
     contactName: `${lead.firstName} ${lead.lastName}`.trim(),
     email: lead.email,
     contactPhone: lead.phone ?? '',
@@ -66,7 +71,7 @@ export function leadToMerchantPrefill(
 
 export function leadToCompanyPrefill(lead: PrefillLead): CompanyPrefill {
   return {
-    name: lead.companyName,
+    name: lead.companyName?.trim() || `${lead.firstName} ${lead.lastName}`.trim(),
     email: lead.email,
     firstName: lead.firstName,
     lastName: lead.lastName,

@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { useUpdateLeadStatus, type Lead } from '@/hooks/queries/use-leads'
 import { showToast } from '@/hooks/use-toast'
-import { convertHref } from '@/lib/leads/prefill'
+import { convertHref, CONVERTIBLE_LEAD_TYPES } from '@/lib/leads/prefill'
 
 type PendingAction = 'CONTACTED' | 'REJECTED' | null
 
@@ -18,8 +18,8 @@ export function LeadActions({ lead, compact = false }: { lead: Pick<Lead, 'id' |
   const [reason, setReason] = useState('')
 
   const canChangeStatus = lead.status === 'NEW'
-  // Employee leads are never converted to a company or merchant.
-  const canConvert = lead.type !== 'EMPLOYEE_ACCESS' && lead.status !== 'CONVERTED' && lead.status !== 'REJECTED'
+  // Only employer and merchant leads can be converted; individuals and contact messages have no company.
+  const canConvert = (CONVERTIBLE_LEAD_TYPES as readonly string[]).includes(lead.type) && lead.status !== 'CONVERTED' && lead.status !== 'REJECTED'
   if (!canChangeStatus && !canConvert) return null
 
   const close = () => { setPending(null); setReason('') }
