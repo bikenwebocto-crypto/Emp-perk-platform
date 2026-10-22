@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
     const now = new Date()
     const where: any = {
       status: 'LIVE',
+      isFlash: false,
       startDate: { lte: now },
       endDate: { gt: now },
       merchant: {

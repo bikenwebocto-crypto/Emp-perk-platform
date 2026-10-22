@@ -2,7 +2,7 @@
 // startDate → endDate; the only extra rule is a maximum duration, kept here (not
 // in the database) so the limit can change without a migration.
 
-export const FLASH_MAX_DAYS = 7;
+export const FLASH_MAX_DAYS = 15;
 export const FLASH_MAX_HOURS = FLASH_MAX_DAYS * 24;
 
 const HOUR_MS = 60 * 60 * 1000;

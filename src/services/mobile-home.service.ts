@@ -152,8 +152,11 @@ const SECTION_LIMITS = {
 //
 // IMPORTANT: this is the single source of truth for visibility. Any other
 // place that filters LIVE offers (e.g. buildNearbyOffers) MUST reuse this.
+// Flash offers are excluded from every regular section; they are served
+// only by `/api/mobile/flash`.
 const liveOfferWhere = (now: Date) => ({
   status: 'LIVE' as const,
+  isFlash: false,
   startDate: { lte: now },
   endDate: { gt: now },
   merchant: {

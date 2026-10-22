@@ -81,6 +81,7 @@ interface ListResponse {
 interface BookingDetail extends Omit<BookingRow, 'lead'> {
   lead: LeadSummary & { hearAbout: string | null; message: string | null; consentAt: string | null; createdAt: string }
   notes: string | null
+  meetingLink: string | null
   allowedNextStatuses: DemoStatus[]
   overlaps: Array<{ id: string; reference: string; status: DemoStatus; startsAt: string }>
   emailSent?: boolean
@@ -113,7 +114,68 @@ function StatusBadge({ status }: { status: DemoStatus }) {
     </span>
   )
 }
+function MeetingLinkEditor({
+  meetingLink,
+  mutation,
+}: {
+  meetingLink: string | null
+  mutation: ReturnType<typeof useMutation<BookingDetail, Error, Record<string, unknown>>>
+}) {
+  const [value, setValue] = useState(meetingLink ?? '')
 
+  useEffect(() => {
+    setValue(meetingLink ?? '')
+  }, [meetingLink])
+
+  function save() {
+    mutation.mutate({
+      meetingLink: value.trim() || null,
+    })
+  }
+
+  return (
+    <Section title="Meeting link">
+      <div className="space-y-2">
+        <input
+          type="url"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="https://teams.microsoft.com/... or https://meet.google.com/..."
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+        />
+
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            Add the video meeting link for this demo.
+          </p>
+
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={mutation.isPending}
+            onClick={save}
+          >
+            {mutation.isPending && (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            )}
+            Save link
+          </Button>
+        </div>
+
+        {meetingLink && (
+          <a
+            href={meetingLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-primary hover:underline"
+          >
+            Join meeting
+          </a>
+        )}
+      </div>
+    </Section>
+  )
+} 
 function useDebounced<T>(value: T, delay = 300) {
   const [debounced, setDebounced] = useState(value)
   useEffect(() => {
@@ -579,7 +641,10 @@ function DrawerBody({ id }: { id: string }) {
             <dd>{new Date(detail.createdAt).toLocaleString()}</dd>
           </dl>
         </Section>
-
+        <MeetingLinkEditor
+            meetingLink={detail.meetingLink}
+            mutation={mutation}
+          />
         <Section title="Requester">
           <dl className="grid grid-cols-[140px_1fr] gap-x-4 gap-y-2 text-sm">
             <dt className="text-muted-foreground">Name</dt>

@@ -115,6 +115,10 @@ function runQualityChecks(body: any): {
     new Date(body.endDate) <= new Date(body.startDate)
   )
     errors.endDate = "End date must be after start date";
+  if (body.redemptionType === "ONLINE_CODE") {
+    if (!String(body.bookingUrl ?? "").trim()) errors.bookingUrl = "Booking URL is required";
+    if (!String(body.redemptionCode ?? "").trim()) errors.redemptionCode = "Offer code is required";
+  }
   const flashError = validateFlashWindow(body.isFlash, body.startDate, body.endDate);
   if (flashError && !errors.endDate) errors.endDate = flashError;
   if (!body.termsAndConditions)

@@ -403,6 +403,15 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       }
     }
 
+    if (form.redemptionType === "ONLINE_CODE") {
+      if (!form.bookingUrl.trim()) errs.bookingUrl = "Booking URL is required";
+      else if (!/^https?:\/\/\S+$/i.test(form.bookingUrl.trim()))
+        errs.bookingUrl = "Enter a valid URL starting with http:// or https://";
+      if (!form.redemptionCode.trim()) errs.redemptionCode = "Offer code is required";
+      else if (!/^[A-Za-z0-9]{6}$/.test(form.redemptionCode.trim()))
+        errs.redemptionCode = "Offer code must be exactly 6 letters or numbers";
+    }
+
     if (!form.startDate.trim()) errs.startDate = "Start date is required";
     if (!form.endDate.trim()) errs.endDate = "End date is required";
     else if (
@@ -970,26 +979,33 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                           type="url"
                         />
 
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Where employees will be directed to use their code
-                        </p>
+                        {errors.bookingUrl ? (
+                          <p className="mt-1 text-xs text-destructive">{errors.bookingUrl}</p>
+                        ) : (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Where employees will be directed to use their code
+                          </p>
+                        )}
                       </div>
 
                       <div>
-                        <label className={labelClass}>Offer Code</label>
+                        <label className={labelClass}>Offer Code *</label>
 
                         <Input
                           className={inputClass}
                           value={form.redemptionCode}
                           onChange={set("redemptionCode")}
-                          placeholder="Auto-generated if empty"
+                          placeholder="e.g. SAVE10"
                           maxLength={6}
                         />
 
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          6-character alphanumeric code. Leave empty to
-                          auto-generate.
-                        </p>
+                        {errors.redemptionCode ? (
+                          <p className="mt-1 text-xs text-destructive">{errors.redemptionCode}</p>
+                        ) : (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            6-character alphanumeric code employees enter at checkout.
+                          </p>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

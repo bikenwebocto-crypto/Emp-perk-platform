@@ -1623,31 +1623,19 @@ model Lead {
 }
 
 /// A "Book a Demo" request from a public website visitor. The visitor is a lead,
-/// so the contact/company details live on the linked Lead; this row holds the
-/// scheduling request itself. One lead can have several bookings (e.g. a
-/// reschedule after a cancellation), so the relation is one-to-many.
-///
-/// The meeting occupies the half-open interval [startsAt, startsAt + durationMinutes).
-/// startsAt is stored in UTC; `timezone` is the visitor's IANA zone, kept only so
-/// the time can be shown back to them in their own clock.
+
 model DemoBooking {
   id        String @id @default(uuid()) @db.Uuid
-  /// Public, human-readable reference returned to the visitor — never the row id.
   reference String @unique @db.VarChar(24)
 
   leadId String @db.Uuid
   lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
-
-  /// Meeting start, stored in UTC.
   startsAt        DateTime
-  /// Meeting length in minutes; collision checks use the real interval.
   durationMinutes Int
-  /// IANA zone (e.g. "Europe/Nicosia") for display only.
   timezone        String   @db.VarChar(64)
   notes           String?  @db.VarChar(2000)
-  /// PENDING reserves its slot; only CANCELLED frees it.
   status          DemoBookingStatus @default(PENDING)
-
+  meetingLink     String?   @db.VarChar(500)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

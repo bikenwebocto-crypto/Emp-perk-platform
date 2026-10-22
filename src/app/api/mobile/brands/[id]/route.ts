@@ -45,6 +45,7 @@ export async function GET(
             offerType: true,
             startDate: true,
             endDate: true,
+            isFlash: true,
             isFeatured: true,
             isExclusive: true,
             content: { select: { shortDescription: true, imageUrls: true } },

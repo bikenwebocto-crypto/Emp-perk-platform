@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(Get-ChildItem -Path \"src\\\\app\\\\api\" -Recurse -Filter \"route.ts\" -File | Where-Object { $_.FullName -match 'categor|banner|auth' } | Select-Object -ExpandProperty FullName)"
+      "PowerShell(Get-ChildItem -Path \"src\\\\app\\\\api\" -Recurse -Filter \"route.ts\" -File | Where-Object { $_.FullName -match 'categor|banner|auth' } | Select-Object -ExpandProperty FullName)",
+      "mcp__claude_ai_Claude_Docs__batch",
+      "mcp__claude_ai_Claude_Docs__guide",
+      "mcp__claude_ai_Claude_Docs__update"
     ]
   }
 }

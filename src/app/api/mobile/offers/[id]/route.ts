@@ -115,6 +115,7 @@ export async function GET(
         qrCodeUrl: redemptionConfig.qrCodeUrl ?? null,
         startDate: offer.startDate,
         endDate: offer.endDate,
+        isFlash: offer.isFlash,
         isFeatured: offer.isFeatured,
         isExclusive: offer.isExclusive,
         merchant: offer.merchant,

@@ -344,6 +344,9 @@ export async function GET(request: NextRequest) {
       where.status = { in: ["DRAFT", "VALIDATION_FAILED"] };
     } else if (scope === "archived") {
       where.status = "ARCHIVED";
+    } else if (scope === "flash") {
+      where.isFlash = true;
+      where.status = { notIn: ["ARCHIVED"] };
     }
 
     const take = search ? Math.min(pageSize, 10) : pageSize;
@@ -493,6 +496,9 @@ export async function POST(request: NextRequest) {
 
     if (redemptionType === 'ONLINE_CODE' && !bookingUrl && !saveAsDraft) {
       return badRequest("Booking URL is required for ONLINE_CODE offers");
+    }
+    if (redemptionType === 'ONLINE_CODE' && !saveAsDraft && !String(redemptionCode ?? '').trim()) {
+      return badRequest("Offer code is required for ONLINE_CODE offers");
     }
     if (redemptionType === 'BOOKING_LINK' && !bookingUrl && !saveAsDraft) {
       return badRequest("Booking URL is required for BOOKING_LINK offers");
