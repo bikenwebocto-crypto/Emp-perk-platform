@@ -13,6 +13,7 @@ const LEAD_LABEL = {
   EMPLOYER: 'employer',
   INDIVIDUAL_WAITLIST: 'waitlist',
   CONTACT_MESSAGE: 'contact',
+  EMPLOYEE_ACCESS: 'employee access',
 } as const;
 
 /** Employers and merchants have a company, so they get the default cities and country. */
