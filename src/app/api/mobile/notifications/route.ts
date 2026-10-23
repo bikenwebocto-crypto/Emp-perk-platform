@@ -9,7 +9,14 @@ import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 // alongside the page. Mirrors the web `/api/employee/notifications`
 // contract (excludes `referenceType: 'saved_offer'` which is the saved-
 // offers side channel).
-const OFFER_REFERENCE_TYPES = new Set(['offer']) // add others if used, e.g. 'new_offer', 'offer_expiring'
+//
+// Offer-related notifications (live, updated, expiring, expired, replaced)
+// carry an `offer` object with its details and image.
+const OFFER_REFERENCE_TYPES = new Set(['offer', 'merchant_offer', 'offer_replacement'])
+
+function isOfferNotification(r: { referenceType: string | null; referenceId: string | null }) {
+  return !!r.referenceId && !!r.referenceType && OFFER_REFERENCE_TYPES.has(r.referenceType)
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -40,52 +47,59 @@ export async function GET(request: NextRequest) {
       prisma.notificationEvent.count({ where }),
     ])
 
-    // Merchant offer IDs on this page
+    // Offer IDs on this page
     const offerIds = [
-      ...new Set(
-        rows
-          .filter((r) => r.referenceType === 'merchant_offer' && r.referenceId)
-          .map((r) => r.referenceId as string)
-      ),
+      ...new Set(rows.filter(isOfferNotification).map((r) => r.referenceId as string)),
     ]
 
-    // Fetch offer images + merchant info in parallel
-    const [contents, offers] = offerIds.length
-      ? await Promise.all([
-          prisma.offerContent.findMany({
-            where: { offerId: { in: offerIds } },
-            select: { offerId: true, imageUrls: true },
-          }),
-          prisma.merchantOffer.findMany({
-            where: { id: { in: offerIds } },
-            select: {
-              id: true,
-              merchant: {
-                select: {
-                  id: true,
-                  businessName: true,
-                  logoUrl: true, // adjust to your Merchant logo field name
-                },
-              },
-            },
-          }),
-        ])
-      : [[], []]
-
-    const imageByOfferId = new Map(
-      contents.map((c) => [c.offerId, c.imageUrls[0] ?? null])
-    )
-    const merchantByOfferId = new Map(offers.map((o) => [o.id, o.merchant]))
+    // Deleted offers are still returned so old notifications keep their details.
+    const offers = offerIds.length
+      ? await prisma.merchantOffer.findMany({
+          where: { id: { in: offerIds } },
+          select: {
+            id: true,
+            title: true,
+            offerType: true,
+            status: true,
+            startDate: true,
+            endDate: true,
+            isFlash: true,
+            deletedAt: true,
+            content: { select: { shortDescription: true, imageUrls: true } },
+            merchant: { select: { id: true, businessName: true, logoUrl: true } },
+          },
+        })
+      : []
+    const offerById = new Map(offers.map((o) => [o.id, o]))
+    const now = new Date()
 
     const data = rows.map((r) => {
-      const isOffer = r.referenceType === 'merchant_offer' && !!r.referenceId
-      const merchant = isOffer ? merchantByOfferId.get(r.referenceId as string) : undefined
+      const offer = isOfferNotification(r) ? offerById.get(r.referenceId as string) : undefined
+      const imageUrls = offer?.content?.imageUrls ?? []
 
       return {
         ...r,
-        offerImageUrl: isOffer ? imageByOfferId.get(r.referenceId as string) ?? null : null,
-        merchantName: merchant?.businessName ?? null,
-        merchantLogoUrl: merchant?.logoUrl ?? null,
+        offer: offer
+          ? {
+              id: offer.id,
+              title: offer.title,
+              offerType: offer.offerType,
+              status: offer.status,
+              shortDescription: offer.content?.shortDescription ?? null,
+              imageUrl: imageUrls[0] ?? null,
+              imageUrls,
+              startDate: offer.startDate,
+              endDate: offer.endDate,
+              isFlash: offer.isFlash,
+              isExpired: offer.status === 'EXPIRED' || offer.endDate < now,
+              isDeleted: !!offer.deletedAt,
+              merchant: offer.merchant,
+            }
+          : null,
+        // Flat fields kept for existing app builds.
+        offerImageUrl: imageUrls[0] ?? null,
+        merchantName: offer?.merchant.businessName ?? null,
+        merchantLogoUrl: offer?.merchant.logoUrl ?? null,
       }
     })
 
