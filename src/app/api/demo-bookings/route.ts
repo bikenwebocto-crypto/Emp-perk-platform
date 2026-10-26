@@ -3,10 +3,12 @@ import { clientIpFromRequest, getRateLimiter } from '@/lib/rate-limit';
 import { corsHeaders, isOriginAllowed } from '@/lib/leads/cors';
 import { readLeadBody } from '@/lib/leads/parse';
 import { parseDemoBooking } from '@/lib/demo-bookings/schema';
-import { formatBusinessLocal, MEETING_MODE } from '@/lib/demo-bookings/availability';
+import { formatBusinessLocal, formatInTimeZone, MEETING_MODE } from '@/lib/demo-bookings/availability';
 import { scheduleDemoBooking } from '@/lib/demo-bookings/scheduling.service';
 import { createAuditLog } from '@/services/audit-log.service';
 import { channels, publishBusinessToAdmins } from '@/services/business-notification.service';
+import { emailService } from '@/lib/email/email';
+import { renderDemoBookingReceivedTemplate } from '@/emails/templates';
 
 const RATE_LIMIT = { limit: 5, windowMs: 10 * 60 * 1000 } as const;
 
@@ -98,6 +100,27 @@ export async function POST(request: NextRequest) {
       entityId: booking.id,
       metadata: { reference: booking.reference, leadId: booking.leadId, leadType: input.type, startsAt: booking.startsAt.toISOString(), overlapCount },
     });
+
+    // Send booking received email to attendee (best-effort, Cyprus time)
+    if (input.email) {
+      try {
+        const html = renderDemoBookingReceivedTemplate({
+          firstName: input.lead.firstName,
+          companyName: input.lead.companyName,
+          reference: booking.reference,
+          when: formatInTimeZone(booking.startsAt, booking.timezone || 'Asia/Nicosia'),
+          timezone: booking.timezone || 'Asia/Nicosia',
+          durationMinutes: booking.durationMinutes,
+        })
+        await emailService.sendEmail({
+          to: input.email,
+          subject: `Demo Booking Received - ${booking.reference}`,
+          html,
+        })
+      } catch (error) {
+        console.error('Demo booking received email failed:', error)
+      }
+    }
 
     // Notifications are best-effort: a failure must not lose the booking.
     try {

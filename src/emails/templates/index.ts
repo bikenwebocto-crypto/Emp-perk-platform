@@ -19,6 +19,10 @@ export {
 } from './company-admin-invitation'
 
 export {
+  renderDemoBookingReceivedTemplate,
+} from './demo-booking-received'
+
+export {
   renderDemoBookingRescheduledTemplate,
 } from './demo-booking-rescheduled'
 

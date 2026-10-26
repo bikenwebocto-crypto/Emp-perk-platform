@@ -116,61 +116,23 @@ function StatusBadge({ status }: { status: DemoStatus }) {
 }
 function MeetingLinkEditor({
   meetingLink,
-  mutation,
 }: {
   meetingLink: string | null
-  mutation: ReturnType<typeof useMutation<BookingDetail, Error, Record<string, unknown>>>
 }) {
-  const [value, setValue] = useState(meetingLink ?? '')
-
-  useEffect(() => {
-    setValue(meetingLink ?? '')
-  }, [meetingLink])
-
-  function save() {
-    mutation.mutate({
-      meetingLink: value.trim() || null,
-    })
-  }
-
   return (
     <Section title="Meeting link">
       <div className="space-y-2">
-        <input
-          type="url"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="https://teams.microsoft.com/... or https://meet.google.com/..."
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-        />
-
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs text-muted-foreground">
-            Add the video meeting link for this demo.
-          </p>
-
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={mutation.isPending}
-            onClick={save}
-          >
-            {mutation.isPending && (
-              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-            )}
-            Save link
-          </Button>
-        </div>
-
-        {meetingLink && (
+        {meetingLink ? (
           <a
             href={meetingLink}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm text-primary hover:underline"
+            className="text-sm text-primary hover:underline break-all"
           >
-            Join meeting
+            {meetingLink}
           </a>
+        ) : (
+          <p className="text-sm text-muted-foreground">No meeting link set. Add it via Reschedule Meeting.</p>
         )}
       </div>
     </Section>
@@ -641,10 +603,7 @@ function DrawerBody({ id }: { id: string }) {
             <dd>{new Date(detail.createdAt).toLocaleString()}</dd>
           </dl>
         </Section>
-        <MeetingLinkEditor
-            meetingLink={detail.meetingLink}
-            mutation={mutation}
-          />
+        <MeetingLinkEditor meetingLink={detail.meetingLink} />
         <Section title="Requester">
           <dl className="grid grid-cols-[140px_1fr] gap-x-4 gap-y-2 text-sm">
             <dt className="text-muted-foreground">Name</dt>
@@ -700,17 +659,21 @@ function DrawerBody({ id }: { id: string }) {
           </div>
         ) : (
           <div className="flex flex-wrap justify-end gap-2">
-            {detail.allowedNextStatuses.map((s) => (
-              <Button
-                key={s}
-                size="sm"
-                variant={s === 'CANCELLED' ? 'destructive' : s === 'CONFIRMED' ? 'default' : 'outline'}
-                disabled={mutation.isPending}
-                onClick={() => (s === 'CANCELLED' ? setPendingCancel(true) : mutation.mutate({ status: s }))}
-              >
-                {ACTION_LABELS[s]}
-              </Button>
-            ))}
+            {detail.allowedNextStatuses.map((s) => {
+              const canConfirm = s === 'CONFIRMED' ? (!!detail.startsAt && !!detail.meetingLink) : true
+              return (
+                <Button
+                  key={s}
+                  size="sm"
+                  variant={s === 'CANCELLED' ? 'destructive' : s === 'CONFIRMED' ? 'default' : 'outline'}
+                  disabled={mutation.isPending || !canConfirm}
+                  title={!canConfirm ? 'A scheduled time and meeting link are required before confirming the booking.' : undefined}
+                  onClick={() => (s === 'CANCELLED' ? setPendingCancel(true) : mutation.mutate({ status: s }))}
+                >
+                  {ACTION_LABELS[s]}
+                </Button>
+              )
+            })}
           </div>
         )}
       </div>
@@ -728,6 +691,13 @@ function RescheduleSection({
   // Start on the booking's own day: the usual fix for a clash is a nearby slot.
   const [date, setDate] = useState(() => toBusinessWallClock(new Date(detail.startsAt)).dateKey)
   const [selectedSlot, setSelectedSlot] = useState('')
+  const [meetingLink, setMeetingLink] = useState(detail.meetingLink ?? '')
+  const [linkError, setLinkError] = useState('')
+
+  useEffect(() => {
+    setMeetingLink(detail.meetingLink ?? '')
+    setLinkError('')
+  }, [detail.meetingLink])
 
   const { data: availability, isFetching } = useQuery({
     queryKey: ['admin-demo-availability', date, detail.durationMinutes],
@@ -744,8 +714,17 @@ function RescheduleSection({
   const slots = availability?.slots ?? []
   const minDate = toBusinessWallClock(new Date()).dateKey
 
+  function handleReschedule() {
+    if (!meetingLink.trim()) {
+      setLinkError('Meeting link is required.')
+      return
+    }
+    setLinkError('')
+    mutation.mutate({ startsAt: selectedSlot, meetingLink: meetingLink.trim() })
+  }
+
   return (
-    <Section title="Reschedule">
+    <Section title="Reschedule Meeting">
       <div className="space-y-2">
         <input
           type="date"
@@ -777,19 +756,33 @@ function RescheduleSection({
             ))}
           </select>
         )}
+        <div>
+          <input
+            type="url"
+            value={meetingLink}
+            onChange={(e) => {
+              setMeetingLink(e.target.value)
+              if (e.target.value.trim()) setLinkError('')
+            }}
+            placeholder="https://teams.microsoft.com/... or https://meet.google.com/..."
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            required
+          />
+          {linkError && <p className="mt-1 text-xs text-destructive">{linkError}</p>}
+        </div>
         <div className="flex justify-end">
           <Button
             size="sm"
             variant="outline"
-            disabled={!selectedSlot || mutation.isPending}
-            onClick={() => mutation.mutate({ startsAt: selectedSlot })}
+            disabled={!selectedSlot || !meetingLink.trim() || mutation.isPending}
+            onClick={handleReschedule}
           >
             {mutation.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-            Reschedule
+            Reschedule Meeting
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Times are Nicosia time. The requester is emailed the new time in their own timezone.
+          Times are Nicosia time. Meeting link is required. The requester is emailed the new time in their own timezone.
         </p>
       </div>
     </Section>

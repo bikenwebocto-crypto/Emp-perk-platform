@@ -77,6 +77,23 @@ function createTransporter() {
   });
 }
 
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/tr>/gi, '\n')
+    .replace(/<\/td>/gi, ' | ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/\n\s*\n\s*\n/g, '\n\n')
+    .trim()
+}
+
 async function sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
   console.log('[EMAIL_PROVIDER] Sending email', {
     to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
@@ -87,10 +104,11 @@ async function sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
   try {
     const transporter = createTransporter();
 
-    const from = options.from || process.env.SMTP_FROM || process.env.SMTP_USER;
+    const from = options.from || process.env.SMTP_FROM || 'hello@perksandmore.com';
+    const replyTo = options.replyTo || process.env.SMTP_REPLY_TO || 'hello@perksandmore.com';
 
     if (!from) {
-      throw new Error('From address not specified. Set SMTP_FROM or SMTP_USER environment variable.');
+      throw new Error('From address not specified. Set SMTP_FROM or use default hello@perksandmore.com');
     }
 
     const mailOptions = {
@@ -98,9 +116,10 @@ async function sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
       to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
       subject: options.subject,
       html: options.html,
+      text: htmlToPlainText(options.html),
       cc: options.cc ? (Array.isArray(options.cc) ? options.cc.join(', ') : options.cc) : undefined,
       bcc: options.bcc ? (Array.isArray(options.bcc) ? options.bcc.join(', ') : options.bcc) : undefined,
-      replyTo: options.replyTo,
+      replyTo,
       attachments: options.attachments,
     };
 

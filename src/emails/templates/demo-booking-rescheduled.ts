@@ -1,5 +1,14 @@
 import { renderTemplate } from '../renderer'
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
 export interface DemoBookingRescheduledData {
   firstName: string
   companyName: string
@@ -10,49 +19,60 @@ export interface DemoBookingRescheduledData {
   next: string
   timezone: string
   durationMinutes: number
+  meetingLink?: string
 }
 
 export function renderDemoBookingRescheduledTemplate(
   data: DemoBookingRescheduledData,
 ): string {
+  const meetingLink = data.meetingLink || process.env.DEMO_MEETING_LINK || ''
   const bodyHtml = `
-<p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-  Hello ${data.firstName},
+<p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
+  Hello ${escapeHtml(data.firstName)},
 </p>
 
-<p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-  Your demo for ${data.companyName} has been rescheduled.
+<p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
+  Your demo for <strong>${escapeHtml(data.companyName)}</strong> has been rescheduled.
 </p>
 
-<table style="margin: 0 0 16px 0;">
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin: 24px 0; width: 100%;">
   <tr>
-    <td style="color: #6b7280; font-size: 14px; padding: 4px 12px 4px 0;">Reference:</td>
-    <td style="color: #374151; font-size: 14px; padding: 4px 0;">${data.reference}</td>
+    <td style="color: #6b7280; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; padding: 6px 12px 6px 0; vertical-align: top; width: 120px;">Reference:</td>
+    <td style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; padding: 6px 0;">${escapeHtml(data.reference)}</td>
   </tr>
   <tr>
-    <td style="color: #6b7280; font-size: 14px; padding: 4px 12px 4px 0;">Previous time:</td>
-    <td style="color: #374151; font-size: 14px; padding: 4px 0; text-decoration: line-through;">${data.previous}</td>
+    <td style="color: #6b7280; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; padding: 6px 12px 6px 0; vertical-align: top;">Previous time:</td>
+    <td style="color: #6b7280; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; padding: 6px 0; text-decoration: line-through;">${escapeHtml(data.previous)}</td>
   </tr>
   <tr>
-    <td style="color: #6b7280; font-size: 14px; padding: 4px 12px 4px 0;">New time:</td>
-    <td style="color: #16a34a; font-size: 14px; font-weight: 600; padding: 4px 0;">${data.next}</td>
+    <td style="color: #6b7280; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; padding: 6px 12px 6px 0; vertical-align: top;">New time (Cyprus Time):</td>
+    <td style="color: #61549A; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 600; padding: 6px 0;">${escapeHtml(data.next)}</td>
   </tr>
   <tr>
-    <td style="color: #6b7280; font-size: 14px; padding: 4px 12px 4px 0;">Duration:</td>
-    <td style="color: #374151; font-size: 14px; padding: 4px 0;">${data.durationMinutes} minutes (video call)</td>
+    <td style="color: #6b7280; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; padding: 6px 12px 6px 0; vertical-align: top;">Duration:</td>
+    <td style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; padding: 6px 0;">${data.durationMinutes} minutes (video call)</td>
   </tr>
   <tr>
-    <td style="color: #6b7280; font-size: 14px; padding: 4px 12px 4px 0;">Timezone:</td>
-    <td style="color: #374151; font-size: 14px; padding: 4px 0;">${data.timezone}</td>
+    <td style="color: #6b7280; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; padding: 6px 12px 6px 0; vertical-align: top;">Timezone:</td>
+    <td style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; padding: 6px 0;">${escapeHtml(data.timezone)}</td>
   </tr>
 </table>
 
-<p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-  If this new time no longer works for you, simply reply to this email and we will find another slot.
+${meetingLink ? `
+<div style="margin: 32px 0; text-align: center;">
+  <a href="${escapeHtml(meetingLink)}" style="background-color: #61549A; color: #ffffff; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 6px; display: inline-block;">
+    Join Microsoft Teams Meeting
+  </a>
+</div>
+` : ''}
+
+<p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 24px 0 16px 0;">
+  If this new time no longer works for you, simply reply to this email at <a href="mailto:hello@perksandmore.com" style="color: #61549A;">hello@perksandmore.com</a> and we will find another slot for you.
 </p>
 
-<p style="color: #6b7280; font-size: 14px; line-height: 1.5; margin: 0;">
-  Support: <a href="mailto:${process.env.SUPPORT_EMAIL || 'support@example.com'}" style="color: #16a34a;">${process.env.SUPPORT_EMAIL || 'support@example.com'}</a>
+<p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 32px 0 0 0;">
+  Best regards,<br/>
+  <strong>The Perks &amp; More Team</strong>
 </p>`
 
   return renderTemplate('Your demo has been rescheduled', bodyHtml)

@@ -19,6 +19,7 @@ import {
 } from '@/lib/demo-bookings/availability'
 import { changeDemoBookingStatus, rescheduleDemoBooking } from '@/lib/demo-bookings/scheduling.service'
 import { DEMO_BOOKING_STATUSES, getAllowedNextStatuses, isDemoBookingStatus } from '@/lib/demo-bookings/status'
+import { generateICalInvite } from '@/lib/email/calendar'
 
 function apiError(status: number, code: string, message: string, extra: Record<string, unknown> = {}) {
   return NextResponse.json({ success: false, error: { code, message, ...extra } }, { status })
@@ -75,8 +76,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 // PATCH /api/admin/demo-bookings/[id] — reschedule OR change status.
 //
 // Body (exactly one kind of change per call):
-//   { startsAt, timezone?, durationMinutes? }  — move the meeting
-//   { status }                                  — confirm / cancel / complete
+//   { startsAt, meetingLink, timezone?, durationMinutes? }  — move the meeting (meetingLink required)
+//   { status }                                              — confirm / cancel / complete
 //
 // Admin-only. A reschedule validates the new time against policy, excludes this
 // booking from its own collision check, re-checks availability under the same
@@ -104,6 +105,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     const hasStart = body.startsAt !== undefined && body.startsAt !== null
     const hasStatus = body.status !== undefined && body.status !== null
+    const hasMeetingLink = body.meetingLink !== undefined
 
     if (hasStart && hasStatus) {
       return badRequest('Provide either a new time or a new status, not both')
@@ -111,7 +113,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     // Anything without an explicit status is treated as a reschedule, so a
     // missing startsAt surfaces as a field error from the request schema.
-    if (hasStatus) return await changeStatus(id, body.status, adminId)
+    if (hasStatus) {
+      // Check if trying to confirm without meeting link/time
+      if (body.status === 'CONFIRMED') {
+        const current = await prisma.demoBooking.findUnique({ where: { id }, select: { startsAt: true, meetingLink: true } })
+        if (!current?.startsAt || !current?.meetingLink) {
+          return badRequest('A scheduled time and meeting link are required before confirming the booking.')
+        }
+      }
+      return await changeStatus(id, body.status, adminId)
+    }
     return await reschedule(id, body, adminId)
   } catch (error) {
     return internalError(error)
@@ -165,6 +176,7 @@ async function changeStatus(id: string, rawStatus: unknown, adminId: string) {
   let emailSent = false
   if (requester.email && (nextStatus === 'CONFIRMED' || nextStatus === 'CANCELLED')) {
     try {
+      const fullBooking = await prisma.demoBooking.findUnique({ where: { id: booking.id }, select: { meetingLink: true } })
       const data = {
         firstName: requester.firstName,
         companyName: requester.companyName,
@@ -174,14 +186,37 @@ async function changeStatus(id: string, rawStatus: unknown, adminId: string) {
         durationMinutes: booking.durationMinutes,
       }
       const confirmed = nextStatus === 'CONFIRMED'
+      
+      const attachments: any[] = []
+      if (confirmed) {
+        const meetingLink = fullBooking?.meetingLink ?? undefined
+        const endTime = new Date(booking.startsAt.getTime() + booking.durationMinutes * 60 * 1000)
+        const icsContent = generateICalInvite({
+          title: `Demo Meeting - ${requester.companyName}`,
+          description: `Demo meeting with ${requester.firstName} from ${requester.companyName}. Reference: ${booking.reference}`,
+          startDate: booking.startsAt,
+          endDate: endTime,
+          meetingLink,
+          attendeeEmail: requester.email,
+          attendeeName: requester.firstName,
+          uid: booking.reference,
+        })
+        attachments.push({
+          filename: `demo-booking-${booking.reference}.ics`,
+          content: icsContent,
+          contentType: 'text/calendar; method=REQUEST',
+        })
+      }
+      
       const sent = await emailService.sendEmail({
         to: requester.email,
         subject: confirmed
           ? `Your demo is confirmed (${booking.reference})`
           : `Your demo has been cancelled (${booking.reference})`,
         html: confirmed
-          ? renderDemoBookingConfirmedTemplate(data)
-          : renderDemoBookingCancelledTemplate(data),
+          ? renderDemoBookingConfirmedTemplate({ ...data, meetingLink: fullBooking?.meetingLink ?? undefined })
+          : renderDemoBookingCancelledTemplate({ ...data, meetingLink: fullBooking?.meetingLink ?? undefined }),
+        attachments: attachments.length > 0 ? attachments : undefined,
       })
       emailSent = sent.success
       if (!sent.success) console.error('Demo status email failed:', sent.error)
@@ -197,6 +232,12 @@ async function changeStatus(id: string, rawStatus: unknown, adminId: string) {
 // ── Reschedule ───────────────────────────────────────────────
 
 async function reschedule(id: string, body: Record<string, unknown>, adminId: string) {
+  const meetingLinkRaw = body.meetingLink
+  if (typeof meetingLinkRaw !== 'string' || meetingLinkRaw.trim() === '') {
+    return badRequest('Invalid reschedule request', { meetingLink: 'Meeting link is required.' })
+  }
+  const meetingLink = meetingLinkRaw.trim()
+
   const parsed = parseDemoReschedule(body)
   if (!parsed.ok) return badRequest('Invalid reschedule request', parsed.errors)
 
@@ -222,7 +263,11 @@ async function reschedule(id: string, body: Record<string, unknown>, adminId: st
     }
   }
 
+  // Save meeting link
+  await prisma.demoBooking.update({ where: { id }, data: { meetingLink } })
+
   const { previous, booking, requester } = result
+  const fullBooking = await prisma.demoBooking.findUnique({ where: { id: booking.id }, select: { meetingLink: true } })
 
   await createAuditLog({
     actorType: 'admin',
@@ -234,6 +279,7 @@ async function reschedule(id: string, body: Record<string, unknown>, adminId: st
       startsAt: { from: previous.startsAt.toISOString(), to: booking.startsAt.toISOString() },
       durationMinutes: { from: previous.durationMinutes, to: booking.durationMinutes },
       timezone: { from: previous.timezone, to: booking.timezone },
+      meetingLink: { from: null, to: fullBooking?.meetingLink },
     },
     metadata: { reference: booking.reference, leadId: booking.leadId },
   })
@@ -241,6 +287,19 @@ async function reschedule(id: string, body: Record<string, unknown>, adminId: st
   let emailSent = false
   if (requester.email) {
     try {
+      const bookingMeetingLink = fullBooking?.meetingLink ?? undefined
+      const endTime = new Date(booking.startsAt.getTime() + booking.durationMinutes * 60 * 1000)
+      const icsContent = generateICalInvite({
+        title: `Demo Meeting - ${requester.companyName}`,
+        description: `Demo meeting with ${requester.firstName} from ${requester.companyName}. Reference: ${booking.reference}`,
+        startDate: booking.startsAt,
+        endDate: endTime,
+        meetingLink: bookingMeetingLink,
+        attendeeEmail: requester.email,
+        attendeeName: requester.firstName,
+        uid: booking.reference,
+      })
+      
       const html = renderDemoBookingRescheduledTemplate({
         firstName: requester.firstName,
         companyName: requester.companyName,
@@ -249,11 +308,19 @@ async function reschedule(id: string, body: Record<string, unknown>, adminId: st
         next: formatInTimeZone(booking.startsAt, booking.timezone),
         timezone: booking.timezone,
         durationMinutes: booking.durationMinutes,
+        meetingLink: bookingMeetingLink,
       })
       const sent = await emailService.sendEmail({
         to: requester.email,
         subject: `Your demo has been rescheduled (${booking.reference})`,
         html,
+        attachments: [
+          {
+            filename: `demo-booking-${booking.reference}.ics`,
+            content: icsContent,
+            contentType: 'text/calendar; method=REQUEST',
+          },
+        ],
       })
       emailSent = sent.success
       if (!sent.success) console.error('Demo reschedule email failed:', sent.error)
