@@ -37,7 +37,7 @@ export async function GET(
             startDate: { lte: now },
             endDate: { gt: now },
           },
-          orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
+          orderBy: [ {isFlash: 'desc'},{ isFeatured: 'desc' }, { createdAt: 'desc' }],
           take: 50,
           select: {
             id: true,
