@@ -5,6 +5,7 @@ import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { effectiveOfferStatus, isOfferVisibleToEmployees } from '@/lib/offer-visibility'
 import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
+import { isEvergreenRange } from '@/lib/offers/evergreen'
 
 // GET /api/mobile/offers/[id]
 //
@@ -116,6 +117,7 @@ export async function GET(
         startDate: offer.startDate,
         endDate: offer.endDate,
         isFlash: offer.isFlash,
+        evergreen: isEvergreenRange(offer.startDate, offer.endDate),
         isFeatured: offer.isFeatured,
         isExclusive: offer.isExclusive,
         merchant: offer.merchant,

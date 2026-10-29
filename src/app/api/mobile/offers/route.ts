@@ -4,6 +4,7 @@ import { internalError, notFound, badRequest } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
+import { isEvergreenRange, offerRank } from '@/lib/offers/evergreen'
 
 // GET /api/mobile/offers
 //
@@ -48,14 +49,13 @@ export async function GET(request: NextRequest) {
       prisma.merchantOffer.findMany({
         where,
         orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
-        skip: (page - 1) * pageSize,
-        take: pageSize,
         select: {
           id: true,
           title: true,
           offerType: true,
           startDate: true,
           endDate: true,
+          isFlash: true,
           isFeatured: true,
           isExclusive: true,
           createdAt: true,
@@ -94,7 +94,14 @@ export async function GET(request: NextRequest) {
       prisma.merchantOffer.count({ where }),
     ])
 
-    const offerIds = rows.map((o) => o.id)
+    const sortedRows = [...rows].sort((a, b) => {
+      const aRank = offerRank({ evergreen: isEvergreenRange(a.startDate, a.endDate), isFlash: a.isFlash })
+      const bRank = offerRank({ evergreen: isEvergreenRange(b.startDate, b.endDate), isFlash: b.isFlash })
+      return aRank - bRank
+    })
+    const pageRows = sortedRows.slice((page - 1) * pageSize, page * pageSize)
+
+    const offerIds = pageRows.map((o) => o.id)
     const [saved, redeemed] = await Promise.all([
       offerIds.length
         ? prisma.notificationEvent.findMany({
@@ -121,7 +128,7 @@ export async function GET(request: NextRequest) {
       if (!prev || r.createdAt > prev) lastRedeemedAt.set(r.offerId, r.createdAt)
     }
 
-    const data = rows.map((o) => {
+    const data = pageRows.map((o) => {
       const pricingConfig = (o.pricing?.configuration as Record<string, unknown>) ?? {}
       const redemptionConfig = (o.redemption?.configuration as Record<string, unknown>) ?? {}
       const redeemState = getRedeemState(
@@ -145,6 +152,8 @@ export async function GET(request: NextRequest) {
         qrCodeUrl: redemptionConfig.qrCodeUrl,
         startDate: o.startDate,
         endDate: o.endDate,
+        isFlash: o.isFlash,
+        evergreen: isEvergreenRange(o.startDate, o.endDate),
         isFeatured: o.isFeatured,
         isExclusive: o.isExclusive,
         createdAt: o.createdAt,

@@ -311,6 +311,14 @@ async function firePostCreateSideEffects(params: {
   }
 }
 
+function isEvergreenRange(startDate: Date | string, endDate: Date | string): boolean {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
+  const threshold = new Date(start);
+  threshold.setFullYear(threshold.getFullYear() + 1);
+  return end >= threshold;
+}
 export async function GET(request: NextRequest) {
   try {
     triggerOfferExpiry() // background, never awaited
@@ -351,24 +359,23 @@ export async function GET(request: NextRequest) {
 
     const take = search ? Math.min(pageSize, 10) : pageSize;
 
-    const [offers, total, currentLive] = await Promise.all([
+    const [allOffers, total, currentLive] = await Promise.all([
       prisma.merchantOffer.findMany({
         where,
         orderBy: { createdAt: "desc" },
-        skip: (page - 1) * pageSize,
-        take,
         select: {
           id: true,
           title: true,
           status: true,
           offerType: true,
+          isFlash: true,
           startDate: true,
           endDate: true,
           _count: { select: { redemptions: true } },
           replacesOffer: { select: { id: true, title: true } },
           pricing: { select: { configuration: true } },
           capacity: { select: { redeemedCount: true, maxRedemptions: true } },
-          content: { select: { imageUrls: true } }
+          content: { select: { imageUrls: true } },
         },
       }),
       prisma.merchantOffer.count({ where }),
@@ -383,6 +390,16 @@ export async function GET(request: NextRequest) {
         },
       }),
     ]);
+
+    // Evergreen > flash > normal. Array.sort is stable, so the
+    // createdAt desc order is preserved inside each group.
+    const rank = (o: { evergreen: boolean; isFlash: boolean }) =>
+      o.evergreen ? 0 : o.isFlash ? 1 : 2;
+
+    const offers = allOffers
+      .map((o) => ({ ...o, evergreen: isEvergreenRange(o.startDate, o.endDate) }))
+      .sort((a, b) => rank(a) - rank(b))
+      .slice((page - 1) * pageSize, (page - 1) * pageSize + take);
 
     const pendingReplacement = currentLive
       ? await prisma.merchantOffer.findFirst({

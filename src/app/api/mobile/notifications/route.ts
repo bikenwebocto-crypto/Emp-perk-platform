@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { internalError } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
+import { isEvergreenRange } from '@/lib/offers/evergreen'
 
 // GET /api/mobile/notifications
 //
@@ -91,6 +92,7 @@ export async function GET(request: NextRequest) {
               startDate: offer.startDate,
               endDate: offer.endDate,
               isFlash: offer.isFlash,
+              evergreen: isEvergreenRange(offer.startDate, offer.endDate),
               isExpired: offer.status === 'EXPIRED' || offer.endDate < now,
               isDeleted: !!offer.deletedAt,
               merchant: offer.merchant,

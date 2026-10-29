@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { internalError, notFound } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
+import { isEvergreenRange, offerRank } from '@/lib/offers/evergreen'
 
 // GET /api/mobile/brands/[id]
 //
@@ -57,7 +58,18 @@ export async function GET(
     })
     if (!merchant) return notFound('Brand not found')
 
-    return NextResponse.json({ success: true, data: merchant })
+    const offers = [...(merchant.offers ?? [])]
+      .map((offer) => ({
+        ...offer,
+        evergreen: isEvergreenRange(offer.startDate, offer.endDate),
+      }))
+      .sort((a, b) => {
+        const aRank = offerRank({ evergreen: a.evergreen, isFlash: a.isFlash })
+        const bRank = offerRank({ evergreen: b.evergreen, isFlash: b.isFlash })
+        return aRank - bRank
+      })
+
+    return NextResponse.json({ success: true, data: { ...merchant, offers } })
   } catch (error) {
     return internalError(error)
   }
