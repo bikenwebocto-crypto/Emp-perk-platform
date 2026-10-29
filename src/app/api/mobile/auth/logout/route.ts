@@ -36,32 +36,32 @@ export async function POST(request: NextRequest) {
       // device-token targeting.
     }
 
-    const auth = await getAuthenticatedMobileEmployee(request)
-    if (!auth.ok) return auth.response
+    // const auth = await getAuthenticatedMobileEmployee(request)
+    // if (!auth.ok) return auth.response
 
     // Deactivate this device's push token so it stops receiving notifications.
-    await deactivateDeviceToken({
-      userId: auth.account.authUserId,
-      deviceId,
-      token: fcmToken,
-    }).catch(() => null)
+    // await deactivateDeviceToken({
+    //   userId: auth.account.authUserId,
+    //   deviceId,
+    //   token: fcmToken,
+    // }).catch(() => null)
 
     const supabase = await createClient()
     // Sign out at Supabase — this invalidates the refresh token server-side.
     await supabase.auth.signOut().catch(() => null)
 
-    void createAuditLog({
-      actorType: 'employee',
-      actorId: auth.employee.id,
-      action: 'MOBILE_LOGOUT',
-      entityType: 'employee',
-      entityId: auth.employee.id,
-      metadata: {
-        deviceId,
-        hasFcmToken: !!fcmToken,
-        loginSource: 'mobile',
-      },
-    })
+    // void createAuditLog({
+    //   actorType: 'employee',
+    //   actorId: auth.employee.id,
+    //   action: 'MOBILE_LOGOUT',
+    //   entityType: 'employee',
+    //   entityId: auth.employee.id,
+    //   metadata: {
+    //     deviceId,
+    //     hasFcmToken: !!fcmToken,
+    //     loginSource: 'mobile',
+    //   },
+    // })
 
     return NextResponse.json({ success: true })
   } catch (error) {
