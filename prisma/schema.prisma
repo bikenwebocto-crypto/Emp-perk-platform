@@ -56,36 +56,37 @@ model Account {
 }
 
 model Company {
-  id                   String                 @id @default(uuid()) @db.Uuid
-  name                 String                 @db.VarChar(255)
-  slug                 String                 @unique @db.VarChar(255)
-  email                String                 @unique @db.VarChar(255)
-  phone                String?                @db.VarChar(50)
-  logoUrl              String?                @db.VarChar(500)
-  website              String?                @db.VarChar(500)
+  id                   String                       @id @default(uuid()) @db.Uuid
+  name                 String                       @db.VarChar(255)
+  slug                 String                       @unique @db.VarChar(255)
+  email                String                       @unique @db.VarChar(255)
+  phone                String?                      @db.VarChar(50)
+  logoUrl              String?                      @db.VarChar(500)
+  website              String?                      @db.VarChar(500)
   socialLinks          Json?
-  employeeCount        Int                    @default(0)
-  status               CompanyStatus          @default(PENDING)
-  addressLine1         String?                @db.VarChar(255)
-  addressLine2         String?                @db.VarChar(255)
-  city                 String?                @db.VarChar(100)
-  state                String?                @db.VarChar(100)
-  postalCode           String?                @db.VarChar(20)
-  country              String?                @db.VarChar(100)
-  taxId                String?                @db.VarChar(50)
+  employeeCount        Int                          @default(0)
+  status               CompanyStatus                @default(PENDING)
+  addressLine1         String?                      @db.VarChar(255)
+  addressLine2         String?                      @db.VarChar(255)
+  city                 String?                      @db.VarChar(100)
+  state                String?                      @db.VarChar(100)
+  postalCode           String?                      @db.VarChar(20)
+  country              String?                      @db.VarChar(100)
+  taxId                String?                      @db.VarChar(50)
   notes                String?
   approvedAt           DateTime?
   deletedAt            DateTime?
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
-  adminNote            String?                @db.VarChar(500)
-  approvedDomain       String?                @db.VarChar(255)
-  industry             String?                @db.VarChar(100)
-  approvedById         String?                @db.Uuid
-  deletedById          String?                @db.Uuid
-  audits               AuditLog[]             @relation("CompanyAuditLogs")
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  adminNote            String?                      @db.VarChar(500)
+  approvedDomain       String?                      @db.VarChar(255)
+  industry             String?                      @db.VarChar(100)
+  approvedById         String?                      @db.Uuid
+  deletedById          String?                      @db.Uuid
+  audits               AuditLog[]                   @relation("CompanyAuditLogs")
   // categories removed — categories are now global master data
   companyAdmins        CompanyAdmin[]
+  deactivationRequests ProfileDeactivationRequest[]
   billing              CompanyBilling?
   statusHistory        CompanyStatusHistory[]
   csvUploads           CSVUploadJob[]
@@ -158,43 +159,75 @@ model Employee {
   id        String @id @default(uuid()) @db.Uuid
   companyId String @db.Uuid
 
-  firstName           String                   @db.VarChar(100)
-  lastName            String                   @db.VarChar(100)
-  employeeId          String?                  @db.VarChar(100)
-  department          String?                  @db.VarChar(100)
-  jobTitle            String?                  @db.VarChar(100)
-  phone               String?                  @db.VarChar(50)
-  avatarUrl           String?                  @db.VarChar(500)
-  status              EmployeeStatus           @default(INVITED)
-  invitedAt           DateTime?
-  invitedBy           String?                  @db.Uuid
-  lastLoginAt         DateTime?
-  deletedAt           DateTime?
-  createdAt           DateTime                 @default(now())
-  updatedAt           DateTime                 @updatedAt
-  joinMethod          String?                  @db.VarChar(50)
-  approvedById        String?                  @db.Uuid
-  deletedById         String?                  @db.Uuid
-  accountId           String?                  @db.Uuid
-  company             Company                  @relation(fields: [companyId], references: [id])
-  reports             IssueReport[]
-  loginSessions       LoginSession[]
-  notifications       NotificationEvent[]      @relation("EmployeeNotification")
-  redemptions         Redemption[]
-  offerViews          OfferView[]
-  auditLogs           AuditLog[]               @relation("EmployeeAuditLogs")
-  complaints          Complaint[]
-  complaintActions    ComplaintAction[]        @relation("EmployeeComplaintActions")
-  reviews             MerchantReview[]
-  account             Account?                 @relation("EmployeeAccount", fields: [accountId], references: [authUserId])
-  redemptionAttempts  OfferRedemptionAttempt[]
-  address             EmployeeAddress?
-  merchantSuggestions MerchantSuggestion[]
+  firstName            String                       @db.VarChar(100)
+  lastName             String                       @db.VarChar(100)
+  employeeId           String?                      @db.VarChar(100)
+  department           String?                      @db.VarChar(100)
+  jobTitle             String?                      @db.VarChar(100)
+  phone                String?                      @db.VarChar(50)
+  avatarUrl            String?                      @db.VarChar(500)
+  status               EmployeeStatus               @default(INVITED)
+  invitedAt            DateTime?
+  invitedBy            String?                      @db.Uuid
+  lastLoginAt          DateTime?
+  deletedAt            DateTime?
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  joinMethod           String?                      @db.VarChar(50)
+  approvedById         String?                      @db.Uuid
+  deletedById          String?                      @db.Uuid
+  accountId            String?                      @db.Uuid
+  company              Company                      @relation(fields: [companyId], references: [id])
+  reports              IssueReport[]
+  loginSessions        LoginSession[]
+  notifications        NotificationEvent[]          @relation("EmployeeNotification")
+  redemptions          Redemption[]
+  offerViews           OfferView[]
+  auditLogs            AuditLog[]                   @relation("EmployeeAuditLogs")
+  complaints           Complaint[]
+  complaintActions     ComplaintAction[]            @relation("EmployeeComplaintActions")
+  reviews              MerchantReview[]
+  account              Account?                     @relation("EmployeeAccount", fields: [accountId], references: [authUserId])
+  redemptionAttempts   OfferRedemptionAttempt[]
+  address              EmployeeAddress?
+  merchantSuggestions  MerchantSuggestion[]
+  deactivationRequests ProfileDeactivationRequest[]
 
   @@index([companyId])
   @@index([status])
   @@index([companyId, status])
   @@map("employees")
+}
+
+// Raised from the mobile "Delete account" link. Reviewed by the company
+// admin or a super admin; approval sets the employee INACTIVE and logs
+// them out everywhere.
+model ProfileDeactivationRequest {
+  id             String                    @id @default(uuid()) @db.Uuid
+  employeeId     String                    @db.Uuid
+  companyId      String                    @db.Uuid
+  reason         String?
+  status         DeactivationRequestStatus @default(PENDING)
+  reviewedById   String?                   @db.Uuid
+  reviewedByType String?                   @db.VarChar(50)
+  reviewNote     String?
+  reviewedAt     DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  employee       Employee                  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  company        Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([companyId, status])
+  @@index([status])
+  @@map("profile_deactivation_requests")
+}
+
+enum DeactivationRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
 }
 
 model EmployeeAddress {
@@ -1571,23 +1604,23 @@ model MerchantSuggestion {
 }
 
 model Lead {
-  id       String     @id @default(uuid()) @db.Uuid
-  type     LeadType
-  source   LeadSource @default(PUBLIC_FORM)
-  status   LeadStatus @default(NEW)
+  id     String     @id @default(uuid()) @db.Uuid
+  type   LeadType
+  source LeadSource @default(PUBLIC_FORM)
+  status LeadStatus @default(NEW)
 
   // shared
-  firstName      String     @db.VarChar(100)
-  lastName       String     @db.VarChar(100)
-  email          String     @db.VarChar(255)
-  phone          String?    @db.VarChar(50)
+  firstName      String    @db.VarChar(100)
+  lastName       String    @db.VarChar(100)
+  email          String    @db.VarChar(255)
+  phone          String?   @db.VarChar(50)
   /// Optional: individuals and contact messages have no company.
-  companyName    String?    @db.VarChar(255)
+  companyName    String?   @db.VarChar(255)
   /// Legacy "how did you hear about us" column; new submissions use referralSource.
-  hearAbout      String?    @db.VarChar(255)
-  message        String?    @db.Text
+  hearAbout      String?   @db.VarChar(255)
+  message        String?   @db.Text
   consentAt      DateTime?
-  consentVersion String?    @db.VarChar(50)
+  consentVersion String?   @db.VarChar(50)
 
   // merchant-only (nullable)
   industry   String?  @db.VarChar(100) // form field: category
@@ -1601,10 +1634,10 @@ model Lead {
   role        String? @db.VarChar(50)
 
   // website forms (employer_enquiry / merchant_application / individual_waitlist / contact_message)
-  formKey        String?  @db.VarChar(50)
-  redemption     String?  @db.VarChar(20) // form field: redemption
-  referralSource String?  @db.VarChar(60) // form field: source
-  linkedin       String?  @db.VarChar(500) // form field: linkedin
+  formKey        String? @db.VarChar(50)
+  redemption     String? @db.VarChar(20) // form field: redemption
+  referralSource String? @db.VarChar(60) // form field: source
+  linkedin       String? @db.VarChar(500) // form field: linkedin
   consents       Json?
   attribution    Json?
 
@@ -1631,16 +1664,16 @@ model DemoBooking {
   id        String @id @default(uuid()) @db.Uuid
   reference String @unique @db.VarChar(24)
 
-  leadId String @db.Uuid
-  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId          String            @db.Uuid
+  lead            Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
   startsAt        DateTime
   durationMinutes Int
-  timezone        String   @db.VarChar(64)
-  notes           String?  @db.VarChar(2000)
+  timezone        String            @db.VarChar(64)
+  notes           String?           @db.VarChar(2000)
   status          DemoBookingStatus @default(PENDING)
-  meetingLink     String?   @db.VarChar(500)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  meetingLink     String?           @db.VarChar(500)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   @@index([leadId])
   @@index([status, startsAt])
