@@ -485,7 +485,7 @@ export default function MerchantProfilePage() {
                     setPendingCoverFile(files[0] ?? null)
                   }}
                   disabled={false}
-                  currentCount={values.coverImageUrl ? 1 : 0}
+                  currentCount={0}
                   uploadOptions={MERCHANT_COVER_OPTIONS}
                   acceptedTypes={['image/jpeg', 'image/png', 'image/webp']}
                   maxFileSize={5 * 1024 * 1024}
