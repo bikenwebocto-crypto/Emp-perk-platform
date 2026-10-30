@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
 import { canAdminAccessPath, canAdminCallApi, adminLandingPath } from "@/lib/access/account-access";
+import { hasVerifiedTotpFactor, requiresMfaForRole } from "@/lib/auth/mfa";
 
 const ROLE_DASHBOARD_MAP: Record<string, string> = {
   SUPER_ADMIN: "/admin",
@@ -150,11 +151,27 @@ export async function middleware(request: NextRequest) {
   // explicitly need (notifications, sidebar counts) is rejected here. Ticket
   // APIs live under /api/complaints/admin and are gated in-route.
   if (isApiRoute) {
-    if (pathname.startsWith("/api/admin/")) {
+    const isPrivilegedApiRoute =
+      pathname.startsWith("/api/admin/") ||
+      pathname.startsWith("/api/company/") ||
+      pathname.startsWith("/api/merchant/")
+
+    if (isPrivilegedApiRoute) {
       const roleInfo = await fetchRole(supabase, user.email!, request)
-      if (!canAdminCallApi(roleInfo?.adminRole, pathname)) {
+      if (pathname.startsWith("/api/admin/") && !canAdminCallApi(roleInfo?.adminRole, pathname)) {
         return NextResponse.json(
           { success: false, error: { code: "FORBIDDEN", message: "Forbidden" } },
+          { status: 403 },
+        )
+      }
+
+      const { data: factors } = await supabase.auth.mfa.listFactors()
+      const hasTotp = hasVerifiedTotpFactor(factors)
+      const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+      if (!hasTotp || assurance?.currentLevel !== "aal2") {
+        return NextResponse.json(
+          { success: false, error: { code: "MFA_REQUIRED", message: "MFA verification required." } },
           { status: 403 },
         )
       }
@@ -173,6 +190,20 @@ export async function middleware(request: NextRequest) {
     const loginUrl = new URL("/login", request.url)
     loginUrl.searchParams.set("error", "Your account role is not configured.")
     return NextResponse.redirect(loginUrl)
+  }
+
+  if (requiresMfaForRole(role)) {
+    const { data: factors } = await supabase.auth.mfa.listFactors()
+    const hasTotp = hasVerifiedTotpFactor(factors)
+    const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+    if (!hasTotp) {
+      return NextResponse.redirect(new URL("/mfa/setup", request.url))
+    }
+
+    if (assurance?.currentLevel !== "aal2") {
+      return NextResponse.redirect(new URL("/mfa/verify", request.url))
+    }
   }
 
   const allowedPaths = ROLE_ACCESS_MAP[role] ?? ["/employee"]

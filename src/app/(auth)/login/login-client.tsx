@@ -10,6 +10,7 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LoginLayoutRenderer } from "@/components/login-layouts";
+import { requiresMfaForRole } from "@/lib/auth/mfa";
 import type { PublicBranding } from "@/features/admin/settings/login-branding/services/login-branding.service";
 
 interface LoginClientProps {
@@ -67,6 +68,12 @@ export function LoginClient({ branding }: LoginClientProps) {
   };
 
   useEffect(() => {
+    if (searchParams.get("mfa_required") === "1") {
+      setError("This admin account requires MFA verification before dashboard access.");
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     setMounted(true);
 
     const hash = window.location.hash
@@ -115,7 +122,10 @@ export function LoginClient({ branding }: LoginClientProps) {
         return;
       }
 
-      const redirectPath = body.redirectTo || "/login";
+      const role = body?.role;
+      const redirectPath = requiresMfaForRole(role)
+        ? (body.redirectTo || "/mfa/setup")
+        : (body.redirectTo || "/login");
       // Start the new session from the server's view of the user, not from
       // whatever the previous session left in the client cache.
       clearClientSession(queryClient);
