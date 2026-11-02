@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { internalError } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { effectiveOfferStatus } from '@/lib/offer-visibility'
+import { isEvergreenRange } from '@/lib/offers/evergreen'
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
 export async function GET(request: NextRequest) {
@@ -38,7 +39,9 @@ export async function GET(request: NextRequest) {
               id: true,
               title: true,
               status: true,
+              startDate: true,
               endDate: true,
+              isFlash: true,
               content: { select: { imageUrls: true } },
               merchant: { select: { id: true, businessName: true, logoUrl: true } },
             },
@@ -48,7 +51,10 @@ export async function GET(request: NextRequest) {
               id: o.id,
               title: o.title,
               status: o.status,
+              startDate: o.startDate,
               endDate: o.endDate,
+              isFlash: o.isFlash,
+              evergreen: isEvergreenRange(o.startDate, o.endDate),
               image: (o.content?.imageUrls as string[] | null)?.[0] ?? null,
               merchant: o.merchant,
             },
@@ -68,7 +74,10 @@ export async function GET(request: NextRequest) {
             id: offer.id,
             title: offer.title,
             image: offer.image,
+            startDate: offer.startDate,
             endDate: offer.endDate,
+            isFlash: offer.isFlash,
+            evergreen: offer.evergreen,
             status,
             isExpired: status === 'EXPIRED',
             merchant: offer.merchant,

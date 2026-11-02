@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
 import { canAdminAccessPath, canAdminCallApi, adminLandingPath } from "@/lib/access/account-access";
+import { hasVerifiedTotpFactor, requiresMfaForRole } from "@/lib/auth/mfa";
 
 const ROLE_DASHBOARD_MAP: Record<string, string> = {
   SUPER_ADMIN: "/admin",
@@ -22,8 +23,13 @@ interface RoleInfo {
   adminRole: string | null;
 }
 
+// Per-instance cache of the account role. Middleware runs on the Edge runtime,
+// in a different isolate from the Node API routes that change roles (e.g.
+// promoteEmployeeToCompanyAdmin), so those routes cannot invalidate this map.
+// Keep the TTL short so a role change is picked up within 30s; the dashboard
+// shell also redirects on the client from the live /api/auth/me user.
 const roleCache = new Map<string, RoleInfo & { timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000;
+const CACHE_TTL = 30 * 1000;
 
 const PUBLIC_API_ROUTES = [
   "/api/auth/sync-admin",
@@ -34,6 +40,7 @@ const PUBLIC_API_ROUTES = [
   "/api/health",
   "/api/categories",
   "/api/leads",
+  "/api/demo-bookings", // public "Book a Demo" form + availability; /api/admin/demo-bookings stays protected
   "/api/cron", // protected by CRON_SECRET inside each route
 ];
 
@@ -144,11 +151,27 @@ export async function middleware(request: NextRequest) {
   // explicitly need (notifications, sidebar counts) is rejected here. Ticket
   // APIs live under /api/complaints/admin and are gated in-route.
   if (isApiRoute) {
-    if (pathname.startsWith("/api/admin/")) {
+    const isPrivilegedApiRoute =
+      pathname.startsWith("/api/admin/") ||
+      pathname.startsWith("/api/company/") ||
+      pathname.startsWith("/api/merchant/")
+
+    if (isPrivilegedApiRoute) {
       const roleInfo = await fetchRole(supabase, user.email!, request)
-      if (!canAdminCallApi(roleInfo?.adminRole, pathname)) {
+      if (pathname.startsWith("/api/admin/") && !canAdminCallApi(roleInfo?.adminRole, pathname)) {
         return NextResponse.json(
           { success: false, error: { code: "FORBIDDEN", message: "Forbidden" } },
+          { status: 403 },
+        )
+      }
+
+      const { data: factors } = await supabase.auth.mfa.listFactors()
+      const hasTotp = hasVerifiedTotpFactor(factors)
+      const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+      if (!hasTotp || assurance?.currentLevel !== "aal2") {
+        return NextResponse.json(
+          { success: false, error: { code: "MFA_REQUIRED", message: "MFA verification required." } },
           { status: 403 },
         )
       }
@@ -167,6 +190,20 @@ export async function middleware(request: NextRequest) {
     const loginUrl = new URL("/login", request.url)
     loginUrl.searchParams.set("error", "Your account role is not configured.")
     return NextResponse.redirect(loginUrl)
+  }
+
+  if (requiresMfaForRole(role)) {
+    const { data: factors } = await supabase.auth.mfa.listFactors()
+    const hasTotp = hasVerifiedTotpFactor(factors)
+    const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+    if (!hasTotp) {
+      return NextResponse.redirect(new URL("/mfa/setup", request.url))
+    }
+
+    if (assurance?.currentLevel !== "aal2") {
+      return NextResponse.redirect(new URL("/mfa/verify", request.url))
+    }
   }
 
   const allowedPaths = ROLE_ACCESS_MAP[role] ?? ["/employee"]

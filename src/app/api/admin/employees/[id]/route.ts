@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/supabase/server";
 import { adminEmployeeUpdateSchema } from "@/schemas";
 import { buildAuditData, fromCurrentUser } from "@/services/audit-log.service";
 import { deleteImage } from "@/lib/upload/image";
+import { isPromotedAccount, PROMOTED_EMPLOYEE_MESSAGE } from "@/lib/employees/promoted-guard";
 function unauthorized() {
   return NextResponse.json(
     {
@@ -205,6 +206,13 @@ export async function PATCH(
       }
     }
     if (data.status !== undefined && data.status !== existing.status) {
+      // Never touches Account.status, so an admin login is never locked out here.
+      if (isPromotedAccount(existing.account)) {
+        return NextResponse.json(
+          { success: false, error: { code: "CONFLICT", message: PROMOTED_EMPLOYEE_MESSAGE } },
+          { status: 409 },
+        );
+      }
       before.status = existing.status;
       after.status = data.status;
       update.status = data.status;

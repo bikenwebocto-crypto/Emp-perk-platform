@@ -8,6 +8,7 @@ import {
   type RedemptionMethod,
 } from '@/lib/redemption-status'
 import { deriveCapacityStatus } from '@/lib/redemption-tracking'
+import { maskLastName } from '@/lib/merchant-privacy'
 
 function unauthorized() {
   return NextResponse.json(
@@ -160,14 +161,6 @@ export async function GET(request: NextRequest) {
           },
         },
         {
-          employee: {
-            lastName: {
-              contains: q,
-              mode: 'insensitive',
-            },
-          },
-        },
-        {
           company: {
             name: {
               contains: q,
@@ -221,7 +214,6 @@ export async function GET(request: NextRequest) {
         include: {
           employee: {
             select: {
-              id: true,
               firstName: true,
               lastName: true,
             },
@@ -495,7 +487,7 @@ export async function GET(request: NextRequest) {
     // ─────────────────────────────────────────────
     // Add calculated redemption/offer information
     // ─────────────────────────────────────────────
-    const rowsWithBranch = rows.map((row) => {
+    const rowsWithBranch = rows.map(({ employeeId: _employeeId, ...row }) => {
       const offerMax = row.offer.capacity?.maxRedemptions ?? null
       const offerRedeemed = row.offer.capacity?.redeemedCount ?? 0
       const offerRemaining =
@@ -505,6 +497,12 @@ export async function GET(request: NextRequest) {
 
       return {
         ...row,
+
+        // Limited employee view for merchants: first name + last initial only.
+        employee: {
+          firstName: row.employee.firstName,
+          lastName: maskLastName(row.employee.lastName),
+        },
 
         branch: row.branchId
           ? branchMap.get(row.branchId) ?? null

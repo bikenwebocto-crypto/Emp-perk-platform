@@ -24,6 +24,8 @@ import { OfferBannerInfo } from "@/components/merchant/offers/OfferBannerInfo";
 import { showToast } from "@/hooks/use-toast";
 import { uploadImage, OFFER_IMAGE_OPTIONS } from "@/lib/upload/image";
 import { deleteOfferImage } from "@/lib/upload-offer-image";
+import { Checkbox } from "@/components/ui/checkbox";
+import { FLASH_MAX_DAYS, flashMaxEndLocal, validateFlashWindow } from "@/lib/offers/flash";
 
 interface FormData {
   title: string;
@@ -55,6 +57,7 @@ interface FormData {
   qrCodeUrl: string;
   isFeatured: boolean;
   isExclusive: boolean;
+  isFlash: boolean;
 }
 
 /** "2026-10-08T23:59" (local, from datetime-local) → UTC ISO string. Empty/invalid stays as-is. */
@@ -223,6 +226,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     qrCodeUrl: initialData?.qrCodeUrl ?? "",
     isFeatured: initialData?.isFeatured ?? false,
     isExclusive: initialData?.isExclusive ?? false,
+    isFlash: initialData?.isFlash ?? false,
   });
 
   const set =
@@ -399,6 +403,15 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       }
     }
 
+    if (form.redemptionType === "ONLINE_CODE") {
+      if (!form.bookingUrl.trim()) errs.bookingUrl = "Booking URL is required";
+      else if (!/^https?:\/\/\S+$/i.test(form.bookingUrl.trim()))
+        errs.bookingUrl = "Enter a valid URL starting with http:// or https://";
+      if (!form.redemptionCode.trim()) errs.redemptionCode = "Offer code is required";
+      else if (!/^[A-Za-z0-9]{6}$/.test(form.redemptionCode.trim()))
+        errs.redemptionCode = "Offer code must be exactly 6 letters or numbers";
+    }
+
     if (!form.startDate.trim()) errs.startDate = "Start date is required";
     if (!form.endDate.trim()) errs.endDate = "End date is required";
     else if (
@@ -406,6 +419,10 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       new Date(form.endDate) <= new Date(form.startDate)
     )
       errs.endDate = "End date must be after start date";
+    else {
+      const flashError = validateFlashWindow(form.isFlash, form.startDate, form.endDate);
+      if (flashError) errs.endDate = flashError;
+    }
     if (isReplacement && !form.termsAndConditions.trim())
       errs.termsAndConditions =
         "Terms and conditions are required for replacement offers"; // Days of week validation
@@ -437,6 +454,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     termsAndConditions: form.termsAndConditions || null,
     isFeatured: form.isFeatured,
     isExclusive: form.isExclusive,
+    isFlash: form.isFlash,
     imageUrls: form.imageUrls,
     offerType: OFFER_TYPE_MAP[form.offerType] ?? form.offerType,
     discountValue: form.discountValue ? Number(form.discountValue) : null,
@@ -916,10 +934,10 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     onChange={set("redemptionType")}
                     name="redemptionType"
                   >
-                    <option value="IN_STORE_QR">In-Store QR Code</option>
+                    {/* <option value="IN_STORE_QR">In-Store QR Code</option> */}
                     <option value="ONLINE_CODE">Online Code</option>
 
-                    <option value="BOOKING_LINK">Booking Link</option>
+                     {/*<option value="BOOKING_LINK">Booking Link</option> */}
                     <option value="VIRTUAL_CARD_AUTO_VERIFY">
                       Virtual Card (Auto Verify)
                     </option>
@@ -961,26 +979,33 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                           type="url"
                         />
 
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Where employees will be directed to use their code
-                        </p>
+                        {errors.bookingUrl ? (
+                          <p className="mt-1 text-xs text-destructive">{errors.bookingUrl}</p>
+                        ) : (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Where employees will be directed to use their code
+                          </p>
+                        )}
                       </div>
 
                       <div>
-                        <label className={labelClass}>Offer Code</label>
+                        <label className={labelClass}>Offer Code *</label>
 
                         <Input
                           className={inputClass}
                           value={form.redemptionCode}
                           onChange={set("redemptionCode")}
-                          placeholder="Auto-generated if empty"
+                          placeholder="e.g. SAVE10"
                           maxLength={6}
                         />
 
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          6-character alphanumeric code. Leave empty to
-                          auto-generate.
-                        </p>
+                        {errors.redemptionCode ? (
+                          <p className="mt-1 text-xs text-destructive">{errors.redemptionCode}</p>
+                        ) : (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            6-character alphanumeric code employees enter at checkout.
+                          </p>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -1420,7 +1445,14 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                       type="datetime-local"
                       value={form.endDate}
                       onChange={set("endDate")}
+                      min={form.startDate || undefined}
+                      max={form.isFlash ? flashMaxEndLocal(form.startDate) || undefined : undefined}
                     />
+                    {form.isFlash && form.startDate && !errors.endDate && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Flash offers must end within {FLASH_MAX_DAYS} days of the start date
+                      </p>
+                    )}
 
                     {errors.endDate && (
                       <p className="mt-1 text-xs text-destructive">
@@ -1429,6 +1461,26 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     )}
                   </div>
                 </div>
+
+                <label
+                  htmlFor="isFlash"
+                  className="flex cursor-pointer items-center justify-between gap-4 rounded-lg border p-4"
+                >
+                  <div>
+                    <span className="text-sm font-medium">Flash Offer</span>
+                    <p className="text-xs text-muted-foreground">
+                      Create a short-duration offer that is available for a limited time
+                      (up to {FLASH_MAX_DAYS} days between start and end).
+                    </p>
+                  </div>
+                  <Checkbox
+                    id="isFlash"
+                    checked={form.isFlash}
+                    onCheckedChange={(checked) =>
+                      setForm((prev) => ({ ...prev, isFlash: checked === true }))
+                    }
+                  />
+                </label>
                 {/* Days of Week */}
                 <div>
                   <label className={labelClass}>Available Days</label>

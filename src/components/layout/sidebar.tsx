@@ -16,9 +16,11 @@ import {
   LayoutDashboard, Store, Users, FileText, BarChart3, Settings, CreditCard,
   ShoppingBag, MapPin, Gift, Building2, UserCircle, Bell, Upload, LogOut,
   Zap, Search, RefreshCw, Bookmark, Palette, Trash2, Lightbulb, Tags, Inbox, KeyRound,
+  CalendarClock,
 } from 'lucide-react'
 import { canAdminAccessPath } from '@/lib/access/account-access'
 import { supabase } from '@/lib/supabase/client'
+import { clearClientSession } from '@/lib/auth/clear-client-session'
 import type { PublicBranding } from '@/features/admin/settings/login-branding/services/login-branding.service'
 
 interface NavItem {
@@ -51,6 +53,7 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
     { label: 'Merchants', href: '/admin/merchants', icon: Store },
     { label: 'Merchant Suggestions', href: '/admin/merchant-suggestions', icon: Lightbulb },
+    { label: 'Demo Bookings', href: '/admin/demo-bookings', icon: CalendarClock },
     { label: 'Categories', href: '/admin/categories', icon: Tags },
     { label: 'Stores', href: '/admin/stores', icon: MapPin },
     { label: 'Companies', href: '/admin/companies', icon: Building2 },
@@ -77,15 +80,16 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Profile', href: '/merchant/profile', icon: Store },
     { label: 'Store Map', href: '/merchant/profile/store-map', icon: MapPin },
     { label: 'Notifications', href: '/merchant/notifications', icon: Bell },
-    // { label: 'Settings', href: '/merchant/settings', icon: Settings },
+    { label: 'Settings', href: '/merchant/settings', icon: Settings },
   ],
   company_admin: [
     { label: 'Overview', href: '/company', icon: LayoutDashboard, exact: true },
+    { label: 'Company', href: '/company/details', icon: Building2 },
     { label: 'Employees', href: '/company/employees', icon: Users },
     { label: 'Near Stores', href: '/company/near-stores', icon: MapPin },
     { label: 'Tickets', href: '/company/complaints', icon: FileText },
     { label: 'Analytics', href: '/company/analytics', icon: BarChart3 },
-    { label: 'Billing', href: '/company/billing', icon: CreditCard },
+    // { label: 'Billing', href: '/company/billing', icon: CreditCard },
     { label: 'Notifications', href: '/company/notifications', icon: Bell },
     { label: 'Settings', href: '/company/settings', icon: Settings },
   ],
@@ -157,7 +161,7 @@ function usePrefetchRegistry(queryClient: QueryClient): Record<string, PrefetchE
 
 type PrefetchEntry = () => void
 
-export function Sidebar({ userType, userName, userEmail, userRole, adminRole, companyName, branding, avatarUrl }: SidebarProps) {
+export function Sidebar({ userType, userName, userEmail, adminRole, companyName, branding, avatarUrl }: SidebarProps) {
   const pathname = usePathname()
   const isAdmin = userType === 'admin'
   // SUPPORT_ADMIN only opens tickets + notifications: the leads query (and its
@@ -173,11 +177,9 @@ export function Sidebar({ userType, userName, userEmail, userRole, adminRole, co
       '/admin/offers/replacements': counts?.replacements,
       '/admin/merchants': counts?.merchants,
       '/admin/merchant-suggestions': counts?.merchantSuggestions,
+      '/admin/demo-bookings': counts?.demoBookings,
       '/admin/complaints': counts?.tickets,
     }
-    console.log('** [sidebar]', { userType, adminRole, userRole,
-  accounts: canAdminAccessPath(adminRole, '/admin/accounts') })
-
     return (navConfig[userType] ?? [])
       // Admins only see the pages their admin role may open (same rule the
       // middleware enforces).
@@ -216,6 +218,9 @@ export function Sidebar({ userType, userName, userEmail, userRole, adminRole, co
     setSigningOut(true)
     try {
       await supabase.auth.signOut()
+      // Drop the cached session user (and its userType) so the next login
+      // never starts from the previous user's role.
+      clearClientSession(queryClient)
       router.push('/login')
     } catch (error) {
       console.error('Logout failed:', error)

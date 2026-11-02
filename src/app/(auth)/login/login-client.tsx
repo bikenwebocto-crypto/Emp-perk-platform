@@ -4,10 +4,13 @@ import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { supabase } from "@/lib/supabase/client";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { clearClientSession } from "@/lib/auth/clear-client-session";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LoginLayoutRenderer } from "@/components/login-layouts";
+import { requiresMfaForRole } from "@/lib/auth/mfa";
 import type { PublicBranding } from "@/features/admin/settings/login-branding/services/login-branding.service";
 
 interface LoginClientProps {
@@ -16,6 +19,7 @@ interface LoginClientProps {
 
 export function LoginClient({ branding }: LoginClientProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const syncedRef = useRef(false);
   // Invite links (bulk employee upload) must set a password before the
   // account is synced and redirected.
@@ -64,6 +68,12 @@ export function LoginClient({ branding }: LoginClientProps) {
   };
 
   useEffect(() => {
+    if (searchParams.get("mfa_required") === "1") {
+      setError("This admin account requires MFA verification before dashboard access.");
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     setMounted(true);
 
     const hash = window.location.hash
@@ -88,7 +98,7 @@ export function LoginClient({ branding }: LoginClientProps) {
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) return;
-    console.log("User signed in, syncing with backend...", session.access_token);
+    // console.log("User signed in, syncing with backend...", session.access_token);
     syncedRef.current = true;
     setIsSyncing(true);
 
@@ -112,7 +122,13 @@ export function LoginClient({ branding }: LoginClientProps) {
         return;
       }
 
-      const redirectPath = body.redirectTo || "/login";
+      const role = body?.role;
+      const redirectPath = requiresMfaForRole(role)
+        ? (body.redirectTo || "/mfa/setup")
+        : (body.redirectTo || "/login");
+      // Start the new session from the server's view of the user, not from
+      // whatever the previous session left in the client cache.
+      clearClientSession(queryClient);
       router.push(redirectPath);
       router.refresh();
     } catch {

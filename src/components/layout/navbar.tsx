@@ -8,6 +8,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase/client";
 import { usePathname, useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { clearClientSession } from "@/lib/auth/clear-client-session";
 import { NotificationBell } from "@/components/shared/notification-bell";
 
 interface NavbarProps {
@@ -64,6 +66,7 @@ export function Navbar({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   // Close on outside click or Escape
   useEffect(() => {
@@ -117,6 +120,7 @@ export function Navbar({
     setSigningOut(true);
     try {
       await supabase.auth.signOut();
+      clearClientSession(queryClient);
       router.push("/login");
     } catch (error) {
       console.error("Logout failed:", error);

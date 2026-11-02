@@ -5,6 +5,7 @@ export interface AdminSidebarCounts {
   replacements: number
   merchants: number
   merchantSuggestions: number
+  demoBookings: number
   tickets: number
 }
 

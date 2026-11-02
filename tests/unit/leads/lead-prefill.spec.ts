@@ -47,6 +47,11 @@ describe('leadToMerchantPrefill', () => {
   it('does not partially match category names', () => {
     expect(matchCategoryId('Food', categories)).toBe('')
   })
+
+  it('falls back to the contact name when the lead has no company', () => {
+    expect(leadToMerchantPrefill({ ...baseLead, companyName: null }, categories).businessName).toBe('Ada Lovelace')
+    expect(leadToCompanyPrefill({ ...baseLead, companyName: null }).name).toBe('Ada Lovelace')
+  })
 })
 
 describe('leadToCompanyPrefill', () => {

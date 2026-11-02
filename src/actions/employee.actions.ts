@@ -63,6 +63,7 @@ export async function getLiveOffersAction(companyId: string, page = 1, pageSize 
       where: {
         deletedAt: null,
         status: 'LIVE',
+        isFlash: false,
         startDate: { lte: now },
         endDate: { gte: now },
         merchant: {
@@ -96,6 +97,7 @@ export async function getLiveOffersAction(companyId: string, page = 1, pageSize 
       where: {
         deletedAt: null,
         status: 'LIVE',
+        isFlash: false,
         startDate: { lte: now },
         endDate: { gte: now },
         merchant: { status: 'ACTIVE', deletedAt: null },

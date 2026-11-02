@@ -72,6 +72,7 @@ export async function GET(_request: NextRequest) {
       prisma.merchantOffer.findMany({
         where: {
           status: 'LIVE',
+          isFlash: false,
           startDate: { lte: now },
           endDate: { gt: now },
           merchant: {
@@ -95,6 +96,7 @@ export async function GET(_request: NextRequest) {
           offerType: true,
           isFeatured: true,
           isExclusive: true,
+          isFlash: true,
           endDate: true,
           startDate: true,
           status: true,

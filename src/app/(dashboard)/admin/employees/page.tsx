@@ -9,9 +9,10 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { BulkEmployeeUpload } from '@/features/employees/components/bulk-employee-upload'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Plus, Upload, Trash2, CheckCircle, XCircle, Pencil } from 'lucide-react'
+import { Plus, Upload, Trash2, CheckCircle, XCircle, Pencil, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
-import { useEmployees, useBulkUpdateEmployees, useBulkDeleteEmployees, useUpdateEmployee } from '@/hooks/queries/use-employees'
+import { ActionImpact, PROMOTED_BADGE_TOOLTIP, promoteCopy } from '@/features/employees/components/action-impact'
+import { useEmployees, useBulkUpdateEmployees, useBulkDeleteEmployees, useUpdateEmployee, usePromoteEmployee } from '@/hooks/queries/use-employees'
 import { useCompanies } from '@/hooks/queries/use-companies'
 import { showToast } from '@/hooks/use-toast'
 import { useTablePagination } from '@/hooks/use-table-pagination'
@@ -20,6 +21,22 @@ import type { ColumnDef } from '@/types'
 
 type StatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE' | 'INVITED' | 'SUSPENDED' | 'INELIGIBLE'
 type CompanyFilter = 'ALL' | string
+
+interface BulkStatusResult {
+  data?: { count?: number; skipped?: { id: string; reason: string }[] }
+}
+
+function showBulkStatusToast(res: BulkStatusResult, verb: 'activated' | 'deactivated') {
+  const count = res.data?.count ?? 0
+  const skipped = res.data?.skipped?.length ?? 0
+  showToast({
+    type: 'success',
+    title: `${count} employee(s) ${verb}`,
+    description: skipped
+      ? `${skipped} skipped: promoted to Company Admin. Manage them from Administrators.`
+      : undefined,
+  })
+}
 
 export default function EmployeesPage() {
   const [search, setSearch] = useState('')
@@ -30,6 +47,17 @@ export default function EmployeesPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState<'delete' | 'deactivate'>('delete')
   const [editingEmployee, setEditingEmployee] = useState<any | null>(null)
+  const [promotingEmployee, setPromotingEmployee] = useState<{
+    id: string
+    name: string
+    companyName: string
+    status: string
+  } | null>(null)
+  const promoteDialogCopy = promoteCopy({
+    name: promotingEmployee?.name ?? 'this employee',
+    companyName: promotingEmployee?.companyName ?? 'their company',
+    employeeStatus: promotingEmployee?.status,
+  })
 
   const { page, setPage, pageSize, resetPage } = useTablePagination({ defaultPageSize: 10 })
 
@@ -45,6 +73,7 @@ export default function EmployeesPage() {
   const bulkUpdate = useBulkUpdateEmployees()
   const bulkDelete = useBulkDeleteEmployees()
   const updateEmployee = useUpdateEmployee()
+  const promoteEmployee = usePromoteEmployee()
 
   const employees = data?.data ?? []
   const meta = data?.meta
@@ -69,6 +98,7 @@ export default function EmployeesPage() {
       employeeId: e.employeeId ?? '',
       phone: e.phone ?? '',
       status: e.status,
+      isPromoted: !!e.account?.role && e.account.role !== 'EMPLOYEE',
       totalRedemptions: e._count?.redemptions ?? 0,
       joinedAt: e.createdAt,
       avatarUrl: e.avatarUrl ?? '',
@@ -102,7 +132,14 @@ export default function EmployeesPage() {
     {
       key: 'status',
       header: 'Status',
-      render: (e: any) => <StatusBadge status={e.status} />,
+      render: (e: any) =>
+        e.isPromoted ? (
+          <span title={PROMOTED_BADGE_TOOLTIP} className="inline-flex cursor-help items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+            <ShieldCheck className="h-3 w-3" /> Promoted to Admin
+          </span>
+        ) : (
+          <StatusBadge status={e.status} />
+        ),
     },
     { key: 'email', header: 'Email', render: (e: any) => <span className="text-muted-foreground">{e?.email}</span>, align: 'center' },
     {
@@ -115,6 +152,18 @@ export default function EmployeesPage() {
       header: '',
       render: (e: any) => (
         <div className="flex items-center justify-end gap-1">
+          {!e.isPromoted && (e.status === 'ACTIVE' || e.status === 'INACTIVE') && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 p-0"
+              onClick={() => setPromotingEmployee(e)}
+              title="Promote to Company Admin"
+              aria-label="Promote to Company Admin"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -138,7 +187,7 @@ export default function EmployeesPage() {
     bulkUpdate.mutate(
       { employeeIds: Array.from(selectedIds), status: 'ACTIVE' },
       {
-        onSuccess: () => showToast({ type: 'success', title: `${selectedCount} employee(s) activated` }),
+        onSuccess: (res: BulkStatusResult) => showBulkStatusToast(res, 'activated'),
         onError: (err: Error) => showToast({ type: 'error', title: 'Activation failed', description: err.message }),
       },
     )
@@ -149,7 +198,7 @@ export default function EmployeesPage() {
     bulkUpdate.mutate(
       { employeeIds: Array.from(selectedIds), status: 'INACTIVE' },
       {
-        onSuccess: () => showToast({ type: 'success', title: `${selectedCount} employee(s) deactivated` }),
+        onSuccess: (res: BulkStatusResult) => showBulkStatusToast(res, 'deactivated'),
         onError: (err: Error) => showToast({ type: 'error', title: 'Deactivation failed', description: err.message }),
       },
     )
@@ -250,7 +299,46 @@ export default function EmployeesPage() {
           setConfirmOpen(false)
         }}
         onCancel={() => setConfirmOpen(false)}
-      />
+      >
+        {confirmAction === 'deactivate' && (
+          <ActionImpact
+            copy={{
+              message: '',
+              impacts: [
+                'They can no longer use the mobile app or redeem offers.',
+                'Their savings history is kept, and you can activate them again at any time.',
+              ],
+              note: 'Anyone selected who was promoted to Company Admin is skipped. Manage them from Company Administrators.',
+            }}
+          />
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={!!promotingEmployee}
+        title="Promote to Company Admin"
+        variant="default"
+        confirmLabel="Promote"
+        loading={promoteEmployee.isPending}
+        message={promoteDialogCopy.message}
+        onConfirm={() => {
+          if (!promotingEmployee?.id) return
+          promoteEmployee.mutate(
+            { id: promotingEmployee.id },
+            {
+              onSuccess: () => {
+                showToast({ type: 'success', title: 'Employee promoted to Company Admin' })
+                setPromotingEmployee(null)
+              },
+              onError: (err: Error) =>
+                showToast({ type: 'error', title: 'Promotion failed', description: err.message }),
+            },
+          )
+        }}
+        onCancel={() => setPromotingEmployee(null)}
+      >
+        <ActionImpact copy={promoteDialogCopy} />
+      </ConfirmDialog>
 
       <EmployeeEditModal
         open={!!editingEmployee}

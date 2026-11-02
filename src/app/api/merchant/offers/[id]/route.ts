@@ -142,6 +142,7 @@ export async function PATCH(
     merchantOfferUpdatable.categoryId = merchant.categoryId ?? null;
     if (body.startDate) merchantOfferUpdatable.startDate = new Date(body.startDate);
     if (body.endDate) merchantOfferUpdatable.endDate = new Date(body.endDate);
+    if (body.isFlash !== undefined) merchantOfferUpdatable.isFlash = !!body.isFlash;
 
     const updated = await prisma.$transaction(async (tx) => {
       if (Object.keys(merchantOfferUpdatable).length > 0) {

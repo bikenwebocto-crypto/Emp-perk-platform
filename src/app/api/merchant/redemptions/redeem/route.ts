@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getMerchantFromSession } from '@/lib/merchant-session'
 import { emailService } from '@/lib/email/email'
+import { maskEmployeeName } from '@/lib/merchant-privacy'
 import { createAuditLog } from '@/services/audit-log.service'
 import {
   renderRedemptionSuccessEmployeeTemplate,
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest) {
           code: redemption.redemptionCode,
           isVerified: true,
           verifiedAt: redemption.verifiedAt.toISOString(),
-          employeeName: `${redemption.employee.firstName} ${redemption.employee.lastName}`,
+          employeeName: maskEmployeeName(redemption.employee.firstName, redemption.employee.lastName),
           companyName: redemption.company.name,
           offerTitle: redemption.offer.title,
           merchantName: redemption.offer.merchant.businessName,
@@ -191,7 +192,7 @@ export async function POST(request: NextRequest) {
 
     const merchantHtml = renderRedemptionSuccessMerchantTemplate({
       merchantName: merchant.businessName,
-      employeeName: `${redemption.employee.firstName} ${redemption.employee.lastName}`,
+      employeeName: maskEmployeeName(redemption.employee.firstName, redemption.employee.lastName),
       companyName: redemption.company.name,
       offerTitle: redemption.offer.title,
       redemptionCode: redemption.redemptionCode ?? '',
@@ -252,8 +253,7 @@ export async function POST(request: NextRequest) {
         code: redemption.redemptionCode,
         isVerified: true,
         verifiedAt: now.toISOString(),
-        employeeName: `${redemption.employee.firstName} ${redemption.employee.lastName}`,
-        employeeEmail: empEmail ?? '',
+        employeeName: maskEmployeeName(redemption.employee.firstName, redemption.employee.lastName),
         companyName: redemption.company.name,
         offerTitle: redemption.offer.title,
         merchantName: redemption.offer.merchant.businessName,

@@ -152,8 +152,11 @@ const SECTION_LIMITS = {
 //
 // IMPORTANT: this is the single source of truth for visibility. Any other
 // place that filters LIVE offers (e.g. buildNearbyOffers) MUST reuse this.
+// Flash offers are excluded from every regular section; they are served
+// only by `/api/mobile/flash`.
 const liveOfferWhere = (now: Date) => ({
   status: 'LIVE' as const,
+  isFlash: false,
   startDate: { lte: now },
   endDate: { gt: now },
   merchant: {
@@ -593,7 +596,7 @@ async function buildMostRedeemed(now: Date): Promise<MobileHomeOffer[]> {
   return rows.map((o) => mapOffer(o, null))
 }
 
-const EXPIRING_SOON_DAYS = 45
+const EXPIRING_SOON_DAYS = 2
 
 async function buildExpiringSoon(now: Date): Promise<MobileHomeOffer[]> {
   const cutoff = new Date(now.getTime() + EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000)

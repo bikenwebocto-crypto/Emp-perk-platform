@@ -7,6 +7,7 @@ import { validateUserEmail } from "@/services/user-validation.service";
 import { createPerfTimer } from "@/lib/perf";
 import { channels, publishBusinessNotification } from '@/services/business-notification.service';
 import { inviteAuthUser, inviteErrorStatus, normalizeEmail, rollbackAuthUser } from '@/services/employee-invite.service';
+import { isPromotedAccount, PROMOTED_SKIP_REASON } from '@/lib/employees/promoted-guard';
 
 function unauthorized() {
   return NextResponse.json(
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest) {
         take: pageSize,
         include: {
           company: { select: { id: true, name: true, slug: true } },
-          account: { select: { authUserId: true, email: true, status: true } },
+          account: { select: { authUserId: true, email: true, status: true, role: true } },
           _count: { select: { redemptions: true } },
         },
       }),
@@ -230,18 +231,27 @@ export async function PATCH(request: NextRequest) {
     }
 
     timer.section('Database Queries')
-    const employees = await prisma.employee.findMany({
+    const found = await prisma.employee.findMany({
       where: { id: { in: employeeIds }, deletedAt: null },
-      select: { id: true, status: true },
+      select: { id: true, status: true, account: { select: { role: true } } },
     });
+    // Promoted users are skipped rather than failing the whole batch. Only the
+    // Employee row is updated here — Account.status is never touched.
+    const skipped = found
+      .filter((e) => isPromotedAccount(e.account))
+      .map((e) => ({ id: e.id, reason: PROMOTED_SKIP_REASON }));
+    const skippedIds = new Set(skipped.map((s) => s.id));
+    const employees = found.filter((e) => !skippedIds.has(e.id));
+    const updatableIds = employees.map((e) => e.id);
+
     timer.point('employee.updateMany')
     const result = await prisma.employee.updateMany({
-      where: { id: { in: employeeIds }, deletedAt: null },
+      where: { id: { in: updatableIds }, deletedAt: null },
       data: { status: status as any },
     });
 
     timer.point('createAuditLog')
-    await createAuditLog(fromCurrentUser(user, `EMPLOYEES_BULK_${status}`, "employee", `bulk-${Date.now()}`, { changes: { employeeIds, status, reason, count: result.count } }));
+    await createAuditLog(fromCurrentUser(user, `EMPLOYEES_BULK_${status}`, "employee", `bulk-${Date.now()}`, { changes: { employeeIds: updatableIds, skipped, status, reason, count: result.count } }));
 
     for (const employee of employees) {
       await publishBusinessNotification({
@@ -263,8 +273,9 @@ export async function PATCH(request: NextRequest) {
     timer.point('NextResponse.json')
     timer.end()
     return NextResponse.json({
-      success: true, data: { count: result.count },
-      message: `${result.count} employee(s) ${status.toLowerCase()} successfully`,
+      success: true, data: { count: result.count, skipped },
+      message: `${result.count} employee(s) ${status.toLowerCase()} successfully` +
+        (skipped.length ? `; ${skipped.length} skipped (promoted to Company Admin)` : ""),
     });
   } catch (error) {
     timer.end()

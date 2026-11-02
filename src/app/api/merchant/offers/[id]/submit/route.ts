@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMerchantFromSession } from "@/lib/merchant-session";
 import { createAuditLog } from "@/services/audit-log.service";
+import { validateFlashWindow } from "@/lib/offers/flash";
 import {
   BUSINESS_NOTIFICATION_TEMPLATES,
   channels,
@@ -114,6 +115,12 @@ function runQualityChecks(body: any): {
     new Date(body.endDate) <= new Date(body.startDate)
   )
     errors.endDate = "End date must be after start date";
+  if (body.redemptionType === "ONLINE_CODE") {
+    if (!String(body.bookingUrl ?? "").trim()) errors.bookingUrl = "Booking URL is required";
+    if (!String(body.redemptionCode ?? "").trim()) errors.redemptionCode = "Offer code is required";
+  }
+  const flashError = validateFlashWindow(body.isFlash, body.startDate, body.endDate);
+  if (flashError && !errors.endDate) errors.endDate = flashError;
   if (!body.termsAndConditions)
     errors.termsAndConditions = "Terms and conditions are required";
   if (!body.categoryId) errors.categoryId = "Category is required";
@@ -574,6 +581,8 @@ export async function POST(
           merchantOfferUpdatable.startDate = new Date(body.startDate);
         if (body.endDate)
           merchantOfferUpdatable.endDate = new Date(body.endDate);
+        if (body.isFlash !== undefined)
+          merchantOfferUpdatable.isFlash = !!body.isFlash;
         merchantOfferUpdatable.categoryId = categoryId;
         if (body.offerType !== undefined)
           merchantOfferUpdatable.offerType = body.offerType;

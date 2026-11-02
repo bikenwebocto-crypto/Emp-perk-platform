@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
 import { Sidebar } from '@/components/layout/sidebar'
 import { Navbar } from '@/components/layout/navbar'
 import { Toaster } from '@/components/ui/toaster'
@@ -54,21 +55,57 @@ interface DashboardShellProps {
   branding: PublicBranding | null
 }
 
+type DashboardUserType = 'admin' | 'merchant' | 'company_admin' | 'employee'
+
+/** Home section for each session userType. */
+const HOME_BY_USER_TYPE: Record<DashboardUserType, string> = {
+  admin: '/admin',
+  company_admin: '/company',
+  employee: '/employee',
+  merchant: '/merchant',
+}
+
+function isDashboardUserType(value: string | undefined): value is DashboardUserType {
+  return !!value && value in HOME_BY_USER_TYPE
+}
+
+/** True when `pathname` is inside the dashboard section that belongs to `userType`. */
+function isInOwnSection(pathname: string, userType: DashboardUserType): boolean {
+  const home = HOME_BY_USER_TYPE[userType]
+  return pathname === home || pathname.startsWith(`${home}/`)
+}
+
 export function DashboardShell({ children, branding }: DashboardShellProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const { data: user } = useCurrentUser()
+  const { data: user, isLoading, isError } = useCurrentUser()
   usePushNotifications({ enabled: Boolean(user) })
 
-  const userType = pathname.startsWith('/merchant')
-    ? 'merchant'
-    : pathname.startsWith('/company')
-      ? 'company_admin'
-      : pathname.startsWith('/employee')
-        ? 'employee'
-        : 'admin'
+  // The layout always follows the session user, never the URL: after a role
+  // change (e.g. employee → company admin) the URL can point at a section the
+  // user no longer belongs to.
+  const userType = isDashboardUserType(user?.userType) ? user.userType : null
+  const isWrongSection = !!userType && !isInOwnSection(pathname, userType)
 
-  console.log('userType', userType, 'pathname', pathname, 'user', user)
+  useEffect(() => {
+    if (isError) {
+      router.replace(`/login?redirectTo=${encodeURIComponent(pathname)}`)
+    } else if (userType && isWrongSection) {
+      router.replace(HOME_BY_USER_TYPE[userType])
+    }
+  }, [isError, userType, isWrongSection, pathname, router])
+
+  // Render nothing role-specific until we know the user and they are in their
+  // own section, so the wrong sidebar or page never flashes.
+  if (isLoading || isError || !userType || isWrongSection) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Loading" />
+      </div>
+    )
+  }
+
   const title = Object.entries(pageTitles).find(([path]) => pathname.startsWith(path))?.[1] ?? 'Dashboard'
 
   return (

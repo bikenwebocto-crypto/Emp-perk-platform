@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { showToast } from '@/hooks/use-toast'
 import { FeaturedLiveCarousel } from '@/components/merchant/FeaturedLiveCarousel'
-import { Plus, Pencil, ExternalLink, Gift, RefreshCw, Clock, History, Trash2, BadgeCheck, AlertCircle, Ban } from 'lucide-react'
+import { Plus, Pencil, ExternalLink, Gift, RefreshCw, Clock, History, Trash2, BadgeCheck, AlertCircle, Ban, Zap } from 'lucide-react'
 import { Alert } from '@/components/ui/alert'
 import type { ColumnDef } from '@/types'
 
@@ -44,7 +44,7 @@ function formatValue(o: any): string {
 export default function MerchantOffersPage() {
   const [showAdminNotes, setShowAdminNotes] = useState(true)
   const [showRejectionReason, setShowRejectionReason] = useState(true)
-  const [tab, setTab] = useState<'all' | 'drafts' | 'history'>('all')
+  const [tab, setTab] = useState<'all' | 'flash' | 'drafts' | 'history'>('all')
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -52,7 +52,7 @@ export default function MerchantOffersPage() {
   const [revokeOpen, setRevokeOpen] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<any>(null)
   const [revokeReason, setRevokeReason] = useState('')
-  const scope = tab === 'drafts' ? 'drafts' : tab === 'history' ? 'history' : undefined
+  const scope = tab === 'all' ? undefined : tab
   const bulkDelete = useBulkDeleteMerchantOffers()
   const revokeOffer = useRevokeMerchantOffer()
 
@@ -274,6 +274,7 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
       <div className="flex items-center border-b gap-0">
         {([
           { key: 'all', label: 'All Offers', icon: Gift },
+          { key: 'flash', label: 'Flash Offer', icon: Zap },
           { key: 'drafts', label: 'Drafts', icon: RefreshCw },
           { key: 'history', label: 'History', icon: History },
         ] as const).map((t) => (
@@ -323,7 +324,23 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
         selectable
         selectedIds={selectedIds}
         onSelectChange={setSelectedIds}
-        emptyMessage={tab === 'drafts' ? 'No drafts' : tab === 'history' ? 'No offer history' : 'No offers found'}
+        emptyMessage={
+          tab === 'drafts' ? 'No drafts'
+            : tab === 'history' ? 'No offer history'
+            : tab === 'flash' ? 'No flash offers yet'
+            : search ? 'No offers found'
+            : "You haven't created any offers yet"
+        }
+        emptyAction={
+          (tab === 'all' || tab === 'flash') && !search ? (
+            <Link href={tab === 'flash' ? '/merchant/offers/create?flash=1' : '/merchant/offers/create'}>
+              <Button size="sm">
+                <Plus className="mr-1 h-4 w-4" />
+                {tab === 'flash' ? 'Create a Flash Offer' : 'Create Your First Offer'}
+              </Button>
+            </Link>
+          ) : undefined
+        }
         pagination={{
           page,
           pageSize: 10,

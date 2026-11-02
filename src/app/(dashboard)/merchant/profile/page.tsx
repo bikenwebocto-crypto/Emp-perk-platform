@@ -15,6 +15,7 @@ import { uploadImage, MERCHANT_LOGO_OPTIONS, MERCHANT_COVER_OPTIONS } from '@/li
 import type { UploadImageOptions } from '@/lib/upload/image'
 import { BusinessOverview } from '@/components/shared/business-overview'
 import { SocialLinksInput } from '@/components/shared/social-links-input'
+import { ChangePasswordCard } from '@/components/shared/change-password-card'
 import type { SocialLinks } from '@/lib/social-links'
 import { PhoneInput } from '@/components/ui/phone-input'
 import { isValidPhone } from '@/lib/phone'
@@ -484,7 +485,7 @@ export default function MerchantProfilePage() {
                     setPendingCoverFile(files[0] ?? null)
                   }}
                   disabled={false}
-                  currentCount={values.coverImageUrl ? 1 : 0}
+                  currentCount={0}
                   uploadOptions={MERCHANT_COVER_OPTIONS}
                   acceptedTypes={['image/jpeg', 'image/png', 'image/webp']}
                   maxFileSize={5 * 1024 * 1024}
@@ -602,6 +603,9 @@ export default function MerchantProfilePage() {
           </Button>
         </div>
       </form>
+
+      {/* ─── Password ─── */}
+      <ChangePasswordCard />
     </div>
   )
 }

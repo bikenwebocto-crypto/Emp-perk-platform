@@ -36,7 +36,7 @@ export function OfferImageUploader({
         'image/gif',
       ]}
       maxFileSize={5 * 1024 * 1024}
-      maxFiles={5}
+      maxFiles={8}
       placeholder="Drop images here or click to browse"
       allowMultiple
     />

@@ -43,6 +43,8 @@ export interface EmployeeOffer {
   // Bookkeeping
   isFeatured: boolean
   isExclusive: boolean
+  /** Short-duration offer; ends at endDate. */
+  isFlash?: boolean
 
   startDate: string
   endDate: string

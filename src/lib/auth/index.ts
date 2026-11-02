@@ -33,3 +33,10 @@ export {
   requireEmployee,
   requireCompanyAdmin,
 } from './guards'
+
+export {
+  PRIVILEGED_MFA_ROLES,
+  requiresMfaForRole,
+  hasVerifiedTotpFactor,
+  isAal2,
+} from './mfa'

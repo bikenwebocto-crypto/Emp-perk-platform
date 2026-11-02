@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { getMerchantFromSession } from '@/lib/merchant-session'
+import { bookableBannerWhere } from '@/features/banners/utils/banner-availability'
 
 function unauthorized() {
   return NextResponse.json(
@@ -48,8 +49,9 @@ export async function GET(request: NextRequest) {
     const banner = await prisma.banner.findFirst({
       where: {
         position,
-        isActive: true,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        // Same availability rule the admin UI shows: isActive + inside the
+        // startDate/expiresAt window. Derived at read time — no scheduler.
+        ...bookableBannerWhere(now),
       },
     })
 

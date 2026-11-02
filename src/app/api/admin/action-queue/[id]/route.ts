@@ -271,9 +271,8 @@ export async function GET(
     });
 
     if (!queueItem) return notFound();
-    console.log("[ACTION-QUEUE GET] Queue item found:", queueItem)
+
     const entity = await loadEntity(queueItem);
-    console.log('entity loaded:', entity)
     const auditLogs = await prisma.auditLog.findMany({
       where: { entityType: "action_queue", entityId: id },
       orderBy: { createdAt: "desc" },
@@ -297,29 +296,29 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    console.log("=========================================");
-    console.log("[ACTION-QUEUE POST] Request received");
-    console.log("=========================================");
+    // console.log("=========================================");
+    // console.log("[ACTION-QUEUE POST] Request received");
+    // console.log("=========================================");
 
     const user = await getCurrentUser();
-    console.log("[ACTION-QUEUE POST] Authenticated user:", {
-      userId: user?.id,
-      userType: user?.userType,
-      profileId: user?.profileId,
-    });
+    // console.log("[ACTION-QUEUE POST] Authenticated user:", {
+    //   userId: user?.id,
+    //   userType: user?.userType,
+    //   profileId: user?.profileId,
+    // });
     if (!user || user.userType !== "admin") return unauthorized();
 
     const { id } = await params;
     const body = await request.json();
     const { action, rejectionReason, remark, edits } = body;
 
-    console.log("[ACTION-QUEUE POST] Request payload:", {
-      queueItemId: id,
-      action,
-      hasRejectionReason: !!rejectionReason?.trim(),
-      hasRemark: !!remark?.trim(),
-      hasEdits: !!edits,
-    });
+    // console.log("[ACTION-QUEUE POST] Request payload:", {
+    //   queueItemId: id,
+    //   action,
+    //   hasRejectionReason: !!rejectionReason?.trim(),
+    //   hasRemark: !!remark?.trim(),
+    //   hasEdits: !!edits,
+    // });
 
     if (!action) return badRequest("Action is required");
 

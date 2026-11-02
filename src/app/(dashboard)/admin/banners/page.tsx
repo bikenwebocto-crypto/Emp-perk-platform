@@ -31,6 +31,11 @@ import {
 import { ImageUpload, uploadDeferredImage } from "@/components/ui/image-upload";
 import type { DeferredFile } from "@/components/shared/ImageUploader";
 import { BANNER_IMAGE_OPTIONS } from "@/lib/upload/image";
+import Link from "next/link";
+import { EditBannerDialog } from "@/features/banners/components/edit-banner-dialog";
+import { BannerStatusBadge } from "@/features/banners/components/banner-status-badge";
+import type { BannerAvailability } from "@/features/banners/utils/banner-availability";
+import { formatBannerDate } from "@/features/banners/utils/format-date";
 interface Banner {
   id: string;
   name: string;
@@ -38,10 +43,15 @@ interface Banner {
   position: string;
   displayOrder: number;
   pricePerDay: number;
+  slotCount: number;
   minDays: number;
   maxDays: number;
   isActive: boolean;
+  startDate: string | null;
   expiresAt: string | null;
+  /** Derived server-side from startDate/expiresAt/isActive — never stored. */
+  availabilityStatus: BannerAvailability;
+  daysUntilStart: number | null;
   daysUntilExpiry: number | null;
   createdAt: string;
   _count: { bookings: number };
@@ -149,19 +159,11 @@ export default function AdminBannersPage() {
     pricePerDay: "",
     minDays: "7",
     maxDays: "30",
+    startDate: "",
     expiresAt: "",
   });
 
   const [editBanner, setEditBanner] = useState<Banner | null>(null);
-  const [editForm, setEditForm] = useState({
-    name: "",
-    description: "",
-    displayOrder: "",
-    pricePerDay: "",
-    minDays: "",
-    maxDays: "",
-    expiresAt: "",
-  });
   const [deleteBooking, setDeleteBooking] = useState<Booking | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
 
@@ -233,29 +235,10 @@ export default function AdminBannersPage() {
         pricePerDay: "",
         minDays: "7",
         maxDays: "30",
+        startDate: "",
         expiresAt: "",
       });
       showToast({ type: "success", title: "Banner slots created" });
-    },
-    onError: (e: any) =>
-      showToast({ type: "error", title: "Failed", description: e?.message }),
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, ...body }: Record<string, unknown>) => {
-      const res = await fetch(`/api/admin/banners/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? "Failed to update");
-      return json;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-banners"] });
-      setEditBanner(null);
-      showToast({ type: "success", title: "Banner slot updated" });
     },
     onError: (e: any) =>
       showToast({ type: "error", title: "Failed", description: e?.message }),
@@ -388,44 +371,29 @@ const toggleMutation = useMutation({
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+
+    if (createForm.startDate && createForm.expiresAt && createForm.startDate > createForm.expiresAt) {
+      showToast({
+        type: "error",
+        title: "Invalid schedule",
+        description: "The start date must be on or before the expiry date.",
+      });
+      return;
+    }
+
     createMutation.mutate({
       position: createForm.position,
       slotCount: parseInt(createForm.slotCount) || 1,
       pricePerDay: parseFloat(createForm.pricePerDay),
       minDays: parseInt(createForm.minDays),
       maxDays: parseInt(createForm.maxDays),
+      startDate: createForm.startDate || undefined,
       expiresAt: createForm.expiresAt || undefined,
-    });
-  }
-
-  function handleEdit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editBanner) return;
-    updateMutation.mutate({
-      id: editBanner.id,
-      name: editForm.name,
-      description: editForm.description || undefined,
-      displayOrder: parseInt(editForm.displayOrder) || 0,
-      pricePerDay: parseFloat(editForm.pricePerDay),
-      minDays: parseInt(editForm.minDays),
-      maxDays: parseInt(editForm.maxDays),
-      expiresAt: editForm.expiresAt || null,
     });
   }
 
   function openEdit(banner: Banner) {
     setEditBanner(banner);
-    setEditForm({
-      name: banner.name,
-      description: banner.description ?? "",
-      displayOrder: String(banner.displayOrder ?? 0),
-      pricePerDay: String(banner.pricePerDay),
-      minDays: String(banner.minDays),
-      maxDays: String(banner.maxDays),
-      expiresAt: banner.expiresAt
-        ? (new Date(banner.expiresAt).toISOString().split("T")[0] ?? "")
-        : "",
-    });
   }
 
   function handleApprove(booking: Booking) {
@@ -679,20 +647,39 @@ const toggleMutation = useMutation({
                       />
                     </div>
                   </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      Expires At (optional — blank = no expiry)
-                    </label>
-                    <Input
-                      type="date"
-                      value={createForm.expiresAt}
-                      onChange={(e) =>
-                        setCreateForm((f) => ({
-                          ...f,
-                          expiresAt: e.target.value,
-                        }))
-                      }
-                    />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                        Start Date (optional — blank = available now)
+                      </label>
+                      <Input
+                        type="date"
+                        value={createForm.startDate}
+                        max={createForm.expiresAt || undefined}
+                        onChange={(e) =>
+                          setCreateForm((f) => ({
+                            ...f,
+                            startDate: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                        Expires At (optional — blank = no expiry)
+                      </label>
+                      <Input
+                        type="date"
+                        value={createForm.expiresAt}
+                        min={createForm.startDate || undefined}
+                        onChange={(e) =>
+                          setCreateForm((f) => ({
+                            ...f,
+                            expiresAt: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
                   </div>
                   <div className="flex justify-end gap-2">
                     <Button
@@ -758,11 +745,11 @@ const toggleMutation = useMutation({
                                     #{b.displayOrder ?? 0}
                                   </span>
                                   <p className="font-medium">{b.name}</p>
-                                  <span
-                                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${b.isActive ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}
-                                  >
-                                    {b.isActive ? "Active" : "Inactive"}
-                                  </span>
+                                  <BannerStatusBadge
+                                    status={b.availabilityStatus}
+                                    daysUntilStart={b.daysUntilStart}
+                                    hint={null}
+                                  />
                                   {b.daysUntilExpiry !== null &&
                                     b.daysUntilExpiry <= 7 &&
                                     b.daysUntilExpiry > 0 && (
@@ -770,17 +757,20 @@ const toggleMutation = useMutation({
                                         Expires in {b.daysUntilExpiry}d
                                       </span>
                                     )}
-                                  {b.daysUntilExpiry !== null &&
-                                    b.daysUntilExpiry <= 0 && (
-                                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
-                                        Expired
-                                      </span>
-                                    )}
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <span className="font-semibold">
                                     €{Number(b.pricePerDay).toFixed(2)}/day
                                   </span>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    asChild
+                                  >
+                                    <Link href={`/admin/banners/${b.id}`}>
+                                      Details
+                                    </Link>
+                                  </Button>
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -815,11 +805,20 @@ const toggleMutation = useMutation({
                               <p className="mt-1 text-xs text-muted-foreground">
                                 {b._count.bookings} bookings · Min {b.minDays}d
                                 · Max {b.maxDays}d
+                                {b.startDate && (
+                                  <>
+                                    {" "}
+                                    · Starts{" "}
+                                    {formatBannerDate(b.startDate) ??
+                                      "—"}
+                                  </>
+                                )}
                                 {b.expiresAt && (
                                   <>
                                     {" "}
                                     · Expires{" "}
-                                    {new Date(b.expiresAt).toLocaleDateString()}
+                                    {formatBannerDate(b.expiresAt) ??
+                                      "—"}
                                   </>
                                 )}
                               </p>
@@ -861,129 +860,11 @@ const toggleMutation = useMutation({
             </CardContent>
           </Card>
 
-          <Dialog
+          <EditBannerDialog
+            banner={editBanner}
             open={!!editBanner}
             onOpenChange={(open) => !open && setEditBanner(null)}
-          >
-            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-              <DialogHeader>
-                <DialogTitle>Edit: {editBanner?.name}</DialogTitle>
-                <DialogDescription>
-                  Update the banner slot details below.
-                </DialogDescription>
-              </DialogHeader>
-
-              <form onSubmit={handleEdit} className="space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Name *
-                  </label>
-                  <Input
-                    value={editForm.name}
-                    onChange={(e) =>
-                      setEditForm((f) => ({ ...f, name: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Description
-                  </label>
-                  <Input
-                    value={editForm.description}
-                    onChange={(e) =>
-                      setEditForm((f) => ({ ...f, description: e.target.value }))
-                    }
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      Price Per Day (€) *
-                    </label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={editForm.pricePerDay}
-                      onChange={(e) =>
-                        setEditForm((f) => ({ ...f, pricePerDay: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      Min Days
-                    </label>
-                    <Input
-                      type="number"
-                      min="1"
-                      value={editForm.minDays}
-                      onChange={(e) =>
-                        setEditForm((f) => ({ ...f, minDays: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      Max Days
-                    </label>
-                    <Input
-                      type="number"
-                      min="1"
-                      value={editForm.maxDays}
-                      onChange={(e) =>
-                        setEditForm((f) => ({ ...f, maxDays: e.target.value }))
-                      }
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Display Order (slot number — lower = appears first)
-                  </label>
-                  <Input
-                    type="number"
-                    value={editForm.displayOrder}
-                    onChange={(e) =>
-                      setEditForm((f) => ({ ...f, displayOrder: e.target.value }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Expires At (optional — blank = no expiry)
-                  </label>
-                  <Input
-                    type="date"
-                    value={editForm.expiresAt}
-                    onChange={(e) =>
-                      setEditForm((f) => ({ ...f, expiresAt: e.target.value }))
-                    }
-                  />
-                </div>
-
-                <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setEditBanner(null)}
-                  >
-                    Cancel
-                  </Button>
-                  <LoadingButton
-                    type="submit"
-                    loading={updateMutation.isPending}
-                    loadingText="Saving…"
-                  >
-                    Save
-                  </LoadingButton>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+          />
         </>
       )}
 

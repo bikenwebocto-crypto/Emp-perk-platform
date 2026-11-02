@@ -18,6 +18,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { OfferExpiryScheduler } from './offer-expiry-scheduler';
+import { DemoBookingReminderScheduler } from './demo-booking-reminder-scheduler';
 
 interface QueueMessage {
   id: string;
@@ -31,6 +32,7 @@ class QueueWorker {
   private isRunning = false;
   private pollIntervalMs = 5000;
   private offerExpiryScheduler = new OfferExpiryScheduler();
+  private demoBookingReminderScheduler = new DemoBookingReminderScheduler();
 
   async start(): Promise<void> {
     this.isRunning = true;
@@ -52,6 +54,10 @@ class QueueWorker {
     // Hourly offer-expiry checks (deduplicated + idempotent by design).
     if (this.offerExpiryScheduler.shouldRun()) {
       await this.offerExpiryScheduler.run();
+    }
+    // Hourly demo booking reminders (24h before confirmed bookings)
+    if (this.demoBookingReminderScheduler.shouldRun()) {
+      await this.demoBookingReminderScheduler.run();
     }
   }
 

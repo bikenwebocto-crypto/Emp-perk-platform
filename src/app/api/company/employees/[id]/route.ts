@@ -7,6 +7,17 @@ import { validateUserEmail } from "@/services/user-validation.service";
 import { createAuditLog, fromCurrentUser } from "@/services/audit-log.service";
 import { emailService } from "@/lib/email/email";
 import { deleteImage } from "@/lib/upload/image";
+import {
+  isPromotedAccount,
+  PROMOTED_EMPLOYEE_MESSAGE,
+} from "@/lib/employees/promoted-guard";
+
+const EMPLOYEE_STATUS_VALUES = ["ACTIVE", "INACTIVE"] as const;
+type EmployeeStatusValue = (typeof EMPLOYEE_STATUS_VALUES)[number];
+
+function isEmployeeStatusValue(value: string): value is EmployeeStatusValue {
+  return (EMPLOYEE_STATUS_VALUES as readonly string[]).includes(value);
+}
 
 export async function GET(
   _request: NextRequest,
@@ -162,7 +173,7 @@ async function validateEmployeeExists(
     where,
     include: {
       account: {
-        select: { authUserId: true, email: true, status: true },
+        select: { authUserId: true, email: true, status: true, role: true },
       },
     },
   });
@@ -605,6 +616,35 @@ export async function PATCH(
         changedFields.push("phone");
       }
     }
+    // Status is validated before the avatar check below, which deletes the
+    // old image straight away — a rejected status must not lose the avatar.
+    let accountStatusUpdate: EmployeeStatusValue | null = null;
+    if (body.status !== undefined) {
+      const nextStatus = String(body.status).trim().toUpperCase();
+      if (!isEmployeeStatusValue(nextStatus)) {
+        return NextResponse.json(
+          { success: false, error: { code: "VALIDATION", message: "Status must be ACTIVE or INACTIVE" } },
+          { status: 400 },
+        );
+      }
+      if (nextStatus !== existingEmployee.status) {
+        if (isPromotedAccount(existingEmployee.account)) {
+          return NextResponse.json(
+            { success: false, error: { code: "CONFLICT", message: PROMOTED_EMPLOYEE_MESSAGE } },
+            { status: 409 },
+          );
+        }
+        profileUpdate.status = nextStatus;
+        changedFields.push("status");
+        // Keep the login in step with the employee, but never override an
+        // invite that has not been accepted yet.
+        const account = existingEmployee.account;
+        if (account && account.status !== "PENDING" && account.status !== nextStatus) {
+          accountStatusUpdate = nextStatus;
+        }
+      }
+    }
+
     if (body.avatarUrl !== undefined && body.avatarUrl !== existingEmployee.avatarUrl) {
       profileUpdate.avatarUrl = body.avatarUrl;
       changedFields.push("avatarUrl");
@@ -614,7 +654,15 @@ export async function PATCH(
     }
 
     if (Object.keys(profileUpdate).length > 0) {
-      await prisma.employee.update({ where: { id }, data: profileUpdate as any });
+      await prisma.$transaction(async (tx) => {
+        await tx.employee.update({ where: { id }, data: profileUpdate as any });
+        if (accountStatusUpdate && existingEmployee.account?.authUserId) {
+          await tx.account.update({
+            where: { authUserId: existingEmployee.account.authUserId },
+            data: { status: accountStatusUpdate },
+          });
+        }
+      });
       try {
         await createAuditLog(
           fromCurrentUser(user, "EMPLOYEE_UPDATED", "employee", id, { changes: { changedFields } }),

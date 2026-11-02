@@ -4,12 +4,25 @@ import { createClient } from '@/lib/supabase/server'
 import { checkEmailConfiguration } from '@/lib/email/email.examples'
 import { getPublicBranding } from '@/features/admin/settings/login-branding/services/login-branding.service'
 import { cookies } from "next/headers";
+import { hasVerifiedTotpFactor, requiresMfaForRole } from '@/lib/auth/mfa';
 
 const dashboardMap: Record<string, string> = {
   SUPER_ADMIN: '/admin',
   MERCHANT: '/merchant',
   COMPANY_ADMIN: '/company',
   EMPLOYEE: '/employee',
+}
+
+async function getMfaRedirectForRole(supabase: Awaited<ReturnType<typeof createClient>>, role: string | null | undefined): Promise<string> {
+  if (!requiresMfaForRole(role)) return dashboardMap[role ?? 'EMPLOYEE'] ?? '/employee'
+
+  const { data: factors } = await supabase.auth.mfa.listFactors()
+  const hasTotp = hasVerifiedTotpFactor(factors)
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+
+  if (!hasTotp) return '/mfa/setup'
+  if (aal?.currentLevel !== 'aal2') return '/mfa/verify'
+  return dashboardMap[role ?? 'EMPLOYEE'] ?? '/employee'
 }
 
 export async function POST(request: NextRequest) {
@@ -72,7 +85,7 @@ export async function POST(request: NextRequest) {
       data: { lastLoginAt: new Date() },
     })
 
-    const redirectTo = dashboardMap[existingAccount.role] ?? '/employee'
+    const redirectTo = await getMfaRedirectForRole(supabase, existingAccount.role)
 
     return NextResponse.json({
       success: true,
@@ -149,7 +162,7 @@ export async function POST(request: NextRequest) {
     data: { lastLoginAt: new Date() },
   })
 
-  const redirectTo = dashboardMap[accountByEmail.role] ?? '/employee'
+  const redirectTo = await getMfaRedirectForRole(supabase, accountByEmail.role)
 
   return NextResponse.json({
     success: true,

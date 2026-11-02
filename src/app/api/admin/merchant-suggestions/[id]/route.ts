@@ -43,12 +43,14 @@ async function loadDetail(id: string) {
 // Merchants whose business name resembles the suggested name: a
 // case-insensitive substring match on the full name, or on its first word
 // when that word is distinctive enough (≥ 4 chars). Also matches on phone.
-function similarMerchantsWhere(name: string, phone: string): Prisma.MerchantWhereInput {
+function similarMerchantsWhere(name: string, phone: string | null): Prisma.MerchantWhereInput {
   const firstWord = name.split(/\s+/)[0] ?? ''
   const or: Prisma.MerchantWhereInput[] = [
     { businessName: { contains: name, mode: 'insensitive' } },
-    { contactPhone: phone },
   ]
+  if (phone) {
+    or.push({ contactPhone: phone })
+  }
   if (firstWord.length >= 4 && firstWord.toLowerCase() !== name.toLowerCase()) {
     or.push({ businessName: { contains: firstWord, mode: 'insensitive' } })
   }
