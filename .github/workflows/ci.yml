@@ -8,7 +8,8 @@ on:
 
 env:
   NODE_VERSION: "20"
-  AWS_REGION: "us-east-1"
+  AWS_REGION_STAGING: "us-east-1"
+  AWS_REGION_PRODUCTION: "eu-west-1"
   # Two separate repo names — staging and production live in different
   # AWS accounts / registries, so don't share one ECR_REPOSITORY var.
   ECR_REPOSITORY_STAGING: "employee_perk_platform"      # confirmed via IAM denial error message
@@ -68,8 +69,7 @@ jobs:
             'arn:aws:iam::043083732273:role/GitHubProductionDeployRole' ||
             'arn:aws:iam::547107369872:role/GitHubStagingDeployRole'
             }}
-          aws-region: ${{ env.AWS_REGION }}
-
+          aws-region: ${{ github.ref == 'refs/heads/main' && env.AWS_REGION_PRODUCTION || env.AWS_REGION_STAGING }}
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
@@ -148,7 +148,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::547107369872:role/GitHubStagingDeployRole
-          aws-region: us-east-1
+          aws-region: ${{env.AWS_REGION_STAGING}}
 
       - name: Verify AWS identity
         run: aws sts get-caller-identity
@@ -242,7 +242,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::043083732273:role/GitHubProductionDeployRole
-          aws-region: us-east-1
+          aws-region: ${{env.AWS_REGION_PRODUCTION}}
 
       - name: Verify AWS identity
         run: aws sts get-caller-identity
