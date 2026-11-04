@@ -404,6 +404,7 @@ export async function POST(
       where: {
         merchantId: offer.merchant.id,
         status: "LIVE",
+        endDate: { gt: new Date() },
         deletedAt: null,
       },
       select: {

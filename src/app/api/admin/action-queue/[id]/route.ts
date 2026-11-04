@@ -429,11 +429,21 @@ async function validateMerchantOfferApproval(
 ) {
   await tx.$queryRaw`SELECT id FROM "merchants" WHERE id = ${merchantId} FOR UPDATE`;
 
+  const now = new Date();
+  if (new Date(upcomingOffer.endDate) <= now) {
+    throw new OfferApprovalValidationError(
+      "This offer's end date has already passed. Update the end date before approving.",
+    );
+  }
+
+  // Expiry runs lazily, so an offer can still be LIVE after its endDate.
+  // Treat those as expired here so they never block or satisfy the policy.
   const liveOffers = await tx.merchantOffer.findMany({
     where: {
       merchantId,
       deletedAt: null,
       status: "LIVE",
+      endDate: { gt: now },
     },
     select: {
       id: true,

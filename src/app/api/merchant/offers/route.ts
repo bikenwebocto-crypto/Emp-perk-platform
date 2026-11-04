@@ -319,14 +319,6 @@ async function firePostCreateSideEffects(params: {
   }
 }
 
-function isEvergreenRange(startDate: Date | string, endDate: Date | string): boolean {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
-  const threshold = new Date(start);
-  threshold.setFullYear(threshold.getFullYear() + 1);
-  return end >= threshold;
-}
 export async function GET(request: NextRequest) {
   try {
     triggerOfferExpiry() // background, never awaited
@@ -572,6 +564,7 @@ export async function POST(request: NextRequest) {
         where: {
           merchantId: merchant.id,
           status: "LIVE",
+          endDate: { gt: new Date() },
           deletedAt: null,
         },
         select: {
