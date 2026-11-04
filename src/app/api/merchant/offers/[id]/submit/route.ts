@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getMerchantFromSession } from "@/lib/merchant-session";
 import { createAuditLog } from "@/services/audit-log.service";
 import { validateFlashWindow } from "@/lib/offers/flash";
+import { isEvergreenRange, validateMerchantForeverOfferPolicy } from "@/lib/offers/evergreen";
 import {
   BUSINESS_NOTIFICATION_TEMPLATES,
   channels,
@@ -15,6 +16,7 @@ import {
   withRepeatAfterHours,
 } from "@/lib/redemption-tracking";
 import { getCurrentUser } from "@/lib/supabase/server";
+import { isValidOfferCode } from "@/lib/offer-code";
 
 function unauthorized() {
   return NextResponse.json(
@@ -40,6 +42,13 @@ function forbidden(msg: string) {
   return NextResponse.json(
     { success: false, error: { code: "FORBIDDEN", message: msg } },
     { status: 403 },
+  );
+}
+
+function badRequest(message: string) {
+  return NextResponse.json(
+    { success: false, error: { code: "VALIDATION", message } },
+    { status: 400 },
   );
 }
 
@@ -117,7 +126,12 @@ function runQualityChecks(body: any): {
     errors.endDate = "End date must be after start date";
   if (body.redemptionType === "ONLINE_CODE") {
     if (!String(body.bookingUrl ?? "").trim()) errors.bookingUrl = "Booking URL is required";
-    if (!String(body.redemptionCode ?? "").trim()) errors.redemptionCode = "Offer code is required";
+    const redemptionCode = String(body.redemptionCode ?? "").trim();
+    if (!redemptionCode) {
+      errors.redemptionCode = "Offer code is required";
+    } else if (!isValidOfferCode(redemptionCode)) {
+      errors.redemptionCode = "Offer code must be between 6 and 30 letters or numbers.";
+    }
   }
   const flashError = validateFlashWindow(body.isFlash, body.startDate, body.endDate);
   if (flashError && !errors.endDate) errors.endDate = flashError;
@@ -355,6 +369,9 @@ export async function POST(
 
     const pricingConfig =
       (offer.pricing?.configuration as Record<string, unknown>) ?? {};
+    const effectiveForeverValue =
+      Boolean(body.isForever ?? offer.isForever) ||
+      isEvergreenRange(body.startDate ?? offer.startDate, body.endDate ?? offer.endDate);
 
     const qcResult = runQualityChecks({
       ...offer,
@@ -382,6 +399,39 @@ export async function POST(
       ? "AWAITING_APPROVAL"
       : "VALIDATION_FAILED";
     console.log("[SUBMIT OFFER] targetStatus:", targetStatus);
+
+    const liveOffers = await prisma.merchantOffer.findMany({
+      where: {
+        merchantId: offer.merchant.id,
+        status: "LIVE",
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        startDate: true,
+        endDate: true,
+        isFlash: true,
+        isForever: true,
+        replacesOfferId: true,
+      },
+    });
+
+    const evergreenError = validateMerchantForeverOfferPolicy({
+      liveOffers,
+      upcomingOffer: {
+        id: offer.id,
+        startDate: body.startDate ?? offer.startDate,
+        endDate: body.endDate ?? offer.endDate,
+        isForever: effectiveForeverValue,
+        isFlash: body.isFlash ?? offer.isFlash,
+      },
+      isReplacement: !!offer.replacesOfferId,
+      replacementTargetId: offer.replacesOfferId ?? null,
+    });
+
+    if (qcResult.passed && evergreenError) {
+      return badRequest(evergreenError);
+    }
 
     // ── Step 1: persist the record. Nothing here is optional — if this
     // fails, the client correctly gets an error.
@@ -583,6 +633,9 @@ export async function POST(
           merchantOfferUpdatable.endDate = new Date(body.endDate);
         if (body.isFlash !== undefined)
           merchantOfferUpdatable.isFlash = !!body.isFlash;
+        if (body.isForever !== undefined || body.startDate !== undefined || body.endDate !== undefined) {
+          merchantOfferUpdatable.isForever = effectiveForeverValue;
+        }
         merchantOfferUpdatable.categoryId = categoryId;
         if (body.offerType !== undefined)
           merchantOfferUpdatable.offerType = body.offerType;

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMerchantFromSession } from '@/lib/merchant-session'
 import { Prisma } from "@prisma/client";
-import { generateUniqueOfferCode } from '@/lib/offer-code';
+import { clampOfferCodeLength, generateUniqueOfferCode, isValidOfferCode } from '@/lib/offer-code';
+import { isEvergreenRange } from '@/lib/offers/evergreen';
 import { getRepeatAfterHours, parseRepeatAfterHoursInput, withRepeatAfterHours } from '@/lib/redemption-tracking';
 import { ensureOfferQRCode } from '@/lib/offer-qr';
 
@@ -135,6 +136,10 @@ export async function PATCH(
       return badRequest("repeatAfterHours must be a positive number");
     }
 
+    if (typeof body.redemptionCode === 'string' && body.redemptionCode.trim() && !isValidOfferCode(body.redemptionCode.trim())) {
+      return badRequest("Offer code must be between 6 and 30 letters or numbers.");
+    }
+
     const merchantOfferUpdatable: Record<string, unknown> = {};
     if (body.title !== undefined) merchantOfferUpdatable.title = body.title;
     if (body.offerType !== undefined) merchantOfferUpdatable.offerType = body.offerType;
@@ -143,6 +148,13 @@ export async function PATCH(
     if (body.startDate) merchantOfferUpdatable.startDate = new Date(body.startDate);
     if (body.endDate) merchantOfferUpdatable.endDate = new Date(body.endDate);
     if (body.isFlash !== undefined) merchantOfferUpdatable.isFlash = !!body.isFlash;
+
+    const nextStartDate = body.startDate ?? existing.startDate;
+    const nextEndDate = body.endDate ?? existing.endDate;
+    const effectiveForeverValue = Boolean(body.isForever ?? existing.isForever) || isEvergreenRange(nextStartDate, nextEndDate);
+    if (body.isForever !== undefined || body.startDate !== undefined || body.endDate !== undefined) {
+      merchantOfferUpdatable.isForever = effectiveForeverValue;
+    }
 
     const updated = await prisma.$transaction(async (tx) => {
       if (Object.keys(merchantOfferUpdatable).length > 0) {
@@ -260,7 +272,11 @@ export async function PATCH(
 }
 
         if (body.regenerateOfferCode) {
-          const newCode = await generateUniqueOfferCode();
+          const currentCode = typeof body.redemptionCode === 'string'
+            ? body.redemptionCode.trim()
+            : String(redemptionConfig.code ?? '').trim();
+          const targetLength = clampOfferCodeLength(currentCode.length || 16);
+          const newCode = await generateUniqueOfferCode(targetLength);
           redemptionConfig.code = newCode;
           await createAuditLog({
             actorType: 'merchant',

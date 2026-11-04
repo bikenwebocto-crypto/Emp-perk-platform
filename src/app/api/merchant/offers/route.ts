@@ -8,9 +8,10 @@ import {
 } from "@/lib/offer-replacement";
 import { logReplacementAudit, notifyReplacement } from "@/lib/offer-replacement-notifications";
 import { createAuditLog } from '@/services/audit-log.service';
-import { generateUniqueOfferCode } from '@/lib/offer-code';
+import { generateUniqueOfferCode, isValidOfferCode } from '@/lib/offer-code';
 import { parseRepeatAfterHoursInput } from '@/lib/redemption-tracking';
 import { validateFlashWindow } from '@/lib/offers/flash';
+import { isEvergreenRange, validateMerchantForeverOfferPolicy } from '@/lib/offers/evergreen';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
@@ -102,6 +103,13 @@ function runQualityChecks(body: any): {
     }
   }
 
+  if (body.redemptionType === 'ONLINE_CODE') {
+    if (!String(body.redemptionCode ?? '').trim()) {
+      errors.redemptionCode = 'Offer code is required';
+    } else if (!isValidOfferCode(String(body.redemptionCode).trim())) {
+      errors.redemptionCode = 'Offer code must be between 6 and 30 letters or numbers.';
+    }
+  }
   if (!body.startDate) errors.startDate = "Start date is required";
   if (!body.endDate) errors.endDate = "End date is required";
   if (
@@ -474,6 +482,7 @@ export async function POST(request: NextRequest) {
       isFeatured,
       isExclusive,
       isFlash,
+      isForever,
       maxRedemptions,
       startDate,
       endDate,
@@ -510,6 +519,8 @@ export async function POST(request: NextRequest) {
     if (!repeatAfterHours.ok) {
       return badRequest("repeatAfterHours must be a positive number");
     }
+
+    const computedIsForever = Boolean(isForever) || isEvergreenRange(startDate, endDate);
 
     if (redemptionType === 'ONLINE_CODE' && !bookingUrl && !saveAsDraft) {
       return badRequest("Booking URL is required for ONLINE_CODE offers");
@@ -553,6 +564,41 @@ export async function POST(request: NextRequest) {
           );
         }
         throw err;
+      }
+    }
+
+    if (!saveAsDraft) {
+      const liveOffers = await prisma.merchantOffer.findMany({
+        where: {
+          merchantId: merchant.id,
+          status: "LIVE",
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          startDate: true,
+          endDate: true,
+          isFlash: true,
+          isForever: true,
+          replacesOfferId: true,
+        },
+      });
+
+      const evergreenError = validateMerchantForeverOfferPolicy({
+        liveOffers,
+        upcomingOffer: {
+          id: null,
+          startDate: startDate,
+          endDate: endDate,
+          isForever: computedIsForever,
+          isFlash: !!isFlash,
+        },
+        isReplacement: !!replacesOfferId,
+        replacementTargetId: replacesOfferId ?? null,
+      });
+
+      if (evergreenError) {
+        return badRequest(evergreenError);
       }
     }
 
@@ -602,6 +648,7 @@ export async function POST(request: NextRequest) {
           isFeatured: !!isFeatured,
           isExclusive: !!isExclusive,
           isFlash: !!isFlash,
+          isForever: computedIsForever,
           // redemption: redemptionType ?? null,
           status: targetStatus,
           startDate: new Date(startDate),

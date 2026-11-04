@@ -4,6 +4,7 @@ import { createAuditLog } from "@/services/audit-log.service";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { getEntityKindFromReferenceType } from "@/lib/action-queue-types";
 import { ensureOfferQRCode } from "@/lib/offer-qr";
+import { isEvergreenRange } from "@/lib/offers/evergreen";
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins, publishBusinessToCompanyAdmins, publishBusinessToAllEmployees } from '@/services/business-notification.service';
 
 function unauthorized() {
@@ -39,6 +40,13 @@ function internalError(error: unknown) {
     },
     { status: 500 },
   );
+}
+
+class OfferApprovalValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OfferApprovalValidationError";
+  }
 }
 
 type EntityKind =
@@ -350,7 +358,14 @@ export async function POST(
 
     if (action === "APPROVE") {
       console.log("[ACTION-QUEUE POST] Action: APPROVE");
-      await performApprove(queueItem, adminId, now);
+      try {
+        await performApprove(queueItem, adminId, now);
+      } catch (error) {
+        if (error instanceof OfferApprovalValidationError) {
+          return badRequest(error.message);
+        }
+        throw error;
+      }
       return NextResponse.json({ success: true, message: "Item approved" });
     }
 
@@ -370,7 +385,14 @@ export async function POST(
     if (action === "EDIT_AND_APPROVE") {
       if (!edits || typeof edits !== "object")
         return badRequest("Edits object is required");
-      await performEditAndApprove(queueItem, adminId, edits, now);
+      try {
+        await performEditAndApprove(queueItem, adminId, edits, now);
+      } catch (error) {
+        if (error instanceof OfferApprovalValidationError) {
+          return badRequest(error.message);
+        }
+        throw error;
+      }
       return NextResponse.json({
         success: true,
         message: "Item edited and approved",
@@ -380,6 +402,102 @@ export async function POST(
     return badRequest(`Unknown action: ${action}`);
   } catch (error) {
     return internalError(error);
+  }
+}
+
+function isForeverOffer(offer: {
+  isForever?: boolean | null;
+  startDate: Date | string;
+  endDate: Date | string;
+}): boolean {
+  return !!offer.isForever || isEvergreenRange(offer.startDate, offer.endDate);
+}
+
+async function validateMerchantOfferApproval(
+  tx: any,
+  merchantId: string,
+  upcomingOffer: {
+    id: string;
+    isForever?: boolean | null;
+    startDate: Date | string;
+    endDate: Date | string;
+  },
+  options: {
+    isReplacement?: boolean;
+    replacementTargetId?: string | null;
+  } = {},
+) {
+  await tx.$queryRaw`SELECT id FROM "merchants" WHERE id = ${merchantId} FOR UPDATE`;
+
+  const liveOffers = await tx.merchantOffer.findMany({
+    where: {
+      merchantId,
+      deletedAt: null,
+      status: "LIVE",
+    },
+    select: {
+      id: true,
+      startDate: true,
+      endDate: true,
+      isForever: true,
+      isFlash: true,
+      replacesOfferId: true,
+    },
+  });
+
+  type LiveOffer = {
+    id: string;
+    isForever?: boolean | null;
+    startDate: Date | string;
+    endDate: Date | string;
+  };
+  // Ignore the offer being approved in case it is already LIVE.
+  const otherLiveOffers: LiveOffer[] = liveOffers.filter(
+    (liveOffer: LiveOffer) => liveOffer.id !== upcomingOffer.id,
+  );
+  const isUpcomingForeverOffer = isForeverOffer(upcomingOffer);
+
+  let replacementTarget: LiveOffer | null = null;
+  if (options.isReplacement && options.replacementTargetId) {
+    // otherLiveOffers is already scoped to this merchant and LIVE status.
+    replacementTarget =
+      otherLiveOffers.find(
+        (liveOffer) => liveOffer.id === options.replacementTargetId,
+      ) ?? null;
+    if (!replacementTarget) {
+      throw new OfferApprovalValidationError(
+        "The offer being replaced must be a live offer belonging to this merchant.",
+      );
+    }
+  }
+
+  // Live offers that remain after the replacement target is retired.
+  const remainingLiveOffers = otherLiveOffers.filter(
+    (liveOffer) => liveOffer.id !== replacementTarget?.id,
+  );
+  const hasLiveForeverOffer = otherLiveOffers.some(isForeverOffer);
+  const remainingHasForever = remainingLiveOffers.some(isForeverOffer);
+
+  if (isUpcomingForeverOffer) {
+    if (remainingHasForever) {
+      throw new OfferApprovalValidationError(
+        "A live Forever offer already exists for this merchant. Only the current live Forever offer can be replaced.",
+      );
+    }
+  } else if (!remainingHasForever) {
+    throw new OfferApprovalValidationError(
+      hasLiveForeverOffer
+        ? "A live Forever offer can only be replaced by another Forever offer."
+        : "This merchant must have a live Forever offer before approving a regular or Flash offer.",
+    );
+  }
+
+  if (remainingLiveOffers.length >= 5) {
+    throw new OfferApprovalValidationError(
+      isUpcomingForeverOffer
+        ? "This merchant already has 5 live offers. The first Forever offer cannot be approved until a live offer is replaced or removed."
+        : "This merchant already has 5 live offers. Approval is blocked because the total live count would exceed 5.",
+    );
   }
 }
 
@@ -484,6 +602,17 @@ async function performApprove(queueItem: any, adminId: string, now: Date) {
         });
 
         await prisma.$transaction(async (tx) => {
+          await validateMerchantOfferApproval(
+            tx,
+            offer.merchantId,
+            {
+              id: offer.id,
+              isForever: offer.isForever,
+              startDate: offer.startDate,
+              endDate: offer.endDate,
+            },
+          );
+
           await tx.merchantOffer.update({
             where: { id: offer.id },
             data: {
@@ -585,21 +714,53 @@ async function performApprove(queueItem: any, adminId: string, now: Date) {
 
         const oldOfferId = meta.currentOfferId ?? newOffer.replacesOfferId;
 
-        if (oldOfferId) {
-          console.log(`[OFFER_REPLACEMENT] Archiving old offer: ${oldOfferId}`);
-
-          await prisma.merchantOffer.update({
-            where: { id: oldOfferId },
-            data: {
-              status: "ARCHIVED",
-            },
-          });
-          console.log(
-            `[OFFER_REPLACEMENT] ✅ Old offer archived: ${oldOfferId}`,
-          );
-        }
-
         await prisma.$transaction(async (tx) => {
+          await validateMerchantOfferApproval(
+            tx,
+            newOffer.merchantId,
+            {
+              id: newOffer.id,
+              isForever: newOffer.isForever,
+              startDate: newOffer.startDate,
+              endDate: newOffer.endDate,
+            },
+            {
+              isReplacement: !!oldOfferId,
+              replacementTargetId: oldOfferId ?? null,
+            },
+          );
+
+          if (oldOfferId) {
+            const previousOffer = await tx.merchantOffer.findFirst({
+              where: { id: oldOfferId, deletedAt: null },
+              select: {
+                id: true,
+                isForever: true,
+                startDate: true,
+                endDate: true,
+              },
+            });
+
+            const nextOldStatus =
+              previousOffer && isForeverOffer(previousOffer)
+                ? "REPLACED"
+                : "ARCHIVED";
+
+            console.log(
+              `[OFFER_REPLACEMENT] Updating old offer (${oldOfferId}) status to ${nextOldStatus}`,
+            );
+
+            await tx.merchantOffer.update({
+              where: { id: oldOfferId },
+              data: {
+                status: nextOldStatus,
+              },
+            });
+            console.log(
+              `[OFFER_REPLACEMENT] ✅ Old offer saved as ${nextOldStatus}: ${oldOfferId}`,
+            );
+          }
+
           await tx.merchantOffer.update({
             where: { id: newOffer.id },
             data: {

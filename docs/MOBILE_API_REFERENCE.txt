@@ -47,7 +47,7 @@ how the employee redeems the offer. There are three types:
 
 2. ONLINE_CODE
    - Merchant creates offer with a booking URL
-   - System auto-generates 6-character alphanumeric offer code
+   - System auto-generates a 6-30 character alphanumeric offer code
    - Employee receives code and visits merchant website
    - Employee manually enters code at checkout
    - No redemption code generated at runtime
@@ -60,17 +60,17 @@ how the employee redeems the offer. There are three types:
    - No redemption code generated at runtime
 
 Offer Code (ONLINE_CODE only):
-  - Exactly 6 characters
+  - 6 to 30 characters
   - Uppercase alphanumeric
   - Auto-generated on offer creation
   - Editable before submission
   - Regenerable by merchant
   - Globally unique
-  - Example: AB42KX, M8XQ1P, KP62LM
+  - Example: SAVE10, H7K4L2Q9, CODE24MERCHANT
 
 Fields added to MerchantOffer:
   - redemptionType: String?   (ONLINE_CODE | BOOKING_LINK | IN_STORE_QR)
-  - offerCode:       String?  (6-char alphanumeric, auto-generated)
+  - offerCode:       String?  (6-30 char alphanumeric, auto-generated)
   - bookingUrl:      String?  (merchant booking/checkout URL)
   - qrCodeUrl:       String?  (generated QR code URL)
 

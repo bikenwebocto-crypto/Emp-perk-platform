@@ -133,8 +133,27 @@ export async function PATCH(
         isFeatured: true,
         isHomepageMerchant: true,
         displayPriority: true,
+        accountId: true,
       },
     })
+
+    const nextAccountStatus =
+      updated.status === 'ACTIVE'
+        ? 'ACTIVE'
+        : updated.status === 'PAUSED'
+          ? 'INACTIVE'
+          : updated.status === 'SUSPENDED' || updated.status === 'ARCHIVED' || updated.status === 'REJECTED'
+            ? 'SUSPENDED'
+            : updated.status === 'PENDING'
+              ? 'PENDING'
+              : undefined
+
+    if (updated.accountId && nextAccountStatus) {
+      await prisma.account.update({
+        where: { authUserId: updated.accountId },
+        data: { status: nextAccountStatus },
+      })
+    }
 
     await createAuditLog(
       fromCurrentUser(user, auditLabel, 'merchant', id, {

@@ -109,7 +109,7 @@ export function DashboardShell({ children, branding }: DashboardShellProps) {
   const title = Object.entries(pageTitles).find(([path]) => pathname.startsWith(path))?.[1] ?? 'Dashboard'
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-30 md:hidden"
@@ -134,7 +134,7 @@ export function DashboardShell({ children, branding }: DashboardShellProps) {
         />
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Navbar
           title={title}
           onMenuClick={() => setSidebarOpen(true)}
@@ -142,7 +142,7 @@ export function DashboardShell({ children, branding }: DashboardShellProps) {
           userEmail={user?.email}
           userRole={user?.adminRole}
         />
-        <main className="min-w-0 flex-1 overflow-y-auto p-6">
+        <main className="relative min-w-0 flex-1 overflow-y-auto p-6">
           {children}
         </main>
       </div>

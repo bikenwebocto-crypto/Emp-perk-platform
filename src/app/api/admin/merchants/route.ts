@@ -171,6 +171,12 @@ export async function POST(request: NextRequest) {
     });
     if (!existing || existing.deletedAt) return notFound("Merchant");
     const previousStatus = existing.status;
+    const nextAccountStatus =
+      status === "ACTIVE"
+        ? "ACTIVE"
+        : status === "REJECTED"
+          ? "SUSPENDED"
+          : undefined;
 
     timer.point("merchant.update");
     const merchant = await prisma.merchant.update({
@@ -188,19 +194,13 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Sync the linked Account's status with the merchant's approval status
-    if (existing.accountId) {
+    // Keep the merchant account in sync with the merchant lifecycle so auth
+    // and status pages reflect the same source of truth.
+    if (existing.accountId && nextAccountStatus) {
       timer.point("account.update (sync status)");
       await prisma.account.update({
         where: { authUserId: existing.accountId },
-        data: {
-          status:
-            status === "ACTIVE"
-              ? "ACTIVE"
-              : status === "REJECTED"
-                ? "SUSPENDED"
-                : undefined,
-        },
+        data: { status: nextAccountStatus },
       });
     }
 

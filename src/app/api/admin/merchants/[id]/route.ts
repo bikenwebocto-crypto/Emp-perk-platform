@@ -210,6 +210,24 @@ export async function PATCH(
       },
     });
 
+    const nextAccountStatus =
+      updated.status === 'ACTIVE'
+        ? 'ACTIVE'
+        : updated.status === 'PAUSED'
+          ? 'INACTIVE'
+          : updated.status === 'SUSPENDED' || updated.status === 'ARCHIVED' || updated.status === 'REJECTED'
+            ? 'SUSPENDED'
+            : updated.status === 'PENDING'
+              ? 'PENDING'
+              : undefined;
+
+    if (merchant.accountId && nextAccountStatus) {
+      await prisma.account.update({
+        where: { authUserId: merchant.accountId },
+        data: { status: nextAccountStatus },
+      });
+    }
+
     // Clean up replaced logo/cover files from storage
     if (data.logoUrl && data.logoUrl !== merchant.logoUrl && merchant.logoUrl) {
       deleteImage(merchant.logoUrl, { bucket: 'offer-images' }).catch(() => {});

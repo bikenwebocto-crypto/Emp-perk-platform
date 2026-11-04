@@ -110,18 +110,24 @@ export function LoginClient({ branding }: LoginClientProps) {
 
       const body = await res.json();
 
-      if (!res.ok) {
-        if (body?.error?.code === "EMAIL_ALREADY_EXISTS") {
-          setError("This email is already assigned to another account.");
-        } else {
-          setError("You are not mapped to any role or account.");
-        }
-        setTimeout(() => setError(""), 5000);
+    if (!res.ok) {
+        const errorMessage =
+          body?.error?.code === "EMAIL_ALREADY_EXISTS"
+            ? "This email is already assigned to another account."
+            : body?.error?.message ||
+              "Something went wrong. Please try again.";
+
+        setError(errorMessage);
+
+        window.setTimeout(() => {
+          setError("");
+        }, 5000);
+
         syncedRef.current = false;
         setIsSyncing(false);
+
         return;
       }
-
       const role = body?.role;
       const redirectPath = requiresMfaForRole(role)
         ? (body.redirectTo || "/mfa/setup")

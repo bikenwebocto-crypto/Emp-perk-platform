@@ -428,6 +428,9 @@ model MerchantOffer {
   isExclusive   Boolean     @default(false)
   /// Short-duration offer; its window is still startDate → endDate.
   isFlash       Boolean     @default(false)
+  /// Explicitly marks the offer as a Forever offer. This is the simplest
+  /// source of truth for the merchant offer policy and replacement checks.
+  isForever     Boolean     @default(false)
   sortOrder     Int         @default(0)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt

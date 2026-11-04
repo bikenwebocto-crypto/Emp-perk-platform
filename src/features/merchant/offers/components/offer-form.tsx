@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useRef  } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +26,8 @@ import { uploadImage, OFFER_IMAGE_OPTIONS } from "@/lib/upload/image";
 import { deleteOfferImage } from "@/lib/upload-offer-image";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FLASH_MAX_DAYS, flashMaxEndLocal, validateFlashWindow } from "@/lib/offers/flash";
+import { isEvergreenRange } from "@/lib/offers/evergreen";
+import { generateOfferCode, OFFER_CODE_MIN_LENGTH, OFFER_CODE_MAX_LENGTH } from "@/lib/offer-code.shared";
 
 interface FormData {
   title: string;
@@ -58,6 +60,7 @@ interface FormData {
   isFeatured: boolean;
   isExclusive: boolean;
   isFlash: boolean;
+  isForever: boolean;
 }
 
 /** "2026-10-08T23:59" (local, from datetime-local) → UTC ISO string. Empty/invalid stays as-is. */
@@ -147,6 +150,18 @@ function urlToPendingImage(url: string, index: number): PendingImage {
   };
 }
 
+function getTargetOfferCodeLength(currentValue: string): number {
+  const length = Number(currentValue.trim().length);
+  if (!Number.isFinite(length) || length <= 0) {
+    return OFFER_CODE_MIN_LENGTH;
+  }
+
+  return Math.min(
+    OFFER_CODE_MAX_LENGTH,
+    Math.max(OFFER_CODE_MIN_LENGTH, Math.round(length)),
+  );
+}
+
 export function OfferForm({
   offerId,
   initialData,
@@ -221,13 +236,28 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     redemptionInstructions: initialData?.redemptionInstructions ?? "",
     submissionNotes: initialData?.submissionNotes ?? "",
     replacementReason: initialData?.replacementReason ?? "",
-    redemptionType: initialData?.redemptionType ?? "IN_STORE_QR",
+    redemptionType: initialData?.redemptionType ?? "ONLINE_CODE",
     bookingUrl: initialData?.bookingUrl ?? "",
     qrCodeUrl: initialData?.qrCodeUrl ?? "",
     isFeatured: initialData?.isFeatured ?? false,
     isExclusive: initialData?.isExclusive ?? false,
     isFlash: initialData?.isFlash ?? false,
+    isForever: initialData?.isForever ?? false,
   });
+
+  useEffect(() => {
+    const start = form.startDate ? new Date(form.startDate) : null;
+    const end = form.endDate ? new Date(form.endDate) : null;
+    if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return;
+    }
+
+    const shouldBeForever = isEvergreenRange(start, end);
+    setForm((prev) => {
+      if (!shouldBeForever) return prev;
+      return prev.isForever === true ? prev : { ...prev, isForever: true };
+    });
+  }, [form.startDate, form.endDate]);
 
   const set =
     (field: keyof FormData) =>
@@ -338,6 +368,16 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     }
   };
 
+  const handleGenerateOfferCode = () => {
+    const nextCode = generateOfferCode(getTargetOfferCodeLength(form.redemptionCode));
+    setForm((prev) => ({ ...prev, redemptionCode: nextCode }));
+    setErrors((prev) => {
+      const n = { ...prev };
+      delete n.redemptionCode;
+      return n;
+    });
+  };
+
   const validate = (): boolean => {
     const errs: FormErrors = {};
     if (!form.title.trim()) errs.title = "Title is required";
@@ -408,8 +448,8 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       else if (!/^https?:\/\/\S+$/i.test(form.bookingUrl.trim()))
         errs.bookingUrl = "Enter a valid URL starting with http:// or https://";
       if (!form.redemptionCode.trim()) errs.redemptionCode = "Offer code is required";
-      else if (!/^[A-Za-z0-9]{6}$/.test(form.redemptionCode.trim()))
-        errs.redemptionCode = "Offer code must be exactly 6 letters or numbers";
+      else if (!/^[A-Za-z0-9]{6,30}$/.test(form.redemptionCode.trim()))
+        errs.redemptionCode = "Offer code must be between 6 and 30 letters or numbers.";
     }
 
     if (!form.startDate.trim()) errs.startDate = "Start date is required";
@@ -455,6 +495,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     isFeatured: form.isFeatured,
     isExclusive: form.isExclusive,
     isFlash: form.isFlash,
+    isForever: form.isForever,
     imageUrls: form.imageUrls,
     offerType: OFFER_TYPE_MAP[form.offerType] ?? form.offerType,
     discountValue: form.discountValue ? Number(form.discountValue) : null,
@@ -795,10 +836,10 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         </Card>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)] lg:items-start">
         {/* Left column — form fields */}
-        <div className="space-y-6 lg:col-span-1">
-          <form onSubmit={handleSubmit}>
+        <div className="min-w-0 space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle>Offer Details</CardTitle>
@@ -991,19 +1032,33 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                       <div>
                         <label className={labelClass}>Offer Code *</label>
 
-                        <Input
-                          className={inputClass}
-                          value={form.redemptionCode}
-                          onChange={set("redemptionCode")}
-                          placeholder="e.g. SAVE10"
-                          maxLength={6}
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            className={`${inputClass} flex-1`}
+                            value={form.redemptionCode}
+                            onChange={set("redemptionCode")}
+                            placeholder="e.g. SAVE10CODE24"
+                            minLength={OFFER_CODE_MIN_LENGTH}
+                            maxLength={OFFER_CODE_MAX_LENGTH}
+                          />
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleGenerateOfferCode}
+                            className="shrink-0"
+                          >
+                            <Sparkles className="mr-1 h-4 w-4" />
+                            Generate
+                          </Button>
+                        </div>
 
                         {errors.redemptionCode ? (
                           <p className="mt-1 text-xs text-destructive">{errors.redemptionCode}</p>
                         ) : (
                           <p className="mt-1 text-xs text-muted-foreground">
-                            6-character alphanumeric code employees enter at checkout.
+                            6–30 character alphanumeric code employees enter at checkout.
                           </p>
                         )}
                       </div>
@@ -1481,6 +1536,25 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     }
                   />
                 </label>
+
+                <label
+                  htmlFor="isForever"
+                  className="flex cursor-pointer items-center justify-between gap-4 rounded-lg border p-4"
+                >
+                  <div>
+                    <span className="text-sm font-medium">Forever Offer</span>
+                    <p className="text-xs text-muted-foreground">
+                      Mark this as a Forever offer. Merchants can only have one live Forever offer at a time.
+                    </p>
+                  </div>
+                  <Checkbox
+                    id="isForever"
+                    checked={form.isForever}
+                    onCheckedChange={(checked) =>
+                      setForm((prev) => ({ ...prev, isForever: checked === true }))
+                    }
+                  />
+                </label>
                 {/* Days of Week */}
                 <div>
                   <label className={labelClass}>Available Days</label>
@@ -1684,8 +1758,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
           </form>
         </div>
         {/* Right column — preview panel */}
-        <div className="space-y-6 lg:col-span-1">
-          <div className="lg:sticky lg:top-24 lg:self-start">
+        <div className="min-w-0 space-y-6 lg:self-stretch">
+          <OfferBannerInfo imageUrls={form.imageUrls} />
+          <div className="lg:sticky lg:top-0">
             <Card className="overflow-hidden border-2">
               <CardHeader className="border-b bg-gradient-to-br from-muted/50 to-muted/20 pb-3">
                 <div className="flex items-center justify-between">
@@ -1726,10 +1801,6 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 />
               </CardContent>
             </Card>
-
-            <div className="mt-6">
-              <OfferBannerInfo imageUrls={form.imageUrls} />
-            </div>
           </div>
         </div>
       </div>
