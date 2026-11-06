@@ -36,23 +36,154 @@ model AdminUser {
 }
 
 model Account {
-  authUserId    String         @id @default(uuid()) @db.Uuid
-  email         String         @unique @db.VarChar(255)
-  role          AccountRole
-  profileType   ProfileType
-  status        AccountStatus  @default(PENDING)
-  createdBy     String?        @db.VarChar(255)
-  changedBy     String?        @db.VarChar(255)
-  lastLoginAt   DateTime?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  employees     Employee[]     @relation("EmployeeAccount")
-  merchants     Merchant[]
-  companyAdmins CompanyAdmin[] @relation("CompanyAdminAccount")
+  authUserId             String                @id @default(uuid()) @db.Uuid
+  email                  String                @unique @db.VarChar(255)
+  role                   AccountRole
+  profileType            ProfileType
+  status                 AccountStatus         @default(PENDING)
+  createdBy              String?               @db.VarChar(255)
+  changedBy              String?               @db.VarChar(255)
+  lastLoginAt            DateTime?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  employees              Employee[]            @relation("EmployeeAccount")
+  merchants              Merchant[]
+  companyAdmins          CompanyAdmin[]        @relation("CompanyAdminAccount")
+  mfaRecoveryRequests    MfaRecoveryRequest[]  @relation("MfaRecoverySubject")
+  mfaRecoveryToApprove   MfaRecoveryRequest[]  @relation("MfaRecoveryAssignedApprover")
+  mfaApproverAssignments MfaRecoveryApprover[] @relation("MfaApproverSubject")
+  mfaApproverFor         MfaRecoveryApprover[] @relation("MfaApproverAccount")
 
   @@index([role])
   @@index([status])
   @@map("accounts")
+}
+
+// ─────────────────────────────────────────────────────────────
+// MFA recovery (admin-managed). See src/lib/mfa-recovery/README.md.
+// ─────────────────────────────────────────────────────────────
+
+model MfaRecoveryRequest {
+  id                        String                @id @default(uuid()) @db.Uuid
+  accountId                 String                @db.Uuid
+  requestedByAccountId      String                @db.Uuid
+  accountRole               AccountRole
+  registeredEmail           String                @db.VarChar(255)
+  registeredPhone           String?               @db.VarChar(50)
+  reason                    String
+  recoveryType              MfaRecoveryType
+  status                    MfaRecoveryStatus     @default(PENDING)
+  /// Set to accountId while the request is open, NULL once it is terminal.
+  /// The unique index makes "one open request per account" race-safe.
+  activeKey                 String?               @unique @db.VarChar(64)
+  /// Emergency only: approver snapshot taken when the request was created.
+  assignedApproverAccountId String?               @db.Uuid
+  requestedAt               DateTime              @default(now())
+  expiresAt                 DateTime
+  reviewedByAccountId       String?               @db.Uuid
+  reviewedAt                DateTime?
+  otpSentAt                 DateTime?
+  otpSendCount              Int                   @default(0)
+  otpVerifiedAt             DateTime?
+  approvedByAccountId       String?               @db.Uuid
+  approvedAt                DateTime?
+  rejectedByAccountId       String?               @db.Uuid
+  rejectedAt                DateTime?
+  rejectionReason           String?
+  resetAt                   DateTime?
+  resetFactorIds            String[]              @default([])
+  resetError                String?
+  newFactorId               String?               @db.VarChar(64)
+  completedAt               DateTime?
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
+  account                   Account               @relation("MfaRecoverySubject", fields: [accountId], references: [authUserId], onDelete: Cascade)
+  assignedApprover          Account?              @relation("MfaRecoveryAssignedApprover", fields: [assignedApproverAccountId], references: [authUserId], onDelete: SetNull)
+  otps                      MfaRecoveryOtp[]
+  auditLogs                 MfaRecoveryAuditLog[]
+
+  @@index([accountId])
+  @@index([status, recoveryType])
+  @@index([assignedApproverAccountId, status])
+  @@index([createdAt])
+  @@map("mfa_recovery_requests")
+}
+
+model MfaRecoveryOtp {
+  id                String             @id @default(uuid()) @db.Uuid
+  recoveryRequestId String             @db.Uuid
+  otpHash           String             @db.VarChar(128)
+  expiresAt         DateTime
+  attempts          Int                @default(0)
+  maxAttempts       Int                @default(5)
+  verifiedAt        DateTime?
+  consumedAt        DateTime?
+  createdAt         DateTime           @default(now())
+  recoveryRequest   MfaRecoveryRequest @relation(fields: [recoveryRequestId], references: [id], onDelete: Cascade)
+
+  @@index([recoveryRequestId, createdAt])
+  @@map("mfa_recovery_otps")
+}
+
+/// Assignment history. At most one active row per super admin (partial unique
+/// index in the migration); old rows are kept with isActive = false.
+model MfaRecoveryApprover {
+  id                  String    @id @default(uuid()) @db.Uuid
+  superAdminAccountId String    @db.Uuid
+  approverAccountId   String    @db.Uuid
+  assignedAt          DateTime  @default(now())
+  assignedByAccountId String    @db.Uuid
+  isActive            Boolean   @default(true)
+  revokedAt           DateTime?
+  revokedByAccountId  String?   @db.Uuid
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  superAdmin          Account   @relation("MfaApproverSubject", fields: [superAdminAccountId], references: [authUserId], onDelete: Cascade)
+  approver            Account   @relation("MfaApproverAccount", fields: [approverAccountId], references: [authUserId], onDelete: Cascade)
+
+  @@index([superAdminAccountId, isActive])
+  @@index([approverAccountId, isActive])
+  @@map("mfa_recovery_approvers")
+}
+
+model MfaRecoveryAuditLog {
+  id                String              @id @default(uuid()) @db.Uuid
+  recoveryRequestId String?             @db.Uuid
+  /// Account the action is about (request owner, or super admin whose approver changed).
+  subjectAccountId  String?             @db.Uuid
+  actorAccountId    String?             @db.Uuid
+  actorRole         String              @db.VarChar(50)
+  action            String              @db.VarChar(100)
+  previousStatus    MfaRecoveryStatus?
+  newStatus         MfaRecoveryStatus?
+  metadata          Json?
+  ipAddress         String?             @db.VarChar(45)
+  createdAt         DateTime            @default(now())
+  recoveryRequest   MfaRecoveryRequest? @relation(fields: [recoveryRequestId], references: [id], onDelete: SetNull)
+
+  @@index([recoveryRequestId, createdAt])
+  @@index([subjectAccountId, createdAt])
+  @@index([action])
+  @@map("mfa_recovery_audit_logs")
+}
+
+enum MfaRecoveryType {
+  STANDARD
+  SUPER_ADMIN_EMERGENCY
+}
+
+enum MfaRecoveryStatus {
+  PENDING
+  UNDER_REVIEW
+  OTP_SENT
+  OTP_VERIFIED
+  APPROVED
+  MFA_RESET
+  AWAITING_NEW_MFA
+  COMPLETED
+  REJECTED
+  EXPIRED
+  FAILED
 }
 
 model Company {

@@ -113,6 +113,9 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errs.email = 'Invalid email address'
     // if (!isEdit && !form.password) errs.password = 'Password is required'
     // else if (form.password && form.password.length < 8) errs.password = 'Password must be at least 8 characters'
+    if (!form.categoryId.trim()) {
+    errs.categoryId = 'Please select a business category'
+  }
     if (!form.contactName.trim()) errs.contactName = 'Contact name is required'
     if (!form.contactPhone.trim()) errs.contactPhone = 'Phone number is required'
     else if (!isValidPhone(form.contactPhone)) errs.contactPhone = 'Invalid phone number'
@@ -315,7 +318,7 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
               {errors.contactPhone && <p className="mt-1 text-xs text-destructive">{errors.contactPhone}</p>}
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Category</label>
+              <label className="mb-1 block text-sm font-medium">Category <span className="text-destructive">*</span></label>
               <select
                 value={form.categoryId}
                 onChange={(e) => setField('categoryId', e.target.value)}

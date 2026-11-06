@@ -96,7 +96,8 @@ export function LoginClient({ branding }: LoginClientProps) {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-
+    console.log('supabase register list:', supabase.auth.mfa.listFactors());
+    
     if (!session?.access_token) return;
     // console.log("User signed in, syncing with backend...", session.access_token);
     syncedRef.current = true;

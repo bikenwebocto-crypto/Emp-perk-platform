@@ -118,6 +118,12 @@ export function MfaVerifyClient() {
             </button>
           </form>
         )}
+
+        <div className="mt-6 border-t border-slate-200 pt-4 text-center text-sm">
+          <a href="/mfa/recovery" className="font-medium text-slate-700 underline hover:text-slate-900">
+            Lost access to authenticator?
+          </a>
+        </div>
       </div>
     </div>
   );

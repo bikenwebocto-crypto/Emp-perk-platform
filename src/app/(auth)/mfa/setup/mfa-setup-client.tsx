@@ -97,6 +97,10 @@ export function MfaSetupClient() {
         throw verifyError;
       }
 
+      // Closes an open MFA recovery request, if any. The server re-checks the
+      // factor with Supabase; failure here must not block sign-in.
+      await fetch('/api/mfa/recovery/complete', { method: 'POST' }).catch(() => undefined);
+
       router.replace('/admin');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Verification failed.');

@@ -137,8 +137,10 @@ export const USER_TYPE_FOR_PROFILE: Record<ProfileTypeValue, 'admin' | 'company_
 export const ADMIN_ROLE_PATHS: Record<AdminRoleValue, '*' | string[]> = {
   SUPER_ADMIN: '*',
   ADMIN: '*',
-  SUPPORT_ADMIN: ['/admin/complaints', '/admin/notifications'],
+  // '/admin/security': every admin picks their own MFA recovery approver.
+  SUPPORT_ADMIN: ['/admin/complaints', '/admin/notifications', '/admin/security'],
   FINANCE_ADMIN: [
+    '/admin/security',
     '/admin/analytics',
     '/admin/companies',
     '/admin/billing',
@@ -179,11 +181,18 @@ export function adminLandingPath(adminRole: string | null | undefined): string {
   return ADMIN_OVERVIEW_ROLES.includes(role) ? '/admin' : '/admin/complaints'
 }
 
+/**
+ * MFA recovery review is SUPER_ADMIN only (mirrors STANDARD_REVIEWER_ADMIN_ROLES
+ * in lib/mfa-recovery/constants), even though ADMIN otherwise opens every page.
+ */
+export const MFA_RECOVERY_PATHS = ['/admin/mfa-recovery']
+
 /** Can an admin with this AdminRole open this /admin path? Unknown role → false. */
 export function canAdminAccessPath(adminRole: string | null | undefined, pathname: string): boolean {
   const role = normaliseAdminRole(adminRole)
   if (!role) return false
   if (ACCOUNTS_PATHS.some((p) => matches(pathname, p))) return canAccessAccounts({ adminRole: role })
+  if (MFA_RECOVERY_PATHS.some((p) => matches(pathname, p))) return role === 'SUPER_ADMIN'
   if (pathname === '/admin') return ADMIN_OVERVIEW_ROLES.includes(role)
   const allowed = ADMIN_ROLE_PATHS[role]
   return allowed === '*' || allowed.some((p) => matches(pathname, p))
@@ -234,6 +243,8 @@ export function canAdminDo(adminRole: string | null | undefined, action: TicketA
 export const SUPPORT_ADMIN_API_ALLOWLIST = [
   '/api/admin/sidebar-counts',
   '/api/admin/notifications',
+  // Every admin account configures its own MFA recovery approver.
+  '/api/admin/security/recovery-approver',
 ] as const
 
 /**
