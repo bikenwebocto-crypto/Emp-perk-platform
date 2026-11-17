@@ -2,8 +2,6 @@
 import { useMemo } from 'react'
 import Link from 'next/link'
 import {
-  Star,
-  Home,
   Package,
   Eye,
   Bookmark,
@@ -269,7 +267,6 @@ export function MerchantOperationsTable({
               <SortHeader label="Merchant" sortKey="businessName" currentSort={sortConfig} onSort={onSortChange} />
               <SortHeader label="Status" sortKey="status" currentSort={sortConfig} onSort={onSortChange} align="center" />
               <SortHeader label="Priority" sortKey="priority" currentSort={sortConfig} onSort={onSortChange} align="center" />
-              <th className="px-2 pb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Flags</th>
               <SortHeader label="City" sortKey="city" currentSort={sortConfig} onSort={onSortChange} />
               <th className="px-2 pb-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Phone</th>
               <th className="px-2 pb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Offers</th>
@@ -324,21 +321,6 @@ export function MerchantOperationsTable({
                 {/* Priority */}
                 <td className="py-3 text-center">
                   <PriorityCell value={row.displayPriority} />
-                </td>
-
-                {/* Flags: Featured / Homepage */}
-                <td className="py-3">
-                  <div className="flex flex-wrap items-center justify-center gap-1">
-                    {row.isFeatured && (
-                      <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-500" />
-                    )}
-                    {row.isHomepageMerchant && (
-                      <Home className="h-3.5 w-3.5 fill-pink-400 text-pink-500" />
-                    )}
-                    {!row.isFeatured && !row.isHomepageMerchant && (
-                      <span className="text-xs text-muted-foreground/40">—</span>
-                    )}
-                  </div>
                 </td>
 
                 {/* City */}
@@ -510,8 +492,6 @@ export function MerchantOperationsTable({
                   >
                     <div className="flex items-center gap-1">
                       <p className="truncate font-semibold hover:text-primary hover:underline">{row.businessName}</p>
-                      {row.isFeatured && <Star className="h-3 w-3 fill-yellow-400 text-yellow-500" />}
-                      {row.isHomepageMerchant && <Home className="h-3 w-3 fill-pink-400 text-pink-500" />}
                     </div>
                     <p className="truncate text-xs text-muted-foreground">{row.city ?? row.contactName}</p>
                   </button>
@@ -641,8 +621,6 @@ function MerchantMobileCard({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <p className="truncate font-semibold">{row.businessName}</p>
-                {row.isFeatured && <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-500" />}
-                {row.isHomepageMerchant && <Home className="h-3.5 w-3.5 fill-pink-400 text-pink-500" />}
               </div>
               {row.city && (
                 <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">

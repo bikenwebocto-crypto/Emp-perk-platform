@@ -4,8 +4,6 @@ import Link from 'next/link'
 import {
   Eye,
   Pencil,
-  Star,
-  Home,
   Trash2,
   MoreHorizontal,
   Ban,
@@ -202,22 +200,6 @@ export function MerchantActionsMenu({
 
           <DropdownMenuSeparator />
           <DropdownMenuLabel className="text-xs">Display</DropdownMenuLabel>
-
-          <DropdownMenuItem
-            onClick={() => onToggleFeatured?.(row.id, !row.isFeatured)}
-            className="flex items-center gap-2"
-          >
-            <Star className={`h-4 w-4 ${row.isFeatured ? 'fill-yellow-400 text-yellow-500' : ''}`} />
-            {row.isFeatured ? 'Unfeature' : 'Mark Featured'}
-          </DropdownMenuItem>
-
-          <DropdownMenuItem
-            onClick={() => onToggleHomepage?.(row.id, !row.isHomepageMerchant)}
-            className="flex items-center gap-2"
-          >
-            <Home className={`h-4 w-4 ${row.isHomepageMerchant ? 'fill-pink-400 text-pink-500' : ''}`} />
-            {row.isHomepageMerchant ? 'Remove from Homepage' : 'Add to Homepage'}
-          </DropdownMenuItem>
 
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="flex items-center gap-2">
