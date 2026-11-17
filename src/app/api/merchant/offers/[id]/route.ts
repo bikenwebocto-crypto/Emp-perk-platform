@@ -79,6 +79,31 @@ async function getOwnOffer(merchantId: string, offerId: string) {
   });
 }
 
+// Remarks super-admins added on this offer's action-queue items (first offer
+// approval / replacement). Stored in actionQueueItem.metadata.remarks; the
+// offer id is in metadata.offerId or metadata.newOfferId. The admin id is not
+// returned to the merchant.
+async function getAdminRemarks(offerId: string): Promise<{ text: string; at: string }[]> {
+  const items = await prisma.actionQueueItem.findMany({
+    where: {
+      OR: [
+        { metadata: { path: ["offerId"], equals: offerId } },
+        { metadata: { path: ["newOfferId"], equals: offerId } },
+      ],
+    },
+    select: { metadata: true },
+  });
+  return items
+    .flatMap((item) => {
+      const remarks = (item.metadata as { remarks?: unknown } | null)?.remarks;
+      return Array.isArray(remarks) ? remarks : [];
+    })
+    .filter((r): r is { text: string; at: string } =>
+      typeof r?.text === "string" && typeof r?.at === "string")
+    .map((r) => ({ text: r.text, at: r.at }))
+    .sort((a, b) => b.at.localeCompare(a.at));
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -105,9 +130,15 @@ export async function GET(
       });
     }
 
+    const adminRemarks = await getAdminRemarks(offer.id);
+
     return NextResponse.json({
       success: true,
-      data: { ...offer, repeatAfterHours: getRepeatAfterHours(offer.redemption?.configuration) },
+      data: {
+        ...offer,
+        repeatAfterHours: getRepeatAfterHours(offer.redemption?.configuration),
+        adminRemarks,
+      },
     });
   } catch (error) {
     return internalError(error);

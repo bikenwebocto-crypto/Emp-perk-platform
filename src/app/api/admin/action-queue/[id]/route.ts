@@ -1277,9 +1277,36 @@ async function performRemark(queueItem: any, adminId: string, remark: string) {
     : [];
   remarks.push({ text: remark, by: adminId, at: new Date().toISOString() });
 
-  await prisma.actionQueueItem.update({
-    where: { id: queueItem.id },
-    data: { metadata: { ...existingMeta, remarks } as any },
+  // Offer remarks are also copied to OfferReview.adminNote, which the merchant
+  // offer page shows. Only the latest remark is kept there (column is 500 chars).
+  // FIRST_OFFER_APPROVAL / OFFER_REPLACEMENT items have referenceType "merchant"
+  // (referenceId = merchant id), so the offer id comes from metadata; referenceId
+  // is only an offer id when referenceType itself is an offer.
+  const kind = getEntityKindFromReferenceType(queueItem.referenceType);
+  const offerId =
+    (existingMeta.newOfferId as string | undefined) ??
+    (existingMeta.offerId as string | undefined) ??
+    (kind === "MERCHANT_OFFER" ? queueItem.referenceId : null);
+  const offer = offerId
+    ? await prisma.merchantOffer.findFirst({
+        where: { id: offerId, deletedAt: null },
+        select: { id: true },
+      })
+    : null;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.actionQueueItem.update({
+      where: { id: queueItem.id },
+      data: { metadata: { ...existingMeta, remarks } as any },
+    });
+    if (offer) {
+      const adminNote = remark.substring(0, 500);
+      await tx.offerReview.upsert({
+        where: { offerId: offer.id },
+        create: { offerId: offer.id, adminNote },
+        update: { adminNote },
+      });
+    }
   });
 
   await createAuditLog({

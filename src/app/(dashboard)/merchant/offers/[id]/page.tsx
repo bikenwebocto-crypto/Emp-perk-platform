@@ -386,15 +386,36 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
                 <p className="mt-1 text-sm text-red-700 dark:text-red-300">{offer.review.rejectionReason}</p>
               </div>
             )}
-            {offer.review?.adminNote && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/50 dark:bg-blue-950/30">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400">
-                  <Info className="h-3.5 w-3.5" />
-                  Admin Note
+            {(() => {
+              // Full remark history from the admin review (newest first); fall
+              // back to the single adminNote for offers without queue remarks.
+              const remarks: { text: string; at: string }[] =
+                (offer as { adminRemarks?: { text: string; at: string }[] }).adminRemarks ?? []
+              if (remarks.length === 0 && !offer.review?.adminNote) return null
+              return (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/50 dark:bg-blue-950/30">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400">
+                    <Info className="h-3.5 w-3.5" />
+                    Admin Remarks{remarks.length > 0 && ` (${remarks.length})`}
+                  </div>
+                  {remarks.length > 0 ? (
+                    <ul className="mt-2 space-y-2">
+                      {remarks.map((r, i) => (
+                        <li
+                          key={`${r.at}-${i}`}
+                          className="border-b border-blue-200/70 pb-2 last:border-0 last:pb-0 dark:border-blue-900/50"
+                        >
+                          <p className="whitespace-pre-wrap break-words text-sm text-blue-700 dark:text-blue-300">{r.text}</p>
+                          <p className="mt-0.5 text-xs text-blue-600/70 dark:text-blue-400/70">{formatDateTime(r.at)}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">{offer.review?.adminNote}</p>
+                  )}
                 </div>
-                <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">{offer.review.adminNote}</p>
-              </div>
-            )}
+              )
+            })()}
             {offer.status === 'ARCHIVED' && offer.review?.reviewNotes && (
               <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900/50 dark:bg-red-950/30">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-400">
