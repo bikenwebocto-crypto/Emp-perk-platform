@@ -162,20 +162,7 @@ export function MerchantFiltersBar({
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-medium text-muted-foreground">Quick filters:</span>
 
-        <ToggleChip
-          active={featured === true}
-          onClick={() => onFeaturedChange(featured === true ? null : true)}
-          icon={Star}
-          label="Featured"
-          activeClass="bg-yellow-100 text-yellow-700 border-yellow-300"
-        />
-        <ToggleChip
-          active={homepage === true}
-          onClick={() => onHomepageChange(homepage === true ? null : true)}
-          icon={Home}
-          label="Homepage"
-          activeClass="bg-pink-100 text-pink-700 border-pink-300"
-        />
+        
         <ToggleChip
           active={hasLiveOffers === true}
           onClick={() => onHasLiveOffersChange(hasLiveOffers === true ? null : true)}
