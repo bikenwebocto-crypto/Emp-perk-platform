@@ -24,16 +24,19 @@ export function LoginClient({ branding }: LoginClientProps) {
   // Invite links (bulk employee upload) must set a password before the
   // account is synced and redirected.
   const inviteRef = useRef(false);
-  const [view, setView] = useState<'sign_in' | 'update_password'>('sign_in');
+  const searchParams = useSearchParams();
+  const [view, setView] = useState<'sign_in' | 'sign_up' | 'update_password'>(
+    () => (searchParams.get("mode") === "signup" ? "sign_up" : "sign_in"),
+  );
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Sign-in form. The Supabase Auth widget can't take a default email, so
-  // sign-in uses a small form pre-filled from ?email= (invite links).
-  const searchParams = useSearchParams();
+  // Sign-in/sign-up form. The Supabase Auth widget can't take a default email,
+  // so it uses a small form pre-filled from ?email= (invite links).
   const [email, setEmail] = useState(() => searchParams.get("email") ?? "");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -49,6 +52,46 @@ export function LoginClient({ branding }: LoginClientProps) {
     });
     setSubmitting(false);
     if (signInError) setError(signInError.message);
+  };
+
+  const handleSignUp = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setSubmitting(true);
+    // If email confirmation is off, Supabase returns a session and
+    // onAuthStateChange(SIGNED_IN) runs the sync + redirect. Otherwise the
+    // confirmation link brings the user back to /login signed in.
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { emailRedirectTo: `${window.location.origin}/login` },
+    });
+    setSubmitting(false);
+    if (signUpError) {
+      setError(signUpError.message);
+      return;
+    }
+    if (!data.session) {
+      setNotice("Check your email for a confirmation link to finish creating your account.");
+      setView("sign_in");
+    }
+  };
+
+  const switchView = (next: "sign_in" | "sign_up") => {
+    setError(null);
+    setNotice(null);
+    setPassword("");
+    setConfirmPassword("");
+    setView(next);
   };
 
   const handleForgotPassword = async () => {
@@ -250,6 +293,74 @@ export function LoginClient({ branding }: LoginClientProps) {
             >
               Forgot password?
             </Button>
+            <p className="text-center text-sm text-gray-600">
+              Don&apos;t have an account?{" "}
+              <button
+                type="button"
+                className="font-medium text-blue-600 hover:underline"
+                onClick={() => switchView("sign_up")}
+              >
+                Sign up
+              </button>
+            </p>
+          </form>
+        )}
+        {mounted && view === "sign_up" && (
+          <form onSubmit={handleSignUp} className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="signup-email" className="text-sm font-medium">
+                Email address
+              </label>
+              <Input
+                id="signup-email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="signup-password" className="text-sm font-medium">
+                Password
+              </label>
+              <Input
+                id="signup-password"
+                type="password"
+                autoComplete="new-password"
+                required
+                minLength={8}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="signup-confirm" className="text-sm font-medium">
+                Confirm password
+              </label>
+              <Input
+                id="signup-confirm"
+                type="password"
+                autoComplete="new-password"
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Create account
+            </Button>
+            <p className="text-center text-sm text-gray-600">
+              Already have an account?{" "}
+              <button
+                type="button"
+                className="font-medium text-blue-600 hover:underline"
+                onClick={() => switchView("sign_in")}
+              >
+                Sign in
+              </button>
+            </p>
           </form>
         )}
       </div>

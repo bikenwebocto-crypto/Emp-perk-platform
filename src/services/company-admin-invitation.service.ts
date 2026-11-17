@@ -22,10 +22,13 @@ export async function sendCompanyAdminInvitation(
     firstName: params.firstName,
   })
 
-  const loginUrl =
-    process.env.NEXT_PUBLIC_APP_URL
-      ? `${process.env.NEXT_PUBLIC_APP_URL}/login`
-      : '/login'
+  // Company admins have no Supabase auth user yet, so the email links to the
+  // sign-up form (pre-filled with their email). sync-admin links the new
+  // Supabase user to this account by email on first sign-in.
+  const signupPath = `/login?mode=signup&email=${encodeURIComponent(params.email)}`
+  const loginUrl = process.env.NEXT_PUBLIC_APP_URL
+    ? `${process.env.NEXT_PUBLIC_APP_URL}${signupPath}`
+    : signupPath
 
   console.log('[COMPANY_ADMIN_EMAIL][SERVICE] Login URL', { loginUrl })
 
