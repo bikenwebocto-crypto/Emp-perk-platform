@@ -165,15 +165,17 @@ export async function middleware(request: NextRequest) {
         )
       }
 
-      const { data: factors } = await supabase.auth.mfa.listFactors()
-      const hasTotp = hasVerifiedTotpFactor(factors)
-      const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (requiresMfaForRole(roleInfo?.role)) {
+        const { data: factors } = await supabase.auth.mfa.listFactors()
+        const hasTotp = hasVerifiedTotpFactor(factors)
+        const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
 
-      if (!hasTotp || assurance?.currentLevel !== "aal2") {
-        return NextResponse.json(
-          { success: false, error: { code: "MFA_REQUIRED", message: "MFA verification required." } },
-          { status: 403 },
-        )
+        if (!hasTotp || assurance?.currentLevel !== "aal2") {
+          return NextResponse.json(
+            { success: false, error: { code: "MFA_REQUIRED", message: "MFA verification required." } },
+            { status: 403 },
+          )
+        }
       }
     }
     requestHeaders.set("x-auth-email", user.email!)

@@ -1,8 +1,6 @@
 export const PRIVILEGED_MFA_ROLES = new Set([
   'SUPER_ADMIN',
   'ADMIN',
-  'COMPANY_ADMIN',
-  'MERCHANT',
   'SUPPORT_ADMIN',
   'FINANCE_ADMIN',
 ]);

@@ -88,7 +88,7 @@ export const TAB_KEYS: { key: QueueTabKey; label: string; queueTypes: string[] }
   { key: 'ALL', label: 'All', queueTypes: [] },
   // { key: 'MERCHANT_APPROVAL', label: 'Merchant Applications', queueTypes: ['NEW_MERCHANT_APPLICATION', 'PROFILE_EDIT_REQUEST', 'BRANCH_EDIT_REQUEST'] },
   { key: 'OFFER_APPROVAL', label: 'Offer Approvals', queueTypes: ['FIRST_OFFER_APPROVAL', 'OFFER_REPLACEMENT'] },
-  { key: 'COMPANY_ACTIVATION', label: 'Company Activation', queueTypes: ['COMPANY_ACTIVATION'] },
+  // { key: 'COMPANY_ACTIVATION', label: 'Company Activation', queueTypes: ['COMPANY_ACTIVATION'] },
   // { key: 'ISSUES', label: 'Issues', queueTypes: ['ISSUE_REVIEW', 'CSV_IMPORT'] },
   // { key: 'ALERTS', label: 'Alerts', queueTypes: ['ASSET_REVIEW'] },
 ]

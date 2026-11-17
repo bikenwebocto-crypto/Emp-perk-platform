@@ -131,7 +131,7 @@ export default function ActionQueuePage() {
         ALL: 0,
         // MERCHANT_APPROVAL: 0,
         OFFER_APPROVAL: 0,
-        COMPANY_ACTIVATION: 0,
+        // COMPANY_ACTIVATION: 0,
         // ISSUES: 0,
         // ALERTS: 0,
       }
@@ -140,7 +140,7 @@ export default function ActionQueuePage() {
       ALL: meta.tabCounts.ALL ?? 0,
       // MERCHANT_APPROVAL: meta.tabCounts.MERCHANT_APPROVAL ?? 0,
       OFFER_APPROVAL: meta.tabCounts.OFFER_APPROVAL ?? 0,
-      COMPANY_ACTIVATION: meta.tabCounts.COMPANY_ACTIVATION ?? 0,
+      // COMPANY_ACTIVATION: meta.tabCounts.COMPANY_ACTIVATION ?? 0,
       // ISSUES: meta.tabCounts.ISSUES ?? 0,
       // ALERTS: meta.tabCounts.ALERTS ?? 0,
     }
