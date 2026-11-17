@@ -50,10 +50,6 @@ export function MerchantFiltersBar({
   onStatusChange,
   city,
   onCityChange,
-  featured,
-  onFeaturedChange,
-  homepage,
-  onHomepageChange,
   health,
   onHealthChange,
   hasLiveOffers,
@@ -68,8 +64,6 @@ export function MerchantFiltersBar({
   const activeFilterCount =
     (status !== 'ALL' ? 1 : 0) +
     (city ? 1 : 0) +
-    (featured !== null ? 1 : 0) +
-    (homepage !== null ? 1 : 0) +
     (health !== 'ALL' ? 1 : 0) +
     (hasLiveOffers !== null ? 1 : 0) +
     (hasPendingOffers !== null ? 1 : 0) +
