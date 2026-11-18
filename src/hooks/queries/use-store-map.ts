@@ -165,6 +165,7 @@ export function useAdminStores(filters: AdminStoresQueryFilters = {}) {
 
   return useQuery<AdminStoresResponse>({
     queryKey: adminStoreKeys.list(filters),
+    placeholderData: (previousData) => previousData,
     queryFn: async () => {
       const res = await fetch(`/api/admin/stores${qs ? `?${qs}` : ''}`)
       const json = await res.json()

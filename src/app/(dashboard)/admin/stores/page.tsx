@@ -63,6 +63,12 @@ export default function AdminStoresPage() {
 
   const selectedStore = branches.find((b) => b.id === selectedStoreId) ?? null
 
+  useEffect(() => {
+    if (selectedStoreId && !branches.some((branch) => branch.id === selectedStoreId)) {
+      setSelectedStoreId(null)
+    }
+  }, [branches, selectedStoreId])
+
   const handleSelectStore = useCallback((store: AdminStoreBranch) => {
     setSelectedStoreId((prev) => (prev === store.id ? null : store.id))
   }, [])
