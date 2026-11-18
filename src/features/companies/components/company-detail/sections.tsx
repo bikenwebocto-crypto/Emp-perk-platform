@@ -45,7 +45,6 @@ export function CityReadinessBanner({ readiness }: { readiness: CityReadiness })
 }
 
 export function CompanyHeaderCard({ company }: { company: any }) {
-  const billing = company.billing;
   return (
     <Card>
       <CardContent className="flex flex-wrap items-center justify-between gap-4 p-6">
@@ -70,11 +69,6 @@ export function CompanyHeaderCard({ company }: { company: any }) {
               · Activated {new Date(company.approvedAt).toLocaleDateString()}
             </span>
           )}
-          {billing?.renewalDate && (
-            <span>
-              · Renews {new Date(billing.renewalDate).toLocaleDateString()}
-            </span>
-          )}
         </div>
       </CardContent>
     </Card>
@@ -83,20 +77,9 @@ export function CompanyHeaderCard({ company }: { company: any }) {
 
 interface CompanyInfoCardProps {
   company: any;
-  canManageBilling: boolean;
-  onBillingStatusChange: (status: string) => void;
-  onSendBillingReminder: () => void;
-  sendingReminder: boolean;
 }
 
-export function CompanyInfoCard({
-  company,
-  canManageBilling,
-  onBillingStatusChange,
-  onSendBillingReminder,
-  sendingReminder,
-}: CompanyInfoCardProps) {
-  const billing = company.billing;
+export function CompanyInfoCard({ company }: CompanyInfoCardProps) {
   return (
     <Card>
       <CardHeader>
@@ -165,80 +148,6 @@ export function CompanyInfoCard({
                 .filter(Boolean)
                 .join(" · ") || "—"}
             </p>
-          </div>
-        </div>
-
-        <div className="mt-6 border-t pt-4">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Billing Information
-          </p>
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Status:</span>
-              {canManageBilling ? (
-                <select
-                  className="rounded border px-2 py-1 text-sm"
-                  value={billing?.billingStatus ?? "ACTIVE"}
-                  onChange={(e) => onBillingStatusChange(e.target.value)}
-                >
-                  <option value="ACTIVE">Active</option>
-                  <option value="INVOICE_OVERDUE">Invoice Overdue</option>
-                  <option value="ON_HOLD">On Hold</option>
-                </select>
-              ) : (
-                <StatusBadge status={billing?.billingStatus ?? "ACTIVE"} />
-              )}
-            </div>
-            {canManageBilling && billing?.billingStatus === "INVOICE_OVERDUE" && (
-              <Button
-                size="sm"
-                variant="warning"
-                onClick={onSendBillingReminder}
-                disabled={sendingReminder}
-              >
-                <Mail className="mr-1 h-4 w-4" />
-                {sendingReminder ? "Sending…" : "Send Reminder"}
-              </Button>
-            )}
-            <span className="text-sm text-muted-foreground">
-              Plan: <strong>{billing?.plan ?? "—"}</strong>
-            </span>
-            <span className="text-sm text-muted-foreground">
-              Cycle: <strong>{billing?.billingCycle ?? "—"}</strong>
-            </span>
-            {billing?.billingEmail && (
-              <span className="text-sm text-muted-foreground">
-                Billing Email: <strong>{billing.billingEmail}</strong>
-              </span>
-            )}
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
-            <div>
-              <p className="text-muted-foreground">Price / Employee</p>
-              <p className="font-medium">
-                ${Number(billing?.pricePerEmployee ?? 0).toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">Next Renewal</p>
-              <p className="font-medium">
-                {billing?.renewalDate
-                  ? new Date(billing.renewalDate).toLocaleDateString()
-                  : "—"}
-              </p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">Trial</p>
-              <p className="font-medium">
-                {billing?.isTrial
-                  ? `Until ${billing.trialEndsAt ? new Date(billing.trialEndsAt).toLocaleDateString() : "—"}`
-                  : "No"}
-              </p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">Currency</p>
-              <p className="font-medium">{billing?.currency ?? "—"}</p>
-            </div>
           </div>
         </div>
       </CardContent>

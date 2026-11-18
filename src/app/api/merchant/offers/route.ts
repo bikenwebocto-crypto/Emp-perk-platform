@@ -11,6 +11,14 @@ import { createAuditLog } from '@/services/audit-log.service';
 import { generateUniqueOfferCode, isValidOfferCode } from '@/lib/offer-code';
 import { parseRepeatAfterHoursInput } from '@/lib/redemption-tracking';
 import { validateFlashWindow } from '@/lib/offers/flash';
+import {
+  firstFlatDiscountError,
+  firstPercentDiscountError,
+  isFlatOfferType,
+  isPercentOfferType,
+  validateFlatDiscount,
+  validatePercentDiscount,
+} from '@/lib/offers/flat-discount';
 import { isEvergreenRange, validateMerchantForeverOfferPolicy } from '@/lib/offers/evergreen';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
@@ -510,6 +518,31 @@ export async function POST(request: NextRequest) {
     const repeatAfterHours = parseRepeatAfterHoursInput(body.repeatAfterHours);
     if (!repeatAfterHours.ok) {
       return badRequest("repeatAfterHours must be a positive number");
+    }
+
+    // Hard business rule for flat offers: 0 < discount < minimum spend.
+    // Drafts may leave fields empty, but never save an invalid combination.
+    if (isFlatOfferType(body.offerType)) {
+      const flatError = firstFlatDiscountError(
+        validateFlatDiscount(
+          { discountValue: body.discountValue, minimumSpend: body.minimumSpend },
+          { requireAll: !saveAsDraft },
+        ),
+      );
+      if (flatError) return badRequest(flatError);
+    }
+    if (isPercentOfferType(body.offerType)) {
+      const pctError = firstPercentDiscountError(
+        validatePercentDiscount(
+          {
+            discountPercent: body.discountPercent,
+            minimumSpend: body.minimumSpend,
+            discountMax: body.discountMax,
+          },
+          { requireAll: !saveAsDraft },
+        ),
+      );
+      if (pctError) return badRequest(pctError);
     }
 
     const computedIsForever = Boolean(isForever) || isEvergreenRange(startDate, endDate);

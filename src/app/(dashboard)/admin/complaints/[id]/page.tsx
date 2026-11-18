@@ -7,6 +7,14 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { showToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
@@ -75,12 +83,18 @@ export default function AdminComplaintDetailPage({
   const { id } = use(params);
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [resolutionNotes, setResolutionNotes] = useState("");
-  const [rejectReason, setRejectReason] = useState("");
-  const [resolutionError, setResolutionError] = useState(false);
-  const [rejectError, setRejectError] = useState(false);
-  const resolutionRef = useRef<HTMLTextAreaElement>(null);
-  const rejectRef = useRef<HTMLTextAreaElement>(null);
+  const [dialogMode, setDialogMode] = useState<"RESOLVED" | "REJECTED" | null>(
+    null,
+  );
+  const [note, setNote] = useState("");
+  const [noteError, setNoteError] = useState(false);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+
+  function openDialog(mode: "RESOLVED" | "REJECTED") {
+    setNote("");
+    setNoteError(false);
+    setDialogMode(mode);
+  }
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["admin-complaint", id],
@@ -106,8 +120,8 @@ export default function AdminComplaintDetailPage({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-complaint", id] });
       queryClient.invalidateQueries({ queryKey: ["admin-complaints"] });
-      setResolutionNotes("");
-      setRejectReason("");
+      setNote("");
+      setDialogMode(null);
       showToast({
         type: "success",
         title: "Updated",
@@ -118,51 +132,18 @@ export default function AdminComplaintDetailPage({
       showToast({ type: "error", title: "Failed", description: e.message }),
   });
 
-  function handleResolve() {
-    setRejectError(false);
-    if (!resolutionNotes.trim()) {
-      setResolutionError(true);
-      resolutionRef.current?.focus();
-      resolutionRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-      showToast({
-        type: "error",
-        title: "Required",
-        description: "Please provide resolution notes.",
-      });
+  function handleConfirm() {
+    if (!dialogMode) return;
+    if (!note.trim()) {
+      setNoteError(true);
+      noteRef.current?.focus();
       return;
     }
-    setResolutionError(false);
-    resolveMutation.mutate({
-      status: "RESOLVED",
-      resolutionNotes: resolutionNotes.trim(),
-    });
+    setNoteError(false);
+    resolveMutation.mutate({ status: dialogMode, resolutionNotes: note.trim() });
   }
 
-  function handleReject() {
-    setResolutionError(false);
-    if (!rejectReason.trim()) {
-      setRejectError(true);
-      rejectRef.current?.focus();
-      rejectRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-      showToast({
-        type: "error",
-        title: "Required",
-        description: "Please provide a reason for rejection.",
-      });
-      return;
-    }
-    setRejectError(false);
-    resolveMutation.mutate({
-      status: "REJECTED",
-      resolutionNotes: rejectReason.trim(),
-    });
-  }
+  const isReject = dialogMode === "REJECTED";
 
   if (isLoading) {
     return (
@@ -333,70 +314,6 @@ export default function AdminComplaintDetailPage({
             <CardTitle className="text-base">Admin Actions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                Resolution Notes
-              </label>
-              <textarea
-                ref={resolutionRef}
-                rows={3}
-                className={`w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  resolutionError
-                    ? "border-red-500 ring-2 ring-red-500 animate-pulse"
-                    : ""
-                }`}
-                value={resolutionNotes}
-                onChange={(e) => {
-                  setResolutionNotes(e.target.value);
-                  if (resolutionError) setResolutionError(false);
-                }}
-                placeholder="Describe the resolution..."
-              />
-              <p
-                className={`mt-1 text-xs ${
-                  resolutionError
-                    ? "font-medium text-red-600"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {resolutionError
-                  ? "Resolution notes are required to mark this complaint as Resolved."
-                  : "Used when marking this complaint as Resolved."}
-              </p>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                Rejection Reason
-              </label>
-              <textarea
-                ref={rejectRef}
-                rows={3}
-                className={`w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  rejectError
-                    ? "border-red-500 ring-2 ring-red-500 animate-pulse"
-                    : ""
-                }`}
-                value={rejectReason}
-                onChange={(e) => {
-                  setRejectReason(e.target.value);
-                  if (rejectError) setRejectError(false);
-                }}
-                placeholder="Explain why this complaint is being rejected..."
-              />
-              <p
-                className={`mt-1 text-xs ${
-                  rejectError
-                    ? "font-medium text-red-600"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {rejectError
-                  ? "A rejection reason is required."
-                  : "Used when marking this complaint as Rejected."}
-              </p>
-            </div>
-
             {canResolve && c.escalations?.some((e) => e.status === "PENDING") && (
               <p className="text-xs text-muted-foreground">
                 This complaint was escalated by a company admin. Resolving or
@@ -408,31 +325,87 @@ export default function AdminComplaintDetailPage({
               <Button
                 variant="destructive"
                 disabled={resolveMutation.isPending}
-                onClick={handleReject}
+                onClick={() => openDialog("REJECTED")}
               >
-                {resolveMutation.isPending ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : (
-                  <Ban className="mr-1 h-4 w-4" />
-                )}
+                <Ban className="mr-1 h-4 w-4" />
                 Reject
               </Button>
               <Button
                 variant="default"
                 disabled={resolveMutation.isPending}
-                onClick={handleResolve}
+                onClick={() => openDialog("RESOLVED")}
               >
-                {resolveMutation.isPending ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="mr-1 h-4 w-4" />
-                )}
+                <CheckCircle2 className="mr-1 h-4 w-4" />
                 Resolve
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
+
+      <Dialog
+        open={dialogMode !== null}
+        onOpenChange={(open) => {
+          if (!open && !resolveMutation.isPending) setDialogMode(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {isReject ? "Reject Complaint" : "Resolve Complaint"}
+            </DialogTitle>
+            <DialogDescription>
+              {isReject
+                ? "Explain why this complaint is being rejected."
+                : "Describe how this complaint was resolved."}
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <textarea
+              ref={noteRef}
+              rows={4}
+              autoFocus
+              className={`w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                noteError ? "border-red-500 ring-2 ring-red-500" : ""
+              }`}
+              value={note}
+              onChange={(e) => {
+                setNote(e.target.value);
+                if (noteError) setNoteError(false);
+              }}
+              placeholder={
+                isReject ? "Reason for rejection..." : "Resolution notes..."
+              }
+            />
+            {noteError && (
+              <p className="mt-1 text-xs font-medium text-red-600">
+                {isReject
+                  ? "A rejection reason is required."
+                  : "Resolution notes are required."}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={resolveMutation.isPending}
+              onClick={() => setDialogMode(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={isReject ? "destructive" : "default"}
+              disabled={resolveMutation.isPending}
+              onClick={handleConfirm}
+            >
+              {resolveMutation.isPending && (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              )}
+              OK
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {c.status === "CLARIFICATION_REQ" && (
         <Card className="border-muted-foreground/20 bg-muted/20">

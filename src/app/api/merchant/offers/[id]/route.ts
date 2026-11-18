@@ -4,6 +4,14 @@ import { getMerchantFromSession } from '@/lib/merchant-session'
 import { Prisma } from "@prisma/client";
 import { clampOfferCodeLength, generateUniqueOfferCode, isValidOfferCode } from '@/lib/offer-code';
 import { isEvergreenRange } from '@/lib/offers/evergreen';
+import {
+  firstFlatDiscountError,
+  firstPercentDiscountError,
+  isFlatOfferType,
+  isPercentOfferType,
+  validateFlatDiscount,
+  validatePercentDiscount,
+} from '@/lib/offers/flat-discount';
 import { getRepeatAfterHours, parseRepeatAfterHoursInput, withRepeatAfterHours } from '@/lib/redemption-tracking';
 import { ensureOfferQRCode } from '@/lib/offer-qr';
 
@@ -169,6 +177,41 @@ export async function PATCH(
 
     if (typeof body.redemptionCode === 'string' && body.redemptionCode.trim() && !isValidOfferCode(body.redemptionCode.trim())) {
       return badRequest("Offer code must be between 6 and 30 letters or numbers.");
+    }
+
+    // Validate the flat discount against the values that will actually be stored
+    // (this route keeps the existing value when a field is omitted/null/empty).
+    if (isFlatOfferType(body.offerType ?? existing.offerType)) {
+      const cfg = (existing.pricing?.configuration as Record<string, unknown>) ?? {};
+      const pick = (v: unknown, fallback: unknown) =>
+        v === undefined || v === null || v === '' ? fallback : v;
+      const flatError = firstFlatDiscountError(
+        validateFlatDiscount(
+          {
+            discountValue: pick(body.discountValue, cfg.amount),
+            minimumSpend: pick(body.minimumSpend, cfg.minimumSpend),
+          },
+          // Offers already in review must stay complete; drafts may be partial.
+          { requireAll: existing.status === "AWAITING_APPROVAL" },
+        ),
+      );
+      if (flatError) return badRequest(flatError);
+    }
+    if (isPercentOfferType(body.offerType ?? existing.offerType)) {
+      const cfg = (existing.pricing?.configuration as Record<string, unknown>) ?? {};
+      const pick = (v: unknown, fallback: unknown) =>
+        v === undefined || v === null || v === '' ? fallback : v;
+      const pctError = firstPercentDiscountError(
+        validatePercentDiscount(
+          {
+            discountPercent: pick(body.discountPercent, cfg.percent),
+            minimumSpend: pick(body.minimumSpend, cfg.minimumSpend),
+            discountMax: pick(body.discountMax, cfg.maximumDiscount),
+          },
+          { requireAll: existing.status === "AWAITING_APPROVAL" },
+        ),
+      );
+      if (pctError) return badRequest(pctError);
     }
 
     const merchantOfferUpdatable: Record<string, unknown> = {};

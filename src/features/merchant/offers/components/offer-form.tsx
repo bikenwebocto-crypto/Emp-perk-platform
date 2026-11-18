@@ -25,6 +25,17 @@ import { showToast } from "@/hooks/use-toast";
 import { uploadImage, OFFER_IMAGE_OPTIONS } from "@/lib/upload/image";
 import { deleteOfferImage } from "@/lib/upload-offer-image";
 import { Checkbox } from "@/components/ui/checkbox";
+import { FieldLabel, InfoTip } from "@/components/ui/info-tip";
+import {
+  flatDiscountPercent,
+  isValidDiscountAmount,
+  isValidPercent,
+  PERCENT_MAX,
+  PERCENT_MIN,
+  suggestedPercentMax,
+  validateFlatDiscount,
+  validatePercentDiscount,
+} from "@/lib/offers/flat-discount";
 import { FLASH_MAX_DAYS, flashMaxEndLocal, validateFlashWindow } from "@/lib/offers/flash";
 import { isEvergreenRange } from "@/lib/offers/evergreen";
 import { generateOfferCode, OFFER_CODE_MIN_LENGTH, OFFER_CODE_MAX_LENGTH } from "@/lib/offer-code.shared";
@@ -150,6 +161,19 @@ function urlToPendingImage(url: string, index: number): PendingImage {
   };
 }
 
+const FOREVER_YEARS = 5;
+
+/** Date → "YYYY-MM-DDTHH:mm" in local time, for datetime-local inputs. */
+function dateToLocalInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Number inputs accept e/E/+/- ; money fields never need them. */
+function blockNonMoneyKeys(e: React.KeyboardEvent<HTMLInputElement>) {
+  if (["e", "E", "+", "-"].includes(e.key)) e.preventDefault();
+}
+
 function getTargetOfferCodeLength(currentValue: string): number {
   const length = Number(currentValue.trim().length);
   if (!Number.isFinite(length) || length <= 0) {
@@ -180,6 +204,12 @@ export function OfferForm({
   const submitOffer = useSubmitMerchantOffer();
   const [errors, setErrors] = useState<FormErrors>({});
   const [showStrength, setShowStrength] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"draft" | "submit" | null>(null);
+  const isBusy =
+    pendingAction !== null ||
+    createOffer.isPending ||
+    updateOffer.isPending ||
+    submitOffer.isPending;
   const hasCategoryProp = merchantCategoryProp !== undefined;
   const { data: profileCategory, isLoading: profileCategoryLoading } = useQuery({
     queryKey: ["merchant-profile", "category"],
@@ -275,6 +305,13 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
           next.minimumSpend = "";
           maxManuallySet.current = false;
         }
+        if (field === "startDate" && prev.isForever && e.target.value) {
+          const end = new Date(e.target.value);
+          if (!isNaN(end.getTime())) {
+            end.setFullYear(end.getFullYear() + FOREVER_YEARS);
+            next.endDate = dateToLocalInput(end);
+          }
+        }
         return next;
       });
       if (errors[field])
@@ -314,18 +351,12 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       const next = { ...prev, [field]: value };
 
       if (next.offerType === "PERCENTAGE") {
-        const ms = Number(next.minimumSpend);
-        const dp = Number(next.discountPercent);
-        const hasMs = !isNaN(ms) && ms > 0;
-        const hasDp = !isNaN(dp) && dp > 0;
-
-        // Keep the suggestion in sync on every keystroke until the merchant sets their own max
+        // Keep the suggestion (Min Spend × %) in sync until the merchant sets their own max
         if (
           (field === "minimumSpend" || field === "discountPercent") &&
           !maxManuallySet.current
         ) {
-          next.discountMax =
-            hasMs && hasDp ? String(Math.round(ms * dp) / 100) : "";
+          next.discountMax = suggestedPercentMax(next.discountPercent, next.minimumSpend);
         }
       } else if (next.offerType === "FLAT") {
         const dv = Number(next.discountValue);
@@ -348,6 +379,58 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     });
 
     setShowStrength(true);
+  };
+
+  /** Forever on → start = now (if unset), end = start + 5 years. Off → clear the long end date. */
+  const toggleForever = (on: boolean) => {
+    setForm((prev) => {
+      if (on) {
+        const start = prev.startDate || dateToLocalInput(new Date());
+        const end = new Date(start);
+        end.setFullYear(end.getFullYear() + FOREVER_YEARS);
+        return {
+          ...prev,
+          isForever: true,
+          isFlash: false,
+          startDate: start,
+          endDate: dateToLocalInput(end),
+        };
+      }
+      // Leaving a ≥1-year range would immediately re-mark the offer as Forever.
+      const stillEvergreen =
+        prev.startDate && prev.endDate && isEvergreenRange(prev.startDate, prev.endDate);
+      return { ...prev, isForever: false, endDate: stillEvergreen ? "" : prev.endDate };
+    });
+    setErrors((prev) => {
+      const n = { ...prev };
+      delete n.isForever;
+      delete n.startDate;
+      delete n.endDate;
+      return n;
+    });
+  };
+
+  /** Flash on → turns Forever off and drops an end date that's beyond the flash limit. */
+  const toggleFlash = (on: boolean) => {
+    setForm((prev) => {
+      if (!on) return { ...prev, isFlash: false };
+      const tooLong =
+        !!prev.startDate &&
+        !!prev.endDate &&
+        validateFlashWindow(true, prev.startDate, prev.endDate) !== null;
+      return {
+        ...prev,
+        isFlash: true,
+        isForever: false,
+        endDate: tooLong || prev.isForever ? "" : prev.endDate,
+      };
+    });
+    setErrors((prev) => {
+      const n = { ...prev };
+      delete n.isForever;
+      delete n.endDate;
+      return n;
+    });
   };
 
   const toggleDay = (day: number) => {
@@ -381,50 +464,30 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
   const validate = (): boolean => {
     const errs: FormErrors = {};
     if (!form.title.trim()) errs.title = "Title is required";
-    if (form.title.length < 5)
+    else if (form.title.trim().length < 5)
       errs.title = "Title must be at least 5 characters";
     if (!form.offerType) errs.offerType = "Offer type is required";
 
     if (form.offerType === "FLAT") {
-      if (!form.discountValue.trim())
-        errs.discountValue = "Discount value is required";
-      else if (
-        isNaN(Number(form.discountValue)) ||
-        Number(form.discountValue) <= 0
-      )
-        errs.discountValue = "Must be a positive number";
-      if (form.discountPercent.trim()) {
-        const dp = Number(form.discountPercent);
-        if (isNaN(dp) || dp < 0 || dp > 90)
-          errs.discountPercent = "Must be between 0% and 90%";
-      }
-      if (form.discountMax.trim() && form.discountValue.trim()) {
-        const dm = Number(form.discountMax);
-        if (isNaN(dm) || dm <= 0) errs.discountMax = "Must be greater than 0";
-        if (dm > Number(form.discountValue))
-          errs.discountMax = "Maximum discount cannot exceed discount value";
-      }
+      Object.assign(
+        errs,
+        validateFlatDiscount(
+          { discountValue: form.discountValue, minimumSpend: form.minimumSpend },
+          { requireAll: true },
+        ),
+      );
     } else if (form.offerType === "PERCENTAGE") {
-      if (!form.discountPercent.trim())
-        errs.discountPercent = "Discount percentage is required";
-      else {
-        const dp = Number(form.discountPercent);
-        if (isNaN(dp) || dp < 0 || dp > 90)
-          errs.discountPercent = "Must be between 0% and 90%";
-      }
-      if (form.discountMax.trim()) {
-        const dm = Number(form.discountMax);
-        if (isNaN(dm) || dm <= 0) errs.discountMax = "Must be greater than 0";
-        if (form.discountValue.trim() && dm > Number(form.discountValue))
-          errs.discountMax = "Maximum discount cannot exceed discount value";
-      }
-      if (form.minimumSpend.trim()) {
-        const ms = Number(form.minimumSpend);
-        if (isNaN(ms) || ms <= 0) errs.minimumSpend = "Must be greater than 0";
-        if (form.discountValue.trim() && ms < Number(form.discountValue))
-          errs.minimumSpend =
-            "Minimum spend cannot be lower than discount value";
-      }
+      Object.assign(
+        errs,
+        validatePercentDiscount(
+          {
+            discountPercent: form.discountPercent,
+            minimumSpend: form.minimumSpend,
+            discountMax: form.discountMax,
+          },
+          { requireAll: true },
+        ),
+      );
     } else if (form.offerType === "BUY_X_GET_Y") {
       if (!form.buyQuantity.trim())
         errs.buyQuantity = "Buy quantity is required";
@@ -463,9 +526,18 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       const flashError = validateFlashWindow(form.isFlash, form.startDate, form.endDate);
       if (flashError) errs.endDate = flashError;
     }
-    if (isReplacement && !form.termsAndConditions.trim())
-      errs.termsAndConditions =
-        "Terms and conditions are required for replacement offers"; // Days of week validation
+    // Server rejects submissions without T&C, so require it client-side too.
+    if (!form.termsAndConditions.trim())
+      errs.termsAndConditions = "Terms and conditions are required";
+
+    if (form.isFlash && form.isForever)
+      errs.isForever = "An offer cannot be both Flash and Forever";
+
+    if (form.maxRedemptions.trim()) {
+      const mr = Number(form.maxRedemptions);
+      if (!Number.isInteger(mr) || mr <= 0)
+        errs.maxRedemptions = "Must be a whole number greater than 0";
+    }
 
     if (form.repeatAfterHours && !(Number(form.repeatAfterHours) > 0))
       errs.repeatAfterHours = "Must be a positive number of hours";
@@ -483,7 +555,15 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     }
 
     setErrors(errs);
-    return Object.keys(errs).length === 0;
+    const count = Object.keys(errs).length;
+    if (count > 0) {
+      showToast({
+        type: "error",
+        title: `Please fix ${count} field${count > 1 ? "s" : ""} before submitting`,
+        description: Object.values(errs)[0],
+      });
+    }
+    return count === 0;
   };
 
   const buildBody = (saveAsDraft = false): Record<string, unknown> => ({
@@ -523,7 +603,12 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     replacementReason: isReplacement ? form.replacementReason || null : null,
     saveAsDraft,
     redemptionType: form.redemptionType || null,
-    bookingUrl: form.bookingUrl || null,
+    // Don't send stale code/URL left over from a previously selected redemption type.
+    ...(form.redemptionType !== "ONLINE_CODE" ? { redemptionCode: null } : {}),
+    bookingUrl:
+      form.redemptionType === "ONLINE_CODE" || form.redemptionType === "BOOKING_LINK"
+        ? form.bookingUrl || null
+        : null,
     qrCodeUrl: form.qrCodeUrl || null,
     ...(isReplacement && currentLiveOffer
       ? { replacesOfferId: currentLiveOffer.id }
@@ -566,8 +651,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       showToast({ type: "error", title: "Title is required to save a draft" });
       return;
     }
+    setPendingAction("draft");
     const allUrls = await resolveAllImageUrls();
-    if (allUrls === null) return;
+    if (allUrls === null) return setPendingAction(null);
 
     try {
       const body = withMerchant({ ...buildBody(true), imageUrls: allUrls });
@@ -589,12 +675,23 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         title: "Failed to save draft",
         description: err.message,
       });
+    } finally {
+      setPendingAction(null);
     }
   };
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
 
+    setPendingAction("submit");
+    try {
+      await doSubmit();
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const doSubmit = async () => {
     const allUrls = await resolveAllImageUrls();
     if (allUrls === null) return;
 
@@ -614,6 +711,8 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
             title: "Validation failed",
             description: "Fix the errors and resubmit",
           });
+          if (result.validationErrors) setErrors(result.validationErrors);
+          return; // stay on the form so the merchant can see the errors
         }
         if (onSuccess) {
           onSuccess();
@@ -646,6 +745,8 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
           if (result.validationErrors) {
             setErrors(result.validationErrors);
           }
+          // The offer is still created server-side (as a draft with QC errors),
+          // so navigate away rather than risk a duplicate on resubmit.
         }
         if (onSuccess) {
           onSuccess();
@@ -741,6 +842,41 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     });
   };
 
+  // Live flat-discount validation: runs on every keystroke. Empty fields are
+  // reported as "required" only after a submit attempt (via `errors`).
+  const isFlat = form.offerType === "FLAT";
+  const flatDiscountValid = isFlat && isValidDiscountAmount(form.discountValue);
+  const liveFlatErrors = isFlat
+    ? validateFlatDiscount(
+        { discountValue: form.discountValue, minimumSpend: form.minimumSpend },
+        { requireAll: false },
+      )
+    : {};
+  const flatError = (field: "discountValue" | "minimumSpend") =>
+    liveFlatErrors[field] ?? errors[field];
+  // Live percentage validation (same idea: Discount % → Min Spend → Max Discount).
+  const isPct = form.offerType === "PERCENTAGE";
+  const pctValid = isPct && isValidPercent(form.discountPercent);
+  const pctMinSpendValid = pctValid && isValidDiscountAmount(form.minimumSpend);
+  const livePctErrors = isPct
+    ? validatePercentDiscount(
+        {
+          discountPercent: form.discountPercent,
+          minimumSpend: form.minimumSpend,
+          discountMax: form.discountMax,
+        },
+        { requireAll: false },
+      )
+    : {};
+  const pctError = (field: "discountPercent" | "minimumSpend" | "discountMax") =>
+    livePctErrors[field] ?? errors[field];
+  const hasFlatErrors =
+    Object.keys(liveFlatErrors).length > 0 ||
+    Object.keys(livePctErrors).length > 0;
+  const flatPercent = isFlat
+    ? flatDiscountPercent(form.discountValue, form.minimumSpend)
+    : null;
+
   const categoryName = merchantCategory?.name;
   const previewImageUrls = useMemo(
       () =>
@@ -806,9 +942,15 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
           </CardHeader>
 
           <CardContent>
-            <label className={labelClass}>Reason for replacement</label>
+            <FieldLabel
+              htmlFor="replacementReason"
+              info="Only visible to the admin team. Explain what changed (e.g. better discount, new menu) so the replacement can be approved faster."
+            >
+              Reason for replacement
+            </FieldLabel>
 
             <textarea
+              id="replacementReason"
               className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               value={form.replacementReason}
               onChange={set("replacementReason")}
@@ -847,9 +989,16 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
               <CardContent className="space-y-4">
                 <div>
-                  <label className={labelClass}>Title <span className="text-destructive">*</span></label>
+                  <FieldLabel
+                    htmlFor="title"
+                    required
+                    info="The headline employees see on the offer card. Lead with the benefit, e.g. “20% off all main courses”. 5–255 characters."
+                  >
+                    Title
+                  </FieldLabel>
 
                   <Input
+                    id="title"
                     className={inputClass}
                     value={form.title}
                     onChange={set("title")}
@@ -865,32 +1014,52 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 </div>
 
                 <div>
-                  <label className={labelClass}>Short Description</label>
+                  <FieldLabel
+                    htmlFor="shortDescription"
+                    info="One-line summary shown under the title in offer lists. Keep it scannable."
+                  >
+                    Short Description
+                  </FieldLabel>
 
                   <Input
+                    id="shortDescription"
                     className={inputClass}
                     value={form.shortDescription}
                     onChange={set("shortDescription")}
                     placeholder="Brief description (max 500 chars)"
                     maxLength={500}
                   />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {form.shortDescription.length}/500
+                  </p>
                 </div>
 
                 <div>
-                  <label className={labelClass}>Description</label>
+                  <FieldLabel
+                    htmlFor="description"
+                    info="Full details shown on the offer page: what's included, what's excluded, and anything that makes the offer stand out."
+                  >
+                    Description
+                  </FieldLabel>
 
                   <textarea
+                    id="description"
                     className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                     value={form.description}
                     onChange={set("description")}
                     placeholder="Full offer description"
                     maxLength={2000}
                   />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {form.description.length}/2000
+                  </p>
                 </div>
                 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className={labelClass}>Featured Offer</label>
+                    <FieldLabel info="Request a highlighted placement in the app. Cannot be combined with Exclusive — turning one on turns the other off. Final placement is decided during review.">
+                      Featured Offer
+                    </FieldLabel>
                     <div className="mt-2">
                       <button
                         type="button"
@@ -910,7 +1079,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   </div>
 
                   <div>
-                    <label className={labelClass}>Exclusive Offer</label>
+                    <FieldLabel info="Mark this as only available through this platform (not offered to the general public). Cannot be combined with Featured.">
+                      Exclusive Offer
+                    </FieldLabel>
                     <div className="mt-2">
                       <button
                         type="button"
@@ -931,9 +1102,15 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className={labelClass}>Category</label>
-                   
+                    <FieldLabel
+                      htmlFor="category"
+                      info="Set automatically from your business profile and can't be changed per offer. Contact support if it's wrong."
+                    >
+                      Category
+                    </FieldLabel>
+
                     <Input
+                      id="category"
                       name="category"
                       className={inputClass}
                       value={
@@ -950,9 +1127,22 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   </div>
 
                   <div>
-                    <label className={labelClass}>Offer Type <span className="text-destructive">*</span></label>
+                    <FieldLabel
+                      htmlFor="offerType"
+                      required
+                      info={
+                        <ul className="list-disc space-y-1 pl-4">
+                          <li><b>Flat Amount</b> — a fixed amount off (e.g. 10 off).</li>
+                          <li><b>Percentage</b> — a % off the bill, optionally capped.</li>
+                          <li><b>Buy X Get Y</b> — buy a quantity, get items free.</li>
+                        </ul>
+                      }
+                    >
+                      Offer Type
+                    </FieldLabel>
 
                     <select
+                      id="offerType"
                       name="offerType"
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                       value={form.offerType}
@@ -967,9 +1157,21 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 </div>
                 {/* Redemption Type Selection */}
                 <div>
-                  <label className={labelClass}>Redemption Type</label>
+                  <FieldLabel
+                    htmlFor="redemptionType"
+                    required
+                    info={
+                      <ul className="list-disc space-y-1 pl-4">
+                        <li><b>Online Code</b> — employee gets your code and uses it on your website/booking page.</li>
+                        <li><b>Virtual Card</b> — employee shows a card in-store; redemption is verified automatically.</li>
+                      </ul>
+                    }
+                  >
+                    Redemption Type
+                  </FieldLabel>
 
                   <select
+                    id="redemptionType"
                     className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                     value={form.redemptionType}
                     onChange={set("redemptionType")}
@@ -1010,9 +1212,16 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
                     <CardContent className="space-y-4">
                       <div>
-                        <label className={labelClass}>Booking URL *</label>
+                        <FieldLabel
+                          htmlFor="bookingUrl"
+                          required
+                          info="The page where employees enter the offer code — usually your checkout or booking page. Must start with http:// or https://."
+                        >
+                          Booking URL
+                        </FieldLabel>
 
                         <Input
+                          id="bookingUrl"
                           className={inputClass}
                           value={form.bookingUrl}
                           onChange={set("bookingUrl")}
@@ -1030,10 +1239,17 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                       </div>
 
                       <div>
-                        <label className={labelClass}>Offer Code *</label>
+                        <FieldLabel
+                          htmlFor="redemptionCode"
+                          required
+                          info="The discount code employees enter at checkout. It must already be set up in your own checkout system. Use Generate for a random code, then create the same code on your side."
+                        >
+                          Offer Code
+                        </FieldLabel>
 
                         <div className="flex gap-2">
                           <Input
+                            id="redemptionCode"
                             className={`${inputClass} flex-1`}
                             value={form.redemptionCode}
                             onChange={set("redemptionCode")}
@@ -1076,7 +1292,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
                     <CardContent>
                       <div>
-                        <label className={labelClass}>Booking URL <span className="text-destructive">*</span></label>
+                        <FieldLabel required info="Direct link to your booking system where the offer applies.">
+                          Booking URL
+                        </FieldLabel>
 
                         <Input
                           className={inputClass}
@@ -1134,46 +1352,83 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 {form.offerType === "FLAT" && (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
-                      <label className={labelClass}>Discount Amount <span className="text-destructive">*</span></label>
+                      <FieldLabel
+                        htmlFor="discountValue"
+                        required
+                        info="The fixed amount taken off the bill, e.g. 10 means 10 off. Enter this first — it unlocks Minimum Spend. Must be greater than 0, with up to 2 decimal places."
+                      >
+                        Discount Amount
+                      </FieldLabel>
 
                       <Input
+                        id="discountValue"
                         className={inputClass}
                         type="number"
+                        inputMode="decimal"
+                        min={0.01}
                         step="0.01"
                         value={form.discountValue}
+                        onKeyDown={blockNonMoneyKeys}
                         onChange={(e) =>
                           handleLinkedFieldChange(
                             "discountValue",
                             e.target.value,
                           )
                         }
-                        placeholder="e.g. 100"
+                        placeholder="e.g. 10"
+                        aria-invalid={!!flatError("discountValue")}
                       />
 
-                      {errors.discountValue && (
+                      {flatError("discountValue") && (
                         <p className="mt-1 text-xs text-destructive">
-                          {errors.discountValue}
+                          {flatError("discountValue")}
                         </p>
                       )}
                     </div>
 
                     <div>
-                      <label className={labelClass}>Minimum Spend</label>
+                      <FieldLabel
+                        htmlFor="minimumSpendFlat"
+                        required
+                        info="The bill must reach this amount before the discount applies. Must be strictly greater than the Discount Amount, so the discount is always below 100% (e.g. 10 off a 50 minimum = 20%)."
+                      >
+                        Minimum Spend
+                      </FieldLabel>
 
                       <Input
+                        id="minimumSpendFlat"
                         className={inputClass}
                         type="number"
+                        inputMode="decimal"
+                        min={0.01}
                         step="0.01"
                         value={form.minimumSpend}
-                        onChange={set("minimumSpend")}
-                        placeholder="Minimum order amount"
+                        onKeyDown={blockNonMoneyKeys}
+                        onChange={(e) =>
+                          handleLinkedFieldChange("minimumSpend", e.target.value)
+                        }
+                        disabled={!flatDiscountValid}
+                        placeholder={
+                          flatDiscountValid
+                            ? "Must be more than the discount"
+                            : "Enter a discount amount first"
+                        }
+                        aria-invalid={!!flatError("minimumSpend")}
                       />
 
-                      {errors.minimumSpend && (
+                      {flatDiscountValid && flatError("minimumSpend") ? (
                         <p className="mt-1 text-xs text-destructive">
-                          {errors.minimumSpend}
+                          {flatError("minimumSpend")}
                         </p>
-                      )}
+                      ) : flatPercent !== null && flatPercent < 100 ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Effective discount: {flatPercent.toFixed(2)}% of the minimum spend
+                        </p>
+                      ) : !flatDiscountValid ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Enter a valid discount amount to unlock this field.
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 )}
@@ -1201,14 +1456,24 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   <>
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div>
-                        <label className={labelClass}>
-                          Discount Percentage <span className="text-destructive">*</span>
-                        </label>
+                        <FieldLabel
+                          htmlFor="discountPercent"
+                          required
+                          info={`Percentage taken off the bill, between ${PERCENT_MIN}% and ${PERCENT_MAX}% (up to 2 decimals). Enter this first — it unlocks Minimum Spend.`}
+                        >
+                          Discount %
+                        </FieldLabel>
 
                         <Input
+                          id="discountPercent"
                           className={inputClass}
                           type="number"
+                          inputMode="decimal"
+                          min={PERCENT_MIN}
+                          max={PERCENT_MAX}
+                          step="0.01"
                           value={form.discountPercent}
+                          onKeyDown={blockNonMoneyKeys}
                           onChange={(e) =>
                             handleLinkedFieldChange(
                               "discountPercent",
@@ -1216,69 +1481,98 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                             )
                           }
                           placeholder="e.g. 20"
+                          aria-invalid={!!pctError("discountPercent")}
                         />
 
-                        {errors.discountPercent && (
+                        {pctError("discountPercent") && (
                           <p className="mt-1 text-xs text-destructive">
-                            {errors.discountPercent}
+                            {pctError("discountPercent")}
                           </p>
                         )}
                       </div>
 
                       <div>
-                        <label className={labelClass}>Maximum Discount</label>
+                        <FieldLabel
+                          htmlFor="minimumSpendPct"
+                          required
+                          info="The bill must reach this amount before the discount applies. Unlocks once Discount % is valid."
+                        >
+                          Minimum Spend
+                        </FieldLabel>
 
                         <Input
+                          id="minimumSpendPct"
                           className={inputClass}
                           type="number"
-                          step="0.01"
-                          value={form.discountMax}
-                          onChange={(e) =>
-                            handleLinkedFieldChange(
-                              "discountMax",
-                              e.target.value,
-                            )
-                          }
-                          placeholder="Cap amount"
-                        />
-
-                        {errors.discountMax && (
-                          <p className="mt-1 text-xs text-destructive">
-                            {errors.discountMax}
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <label className={labelClass}>Minimum Spend</label>
-
-                        <Input
-                          className={inputClass}
-                          type="number"
+                          inputMode="decimal"
+                          min={0.01}
                           step="0.01"
                           value={form.minimumSpend}
+                          onKeyDown={blockNonMoneyKeys}
                           onChange={(e) =>
                             handleLinkedFieldChange(
                               "minimumSpend",
                               e.target.value,
                             )
                           }
-                          placeholder="Minimum order amount"
+                          disabled={!pctValid}
+                          placeholder={pctValid ? "e.g. 50" : "Enter Discount % first"}
+                          aria-invalid={!!pctError("minimumSpend")}
                         />
 
-                        {errors.minimumSpend && (
+                        {pctValid && pctError("minimumSpend") && (
                           <p className="mt-1 text-xs text-destructive">
-                            {errors.minimumSpend}
+                            {pctError("minimumSpend")}
                           </p>
                         )}
+                      </div>
+
+                      <div>
+                        <FieldLabel
+                          htmlFor="discountMax"
+                          required
+                          info="The most an employee can save per redemption. Auto-filled as Minimum Spend × Discount % — you can raise it, but it must stay below the Minimum Spend and can't be lower than the auto-filled value. Clear it to go back to auto."
+                        >
+                          Maximum Discount
+                        </FieldLabel>
+
+                        <Input
+                          id="discountMax"
+                          className={inputClass}
+                          type="number"
+                          inputMode="decimal"
+                          min={0.01}
+                          step="0.01"
+                          value={form.discountMax}
+                          onKeyDown={blockNonMoneyKeys}
+                          onChange={(e) =>
+                            handleLinkedFieldChange(
+                              "discountMax",
+                              e.target.value,
+                            )
+                          }
+                          disabled={!pctMinSpendValid}
+                          placeholder={pctMinSpendValid ? "Cap amount" : "Enter Minimum Spend first"}
+                          aria-invalid={!!pctError("discountMax")}
+                        />
+
+                        {pctMinSpendValid && pctError("discountMax") ? (
+                          <p className="mt-1 text-xs text-destructive">
+                            {pctError("discountMax")}
+                          </p>
+                        ) : pctMinSpendValid ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Allowed: {suggestedPercentMax(form.discountPercent, form.minimumSpend)} up to below {Number(form.minimumSpend).toFixed(2)}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 
                     {showStrength &&
-                      form.discountValue &&
-                      Number(form.discountValue) > 0 && (
+                      form.discountPercent &&
+                      Number(form.discountPercent) > 0 && (
                         <OfferStrengthIndicator
-                          discountValue={Number(form.discountValue)}
+                          discountValue={Number(form.discountPercent)}
                           offerType={form.offerType}
                           categoryId={merchantCategory?.slug ?? null}
                           minimumSpend={
@@ -1298,12 +1592,17 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                       form.discountMax &&
                       form.maxRedemptions && (
                         <div className="rounded-lg border bg-muted/50 p-3 space-y-1">
-                          <h4 className="text-xs font-semibold text-muted-foreground">
+                          <h4 className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                             Campaign Liability Estimate
+                            <InfoTip>
+                              The most this offer could cost you if every
+                              redemption hits the maximum discount. Actual cost
+                              is usually lower.
+                            </InfoTip>
                           </h4>
 
                           <p className="text-sm font-medium">
-                            Total potential payout: $
+                            Total potential payout:{" "}
                             {(
                               Number(form.discountMax) *
                               Number(form.maxRedemptions)
@@ -1314,8 +1613,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                           </p>
 
                           <p className="text-xs text-muted-foreground">
-                            Based on max
-                            {form.maxRedemptions} redemptions × $
+                            Based on {form.maxRedemptions} max redemptions ×{" "}
                             {Number(form.discountMax).toFixed(2)} max discount
                           </p>
                         </div>
@@ -1327,7 +1625,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   <>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div>
-                        <label className={labelClass}>Buy Quantity <span className="text-destructive">*</span></label>
+                        <FieldLabel required info="How many items the employee must buy, e.g. 2 in “Buy 2 Get 1”.">
+                          Buy Quantity
+                        </FieldLabel>
 
                         <Input
                           className={inputClass}
@@ -1345,7 +1645,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                       </div>
 
                       <div>
-                        <label className={labelClass}>Buy Item <span className="text-destructive">*</span></label>
+                        <FieldLabel required info="The item (or item group) that must be bought, e.g. “Large pizza”.">
+                          Buy Item
+                        </FieldLabel>
 
                         <Input
                           className={inputClass}
@@ -1364,7 +1666,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div>
-                        <label className={labelClass}>Get Quantity <span className="text-destructive">*</span></label>
+                        <FieldLabel required info="How many items are given free per qualifying purchase, e.g. 1 in “Buy 2 Get 1”.">
+                          Get Quantity
+                        </FieldLabel>
 
                         <Input
                           className={inputClass}
@@ -1382,7 +1686,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                       </div>
 
                       <div>
-                        <label className={labelClass}>Free Item <span className="text-destructive">*</span></label>
+                        <FieldLabel required info="The item given free. Can be the same as the Buy Item or different, e.g. “Soft drink”.">
+                          Free Item
+                        </FieldLabel>
 
                         <Input
                           className={inputClass}
@@ -1401,7 +1707,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div>
-                        <label className={labelClass}>Maximum Free Items</label>
+                        <FieldLabel info="Optional cap on free items per redemption, so repeated qualifying purchases in one visit don't multiply the free items.">
+                          Maximum Free Items
+                        </FieldLabel>
 
                         <Input
                           className={inputClass}
@@ -1419,11 +1727,14 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                       </div>
 
                       <div>
-                        <label className={labelClass}>Minimum Spend</label>
+                        <FieldLabel info="Optional. The bill must reach this amount before the free items apply.">
+                          Minimum Spend
+                        </FieldLabel>
 
                         <Input
                           className={inputClass}
                           type="number"
+                          min={0}
                           step="0.01"
                           value={form.minimumSpend}
                           onChange={set("minimumSpend")}
@@ -1441,21 +1752,41 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 )}
 
                 <div>
-                  <label className={labelClass}>Max Redemptions</label>
+                  <FieldLabel
+                    htmlFor="maxRedemptions"
+                    info="Total number of times this offer can be redeemed across all employees. Once reached, the offer stops being available. Leave empty for unlimited."
+                  >
+                    Max Redemptions
+                  </FieldLabel>
 
                   <Input
+                    id="maxRedemptions"
                     className={inputClass}
                     type="number"
+                    min={1}
+                    step={1}
                     value={form.maxRedemptions}
                     onChange={set("maxRedemptions")}
                     placeholder="Unlimited if empty"
                   />
+                  {errors.maxRedemptions && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {errors.maxRedemptions}
+                    </p>
+                  )}
                 </div>
 
                 <div>
-                  <label className={labelClass}>Repeat after (hours)</label>
+                  <FieldLabel
+                    htmlFor="repeatAfterHours"
+                    info="How long an employee must wait before redeeming this offer again. E.g. 24 = once per day, 168 = once per week. Leave empty to allow only one redemption per employee."
+                  >
+                    Repeat after (hours)
+                  </FieldLabel>
 
                   <Input
+                    id="repeatAfterHours"
+                    placeholder="e.g. 24"
                     className={inputClass}
                     type="number"
                     min={1}
@@ -1474,11 +1805,60 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   )}
                 </div>
 
+                {/* Offer duration type — chosen before the dates because it drives them */}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label
+                    htmlFor="isFlash"
+                    className="flex cursor-pointer items-center justify-between gap-4 rounded-lg border p-4"
+                  >
+                    <div>
+                      <span className="text-sm font-medium">Flash Offer</span>
+                      <p className="text-xs text-muted-foreground">
+                        Short, limited-time offer — up to {FLASH_MAX_DAYS} days
+                        between start and end.
+                      </p>
+                    </div>
+                    <Checkbox
+                      id="isFlash"
+                      checked={form.isFlash}
+                      onCheckedChange={(checked) => toggleFlash(checked === true)}
+                    />
+                  </label>
+
+                  <label
+                    htmlFor="isForever"
+                    className="flex cursor-pointer items-center justify-between gap-4 rounded-lg border p-4"
+                  >
+                    <div>
+                      <span className="text-sm font-medium">Forever Offer</span>
+                      <p className="text-xs text-muted-foreground">
+                        Always-on offer. Dates are set to {FOREVER_YEARS} years
+                        from the start. Only one live Forever offer at a time.
+                      </p>
+                    </div>
+                    <Checkbox
+                      id="isForever"
+                      checked={form.isForever}
+                      onCheckedChange={(checked) => toggleForever(checked === true)}
+                    />
+                  </label>
+                </div>
+                {errors.isForever && (
+                  <p className="-mt-2 text-xs text-destructive">{errors.isForever}</p>
+                )}
+
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className={labelClass}>Start Date <span className="text-destructive">*</span></label>
+                    <FieldLabel
+                      htmlFor="startDate"
+                      required
+                      info="When the offer goes live, in your local time. The offer only appears after it's approved, even if this date has passed."
+                    >
+                      Start Date
+                    </FieldLabel>
 
                     <Input
+                      id="startDate"
                       className={inputClass}
                       type="datetime-local"
                       value={form.startDate}
@@ -1493,9 +1873,16 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   </div>
 
                   <div>
-                    <label className={labelClass}>End Date <span className="text-destructive">*</span></label>
+                    <FieldLabel
+                      htmlFor="endDate"
+                      required
+                      info="When the offer stops being available, in your local time. Must be after the start date. Flash offers must end within a few days of the start."
+                    >
+                      End Date
+                    </FieldLabel>
 
                     <Input
+                      id="endDate"
                       className={inputClass}
                       type="datetime-local"
                       value={form.endDate}
@@ -1516,48 +1903,14 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     )}
                   </div>
                 </div>
-
-                <label
-                  htmlFor="isFlash"
-                  className="flex cursor-pointer items-center justify-between gap-4 rounded-lg border p-4"
-                >
-                  <div>
-                    <span className="text-sm font-medium">Flash Offer</span>
-                    <p className="text-xs text-muted-foreground">
-                      Create a short-duration offer that is available for a limited time
-                      (up to {FLASH_MAX_DAYS} days between start and end).
-                    </p>
-                  </div>
-                  <Checkbox
-                    id="isFlash"
-                    checked={form.isFlash}
-                    onCheckedChange={(checked) =>
-                      setForm((prev) => ({ ...prev, isFlash: checked === true }))
-                    }
-                  />
-                </label>
-
-                <label
-                  htmlFor="isForever"
-                  className="flex cursor-pointer items-center justify-between gap-4 rounded-lg border p-4"
-                >
-                  <div>
-                    <span className="text-sm font-medium">Forever Offer</span>
-                    <p className="text-xs text-muted-foreground">
-                      Mark this as a Forever offer. Merchants can only have one live Forever offer at a time.
-                    </p>
-                  </div>
-                  <Checkbox
-                    id="isForever"
-                    checked={form.isForever}
-                    onCheckedChange={(checked) =>
-                      setForm((prev) => ({ ...prev, isForever: checked === true }))
-                    }
-                  />
-                </label>
                 {/* Days of Week */}
                 <div>
-                  <label className={labelClass}>Available Days</label>
+                  <FieldLabel
+                    required
+                    info="Days of the week the offer can be redeemed. Deselect days you don't want it used, e.g. busy weekends."
+                  >
+                    Available Days
+                  </FieldLabel>
 
                   <div className="mt-2 flex flex-wrap gap-2">
                     {DAYS_OF_WEEK.map((day) => {
@@ -1610,7 +1963,14 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
             <Card>
               <CardHeader>
-                <CardTitle>Offer Banner</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  Offer Banner
+                  <InfoTip>
+                    Images shown on the offer card and detail page. The first
+                    image is the main banner — use the arrows to reorder. See
+                    the size guidance on the right.
+                  </InfoTip>
+                </CardTitle>
               </CardHeader>
 
               <CardContent className="space-y-4">
@@ -1637,9 +1997,15 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
               <CardContent className="space-y-4">
                 <div>
-                  <label className={labelClass}>Redemption Instructions</label>
+                  <FieldLabel
+                    htmlFor="redemptionInstructions"
+                    info="Step-by-step guidance shown to employees, e.g. “Enter the code at checkout” or “Show the card before ordering”."
+                  >
+                    Redemption Instructions
+                  </FieldLabel>
 
                   <textarea
+                    id="redemptionInstructions"
                     className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                     value={form.redemptionInstructions}
                     onChange={set("redemptionInstructions")}
@@ -1648,12 +2014,16 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 </div>
 
                 <div>
-                  <label className={labelClass}>
+                  <FieldLabel
+                    htmlFor="termsAndConditions"
+                    required
+                    info="Rules employees must follow, e.g. “Not valid with other offers”, “Dine-in only”, “One per table”. Required to submit."
+                  >
                     Terms & Conditions
-                    <span className="text-destructive">*</span>
-                  </label>
+                  </FieldLabel>
 
                   <textarea
+                    id="termsAndConditions"
                     className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                     value={form.termsAndConditions}
                     onChange={set("termsAndConditions")}
@@ -1668,9 +2038,15 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 </div>
 
                 <div>
-                  <label className={labelClass}>Submission Notes</label>
+                  <FieldLabel
+                    htmlFor="submissionNotes"
+                    info="Private notes for the review team only — employees never see this."
+                  >
+                    Submission Notes
+                  </FieldLabel>
 
                   <textarea
+                    id="submissionNotes"
                     className="flex min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                     value={form.submissionNotes}
                     onChange={set("submissionNotes")}
@@ -1687,9 +2063,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     type="button"
                     variant="outline"
                     onClick={handleSaveDraft}
-                    disabled={createOffer.isPending || updateOffer.isPending}
+                    disabled={isBusy || hasFlatErrors}
                   >
-                    {createOffer.isPending ? (
+                    {pendingAction === "draft" ? (
                       <Loader2 className="mr-1 h-4 w-4 animate-spin" />
                     ) : (
                       <Save className="mr-1 h-4 w-4" />
@@ -1699,20 +2075,16 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
                   <Button
                     type="submit"
-                    disabled={
-                      createOffer.isPending ||
-                      submitOffer.isPending ||
-                      categoryLoading ||
-                      missingCategory
-                    }
+                    disabled={isBusy || categoryLoading || missingCategory || hasFlatErrors}
+                    title={missingCategory ? "Your business category must be set before submitting" : undefined}
                   >
-                    {submitOffer.isPending ? (
+                    {pendingAction === "submit" ? (
                       <Loader2 className="mr-1 h-4 w-4 animate-spin" />
                     ) : (
                       <Send className="mr-1 h-4 w-4" />
                     )}
 
-                    {submitOffer.isPending
+                    {pendingAction === "submit"
                       ? "Submitting..."
                       : isReplacement
                         ? "Submit Replacement"
@@ -1723,20 +2095,15 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 <>
                   <Button
                     type="submit"
-                    disabled={
-                      updateOffer.isPending ||
-                      submitOffer.isPending ||
-                      categoryLoading ||
-                      missingCategory
-                    }
+                    disabled={isBusy || categoryLoading || missingCategory || hasFlatErrors}
                   >
-                    {updateOffer.isPending ? (
+                    {pendingAction === "submit" ? (
                       <Loader2 className="mr-1 h-4 w-4 animate-spin" />
                     ) : (
                       <Save className="mr-1 h-4 w-4" />
                     )}
 
-                    {updateOffer.isPending ? "Saving..." : "Save Changes"}
+                    {pendingAction === "submit" ? "Saving..." : "Save Changes"}
                   </Button>
                 </>
               )}
@@ -1787,7 +2154,11 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   title={form.title}
                   shortDescription={form.shortDescription}
                   description={form.description}
-                  discountValue={form.discountValue}
+                  discountValue={
+                    form.offerType === "PERCENTAGE"
+                      ? form.discountPercent
+                      : form.discountValue
+                  }
                   offerType={form.offerType}
                   startDate={form.startDate}
                   endDate={form.endDate}

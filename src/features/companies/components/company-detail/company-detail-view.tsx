@@ -348,22 +348,6 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
     );
   }, [id, adminNote, updateDetail, company]);
 
-  const handleBillingStatusChange = useCallback(
-    (billingStatus: string) => {
-      updateDetail.mutate(
-        { id, billingStatus },
-        {
-          onSuccess: () => {
-            showToast({ type: "success", title: `Billing status updated to ${billingStatus}` });
-          },
-          onError: (err: Error) =>
-            showToast({ type: "error", title: "Billing update failed", description: err.message }),
-        },
-      );
-    },
-    [id, updateDetail],
-  );
-
   const sendLaunchPack = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/admin/companies/${id}/launch-pack`, { method: "POST" });
@@ -381,16 +365,6 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
     onError: (err: Error) => showToast({ type: "error", title: "Failed", description: err.message }),
   });
 
-  const sendBillingReminder = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(`/api/admin/companies/${id}/billing-reminder`, { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? "Failed to send reminder");
-      return json;
-    },
-    onSuccess: () => showToast({ type: "success", title: "Billing reminder sent" }),
-    onError: (err: Error) => showToast({ type: "error", title: "Failed", description: err.message }),
-  });
 
   // ----- CSV preview/confirm flow ---------------------------------
 
@@ -741,13 +715,7 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
       <CompanyHeaderCard company={company} />
 
       {/* SECTION 1: Company Information (Contact) */}
-      <CompanyInfoCard
-        company={company}
-        canManageBilling={permissions.manageBilling}
-        onBillingStatusChange={handleBillingStatusChange}
-        onSendBillingReminder={() => sendBillingReminder.mutate()}
-        sendingReminder={sendBillingReminder.isPending}
-      />
+      <CompanyInfoCard company={company} />
 
       {/* SECTION 2: Primary Administrator (the login owner) */}
       <PrimaryAdminCard primaryAdmin={primaryAdmin} onAssign={openAddAdminModal} />

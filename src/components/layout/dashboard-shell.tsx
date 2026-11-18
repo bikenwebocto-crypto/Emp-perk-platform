@@ -14,7 +14,6 @@ import type { PublicBranding } from '@/features/admin/settings/login-branding/se
 const pageTitles: Record<string, string> = {
   '/admin': 'Admin Overview',
   '/admin/action-queue': 'Action Queue',
-  '/admin/offers/replacements': 'Replacement Reviews',
   '/admin/merchants': 'Merchants',
   '/admin/categories': 'Categories',
   '/admin/companies': 'Companies',

@@ -15,7 +15,7 @@ import { Loader2 } from 'lucide-react'
 import {
   LayoutDashboard, Store, Users, FileText, BarChart3, Settings, CreditCard,
   ShoppingBag, MapPin, Gift, Building2, UserCircle, Bell, Upload, LogOut,
-  Zap, Search, RefreshCw, Bookmark, Palette, Trash2, Lightbulb, Tags, Inbox, KeyRound,
+  Zap, Search, Bookmark, Palette, Trash2, Lightbulb, Tags, Inbox, KeyRound,
   CalendarClock, ShieldAlert, ShieldCheck, UserCheck,
 } from 'lucide-react'
 import { canAdminAccessPath } from '@/lib/access/account-access'
@@ -48,7 +48,6 @@ const navConfig: Record<string, NavItem[]> = {
   admin: [
     { label: 'Overview', href: '/admin', icon: LayoutDashboard, exact: true },
     { label: 'Action Queue', href: '/admin/action-queue', icon: Zap },
-    { label: 'Replacement Reviews', href: '/admin/offers/replacements', icon: RefreshCw },
     { label: 'Recycle Bin', href: '/admin/offers/deleted', icon: Trash2 },
     { label: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
     { label: 'Merchants', href: '/admin/merchants', icon: Store },
@@ -172,12 +171,16 @@ export function Sidebar({ userType, userName, userEmail, adminRole, companyName,
   // and return the ticket count only for that role.
   const isSupportAdmin = isAdmin && adminRole === 'SUPPORT_ADMIN'
   const { data: newLeadCount } = useNewLeadCount(isAdmin && !isSupportAdmin)
-  const { data: counts } = useAdminSidebarCounts(isAdmin)
+  const { data: counts, refetch: refetchCounts } = useAdminSidebarCounts(isAdmin)
+  // Pages that change data without React Query mutations (server actions,
+  // plain fetch) are covered by refreshing the badges on every navigation.
+  useEffect(() => {
+    if (isAdmin) void refetchCounts()
+  }, [pathname, isAdmin, refetchCounts])
   const navItems = useMemo(() => {
     const badges: Record<string, number | undefined> = {
       '/admin/leads': newLeadCount,
       '/admin/action-queue': counts?.actionQueue,
-      '/admin/offers/replacements': counts?.replacements,
       '/admin/merchants': counts?.merchants,
       '/admin/merchant-suggestions': counts?.merchantSuggestions,
       '/admin/demo-bookings': counts?.demoBookings,

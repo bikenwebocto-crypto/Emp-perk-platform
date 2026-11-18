@@ -792,6 +792,11 @@ async function performApprove(queueItem: any, adminId: string, now: Date) {
               reviewedAt: now,
             },
           });
+
+          await tx.offerReplacementRequest.updateMany({
+            where: { newOfferId: newOffer.id, status: { in: ["PENDING", "AWAITING_APPROVAL"] } },
+            data: { status: "APPROVED", adminId, reviewedAt: now },
+          });
         });
         console.log(
           `[OFFER_REPLACEMENT] ✅ Replacement offer activated: ${newOffer.id}`,
@@ -1153,8 +1158,13 @@ async function performReject(
   rejectionReason: string,
   now: Date,
 ) {
-  const kind: EntityKind = getEntityKindFromReferenceType(
-    queueItem.referenceType,
+  // Offer queue items are always offers, whatever referenceType they were
+  // created with (some replacement items carry referenceType "merchant", which
+  // would otherwise reject the whole merchant).
+  const kind: EntityKind = (
+    queueItem.type === "OFFER_REPLACEMENT" || queueItem.type === "FIRST_OFFER_APPROVAL"
+      ? "MERCHANT_OFFER"
+      : getEntityKindFromReferenceType(queueItem.referenceType)
   ) as EntityKind;
   const meta = (queueItem.metadata as Record<string, unknown> | null) ?? {};
   const previousStatus = queueItem.status;
@@ -1189,6 +1199,16 @@ async function performReject(
             reviewedBy: adminId,
             reviewedAt: now,
             rejectionReason: rejectionReason ?? null,
+          },
+        });
+
+        await tx.offerReplacementRequest.updateMany({
+          where: { newOfferId: offer.id, status: { in: ["PENDING", "AWAITING_APPROVAL"] } },
+          data: {
+            status: "REJECTED",
+            adminId,
+            adminNotes: rejectionReason ?? null,
+            reviewedAt: now,
           },
         });
       });

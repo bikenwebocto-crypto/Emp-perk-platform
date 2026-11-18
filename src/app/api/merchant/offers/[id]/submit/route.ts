@@ -3,6 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { getMerchantFromSession } from "@/lib/merchant-session";
 import { createAuditLog } from "@/services/audit-log.service";
 import { validateFlashWindow } from "@/lib/offers/flash";
+import {
+  firstFlatDiscountError,
+  firstPercentDiscountError,
+  isFlatOfferType,
+  isPercentOfferType,
+  validateFlatDiscount,
+  validatePercentDiscount,
+} from "@/lib/offers/flat-discount";
 import { isEvergreenRange, validateMerchantForeverOfferPolicy } from "@/lib/offers/evergreen";
 import {
   BUSINESS_NOTIFICATION_TEMPLATES,
@@ -369,6 +377,37 @@ export async function POST(
 
     const pricingConfig =
       (offer.pricing?.configuration as Record<string, unknown>) ?? {};
+
+    // Hard business rule for flat offers (submission requires both fields).
+    if (isFlatOfferType(body.offerType ?? offer.offerType)) {
+      const pick = (v: unknown, fallback: unknown) =>
+        v === undefined || v === null || v === "" ? fallback : v;
+      const flatError = firstFlatDiscountError(
+        validateFlatDiscount(
+          {
+            discountValue: pick(body.discountValue, pricingConfig.amount),
+            minimumSpend: pick(body.minimumSpend, pricingConfig.minimumSpend),
+          },
+          { requireAll: true },
+        ),
+      );
+      if (flatError) return badRequest(flatError);
+    }
+    if (isPercentOfferType(body.offerType ?? offer.offerType)) {
+      const pick = (v: unknown, fallback: unknown) =>
+        v === undefined || v === null || v === "" ? fallback : v;
+      const pctError = firstPercentDiscountError(
+        validatePercentDiscount(
+          {
+            discountPercent: pick(body.discountPercent, pricingConfig.percent),
+            minimumSpend: pick(body.minimumSpend, pricingConfig.minimumSpend),
+            discountMax: pick(body.discountMax, pricingConfig.maximumDiscount),
+          },
+          { requireAll: true },
+        ),
+      );
+      if (pctError) return badRequest(pctError);
+    }
     const effectiveForeverValue =
       Boolean(body.isForever ?? offer.isForever) ||
       isEvergreenRange(body.startDate ?? offer.startDate, body.endDate ?? offer.endDate);
