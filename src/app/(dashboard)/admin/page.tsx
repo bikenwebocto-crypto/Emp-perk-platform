@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { useDashboardStore } from '@/store/dashboard-store'
 import { useActionQueueStore } from '@/store/action-queue-store'
 import { useActionQueueStats } from '@/hooks/queries/use-action-queue'
+import { useAdminSidebarCounts } from '@/hooks/queries/use-admin-sidebar-counts'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import {
@@ -47,6 +48,8 @@ export default function AdminDashboard() {
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
 
   const { data: stats } = useActionQueueStats()
+  // Same source as the sidebar "Tickets" badge, so both always match.
+  const { data: sidebarCounts } = useAdminSidebarCounts()
 
   useEffect(() => {
     const getData = async () => {
@@ -117,11 +120,11 @@ export default function AdminDashboard() {
       iconColor: 'text-emerald-600 dark:text-emerald-400',
     },
     {
-      title: 'Open Issues',
-      subtitle: 'Reported problems',
-      value: stats?.openIssues ?? 0,
+      title: 'Tickets',
+      subtitle: 'Open support tickets',
+      value: sidebarCounts?.tickets ?? 0,
       icon: Bug,
-      href: '/admin/action-queue?tab=ISSUES',
+      href: '/admin/complaints',
       gradient: 'from-rose-500 to-red-600',
       bg: 'bg-rose-50 dark:bg-rose-950/30',
       iconColor: 'text-rose-600 dark:text-rose-400',
@@ -138,7 +141,8 @@ export default function AdminDashboard() {
     },
   ]
 
-  const totalPending = queueCards.reduce((sum, c) => sum + c.value, 0)
+  // Same number the Action Center shows: all PENDING queue items (deleted-offer items excluded).
+  const totalPending = stats?.totalPending ?? 0
   const trend = summary.redemptionsTrend
   const isPositiveTrend = trend != null && trend >= 0
   const engagementSubtitle = summary.totalEmployees > 0

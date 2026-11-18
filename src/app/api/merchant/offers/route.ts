@@ -19,7 +19,16 @@ import {
   validateFlatDiscount,
   validatePercentDiscount,
 } from '@/lib/offers/flat-discount';
-import { isEvergreenRange, validateMerchantForeverOfferPolicy } from '@/lib/offers/evergreen';
+import {
+  EVERGREEN_LIVE_MESSAGE,
+  EvergreenActivationError,
+  assertEvergreenActivationAllowed,
+  isEvergreenRange,
+  isForeverOffer,
+  shouldAutoActivateEvergreen,
+  validateMerchantForeverOfferPolicy,
+} from '@/lib/offers/evergreen';
+import { ensureOfferQRCode } from '@/lib/offer-qr';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 
@@ -201,14 +210,34 @@ async function firePostCreateSideEffects(params: {
   replacementReason: string | null;
   redemptionType: string | null;
   offerCodeValue: string | null;
+  autoActivated: boolean;
 }) {
   const {
     saveAsDraft, qcPassed, qcErrors, offerId, title,
     merchantId, merchantBusinessName, replacesOfferId,
-    replacementReason, redemptionType, offerCodeValue,
+    replacementReason, redemptionType, offerCodeValue, autoActivated,
   } = params;
 
   try {
+    // Evergreen auto-activation: no action-queue item, no admin approval
+    // notification — the offer is already LIVE.
+    if (autoActivated) {
+      if (redemptionType === 'IN_STORE_QR') {
+        ensureOfferQRCode(offerId).catch((err) =>
+          console.error('[MERCHANT OFFERS POST] Evergreen QR generation failed:', err),
+        );
+      }
+      await createAuditLog({
+        actorType: 'merchant',
+        actorId: merchantId,
+        action: "EVERGREEN_OFFER_AUTO_ACTIVATED",
+        entityType: "MERCHANT_OFFER",
+        entityId: offerId,
+        metadata: { title, redemptionType: redemptionType ?? null, offerCode: offerCodeValue ?? null },
+      });
+      return;
+    }
+
     if (!saveAsDraft && !qcPassed) {
       const template = BUSINESS_NOTIFICATION_TEMPLATES.offerValidationFailed(title);
       await publishBusinessNotification({
@@ -367,7 +396,7 @@ export async function GET(request: NextRequest) {
 
     const take = search ? Math.min(pageSize, 10) : pageSize;
 
-    const [allOffers, total, currentLive] = await Promise.all([
+    const [allOffers, total, currentLive, liveForPolicy] = await Promise.all([
       prisma.merchantOffer.findMany({
         where,
         orderBy: { createdAt: "desc" },
@@ -397,7 +426,21 @@ export async function GET(request: NextRequest) {
           pricing: { select: { configuration: true } },
         },
       }),
+      prisma.merchantOffer.findMany({
+        where: {
+          merchantId: merchant.id,
+          status: "LIVE",
+          startDate: { lte: new Date() },
+          endDate: { gt: new Date() },
+          deletedAt: null,
+        },
+        select: { startDate: true, endDate: true, isForever: true, isFlash: true },
+      }),
     ]);
+
+    // Flash/Regular offers can only be created while a live Evergreen exists.
+    // Only an Evergreen that is LIVE and inside its validity window qualifies.
+    const hasLiveForever = liveForPolicy.some(isForeverOffer);
 
     // Evergreen > flash > normal. Array.sort is stable, so the
     // createdAt desc order is preserved inside each group.
@@ -448,6 +491,7 @@ export async function GET(request: NextRequest) {
       success: true,
       data: offers,
       currentLive,
+      hasLiveForever,
       pendingReplacement,
       pendingReplacementRequest,
       meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
@@ -649,11 +693,25 @@ export async function POST(request: NextRequest) {
 
     console.log('[MERCHANT OFFERS POST] qcResult.passed:', qcResult.passed);
 
+    // Evergreen (non-replacement) submissions go LIVE without admin approval.
+    // Flash / Regular / replacements keep the existing approval workflow.
+    // Status is always derived server-side — any client `status` is ignored.
+    const autoActivate =
+      !saveAsDraft &&
+      shouldAutoActivateEvergreen({
+        qcPassed: qcResult.passed,
+        isReplacement: !!replacesOfferId,
+        offer: { isForever: computedIsForever, isFlash: !!isFlash, startDate, endDate },
+      });
+
     const targetStatus = saveAsDraft
       ? "DRAFT"
-      : qcResult.passed
-        ? "AWAITING_APPROVAL"
-        : "VALIDATION_FAILED";
+      : !qcResult.passed
+        ? "VALIDATION_FAILED"
+        : autoActivate
+          ? "LIVE"
+          : "AWAITING_APPROVAL";
+    const activatedAt = new Date();
 
     // Offer code generation is needed to build the redemption config inside
     // the transaction below, so it must stay synchronous/awaited.
@@ -665,6 +723,11 @@ export async function POST(request: NextRequest) {
     // ── Step 1: create the record. Nothing here is optional — if this
     // fails, the client correctly gets an error.
     const offer = await prisma.$transaction(async (tx) => {
+      if (autoActivate) {
+        // Locks the merchant row and re-checks against committed data, so two
+        // concurrent Evergreen submissions can't both go LIVE.
+        await assertEvergreenActivationAllowed(tx, merchant.id);
+      }
       const created = await tx.merchantOffer.create({
         data: {
           merchantId: merchant.id,
@@ -680,6 +743,7 @@ export async function POST(request: NextRequest) {
           startDate: new Date(startDate),
           endDate: new Date(endDate),
           submittedAt: saveAsDraft ? null : new Date(),
+          ...(autoActivate ? { liveAt: activatedAt } : {}),
           replacesOfferId: replacesOfferId ?? null,
         },
       });
@@ -789,6 +853,8 @@ export async function POST(request: NextRequest) {
         data: offer,
         qualityCheck: qcResult.passed ? "PASSED" : "FAILED",
         validationErrors: qcResult.errors,
+        autoActivated: autoActivate,
+        ...(autoActivate ? { message: EVERGREEN_LIVE_MESSAGE } : {}),
       },
       { status: 201 },
     );
@@ -819,10 +885,17 @@ export async function POST(request: NextRequest) {
       replacementReason: replacementReason ?? null,
       redemptionType: redemptionType ?? null,
       offerCodeValue,
+      autoActivated: autoActivate,
     });
 
     return response;
   } catch (error) {
+    if (error instanceof EvergreenActivationError) {
+      return NextResponse.json(
+        { success: false, error: { code: "EVERGREEN_CONFLICT", message: error.message } },
+        { status: 409 },
+      );
+    }
     return internalError(error);
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,6 @@ import { OfferBannerInfo } from "@/components/merchant/offers/OfferBannerInfo";
 import { showToast } from "@/hooks/use-toast";
 import { uploadImage, OFFER_IMAGE_OPTIONS } from "@/lib/upload/image";
 import { deleteOfferImage } from "@/lib/upload-offer-image";
-import { Checkbox } from "@/components/ui/checkbox";
 import { FieldLabel, InfoTip } from "@/components/ui/info-tip";
 import {
   flatDiscountPercent,
@@ -37,7 +36,11 @@ import {
   validatePercentDiscount,
 } from "@/lib/offers/flat-discount";
 import { FLASH_MAX_DAYS, flashMaxEndLocal, validateFlashWindow } from "@/lib/offers/flash";
-import { isEvergreenRange } from "@/lib/offers/evergreen";
+import {
+  EVERGREEN_LIVE_MESSAGE,
+  EVERGREEN_REQUIRED_MESSAGE,
+  isEvergreenRange,
+} from "@/lib/offers/evergreen";
 import { generateOfferCode, OFFER_CODE_MIN_LENGTH, OFFER_CODE_MAX_LENGTH } from "@/lib/offer-code.shared";
 
 interface FormData {
@@ -163,6 +166,50 @@ function urlToPendingImage(url: string, index: number): PendingImage {
 
 const FOREVER_YEARS = 5;
 
+const TITLE_MAX_CHARS = 30;
+const DESCRIPTION_MAX_WORDS = 400;
+
+function countWords(text: string): number {
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
+
+/** Keep at most `max` words, preserving the original spacing of what's kept. */
+function limitWords(text: string, max: number): string {
+  if (countWords(text) <= max) return text;
+  const match = text.match(new RegExp(`^\\s*(?:\\S+\\s+){${max - 1}}\\S+`));
+  return match ? match[0] : text;
+}
+
+/** "48" → "2"; "36" → "1.5"; empty/invalid → "". */
+function hoursToDays(hours: string): string {
+  const h = Number(hours);
+  if (!hours || !(h > 0)) return "";
+  return String(Math.round((h / 24) * 100) / 100);
+}
+
+/** 30 → "1 day 6 hours", 48 → "2 days", 5 → "5 hours". */
+function formatRepeat(hours: number): string {
+  const d = Math.floor(hours / 24);
+  const h = Math.round((hours % 24) * 100) / 100;
+  const parts: string[] = [];
+  if (d) parts.push(`${d} day${d === 1 ? "" : "s"}`);
+  if (h) parts.push(`${h} hour${h === 1 ? "" : "s"}`);
+  return parts.join(" ") || `${hours} hours`;
+}
+
+type OfferKind ="EVERGREEN" | "FLASH" | "REGULAR";
+
+async function fetchHasLiveForever(merchantId?: string, isAdmin?: boolean): Promise<boolean> {
+  const url =
+    isAdmin && merchantId
+      ? `/api/admin/merchants/${merchantId}/offers`
+      : "/api/merchant/offers?pageSize=1";
+  const res = await fetch(url);
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message ?? "Failed to load offers");
+  return !!json.hasLiveForever;
+}
+
 /** Date → "YYYY-MM-DDTHH:mm" in local time, for datetime-local inputs. */
 function dateToLocalInput(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -202,6 +249,20 @@ export function OfferForm({
   const createOffer = useCreateMerchantOffer();
   const updateOffer = useUpdateMerchantOffer();
   const submitOffer = useSubmitMerchantOffer();
+  const queryClient = useQueryClient();
+  // Server decides whether an Evergreen went LIVE; show its message if so.
+  const showSubmitSuccess = (result: any, fallbackTitle: string) => {
+    if (result?.autoActivated) {
+      showToast({
+        type: "success",
+        title: result.message ?? EVERGREEN_LIVE_MESSAGE,
+      });
+      // Flash / Regular are now unlocked.
+      queryClient.invalidateQueries({ queryKey: ["merchant-has-live-forever"] });
+    } else {
+      showToast({ type: "success", title: fallbackTitle });
+    }
+  };
   const [errors, setErrors] = useState<FormErrors>({});
   const [showStrength, setShowStrength] = useState(false);
   const [pendingAction, setPendingAction] = useState<"draft" | "submit" | null>(null);
@@ -221,6 +282,11 @@ export function OfferForm({
     ? merchantCategoryProp
     : (profileCategory ?? null);
   const categoryLoading = !hasCategoryProp && profileCategoryLoading;
+  const { data: hasLiveForever = false, isLoading: liveForeverLoading } = useQuery({
+    queryKey: ["merchant-has-live-forever", isAdmin ? merchantId : "self"],
+    queryFn: () => fetchHasLiveForever(merchantId, isAdmin),
+    staleTime: 60 * 1000,
+  });
   const missingCategory = !categoryLoading && !merchantCategory;
     // true once the merchant types their own Maximum Discount
   const maxManuallySet = useRef(!!initialData?.discountMax);
@@ -296,8 +362,13 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
       >,
     ) => {
-            setForm((prev) => {
-        const next = { ...prev, [field]: e.target.value };
+      const raw = e.target.value;
+      const value =
+        field === "description" || field === "shortDescription"
+          ? limitWords(raw, DESCRIPTION_MAX_WORDS)
+          : raw;
+      setForm((prev) => {
+        const next = { ...prev, [field]: value };
         if (field === "offerType" && prev.offerType !== e.target.value) {
           next.discountValue = "";
           next.discountPercent = "";
@@ -433,6 +504,50 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     });
   };
 
+  const offerKind: OfferKind = form.isForever ? "EVERGREEN" : form.isFlash ? "FLASH" : "REGULAR";
+  // Flash/Regular need a live Evergreen. Keep an offer's existing kind selectable when editing.
+  const kindLocked = (kind: OfferKind) =>
+    kind !== "EVERGREEN" && !hasLiveForever && !(isEdit && offerKind === kind);
+
+  const selectOfferKind = (kind: OfferKind) => {
+    if (kindLocked(kind)) return;
+    if (kind === "EVERGREEN") toggleForever(true);
+    else if (kind === "FLASH") toggleFlash(true);
+    else {
+      if (form.isForever) toggleForever(false);
+      if (form.isFlash) toggleFlash(false);
+    }
+    setErrors((prev) => {
+      const n = { ...prev };
+      delete n.offerKind;
+      return n;
+    });
+  };
+
+  // New offer with no live Evergreen: Evergreen is the only valid choice, so preselect it.
+  const autoKindApplied = useRef(false);
+  useEffect(() => {
+    if (autoKindApplied.current || isEdit || liveForeverLoading) return;
+    autoKindApplied.current = true;
+    if (!hasLiveForever && !form.isForever) toggleForever(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveForeverLoading, hasLiveForever, isEdit]);
+
+  // Repeat-after: days drive hours (days × 24); hours stay editable and back-fill days.
+  const [repeatDays, setRepeatDays] = useState(() =>
+    hoursToDays(initialData?.repeatAfterHours ?? ""),
+  );
+  const setRepeatHours = (hours: string, syncDays = true) => {
+    setForm((prev) => ({ ...prev, repeatAfterHours: hours }));
+    if (syncDays) setRepeatDays(hoursToDays(hours));
+    if (errors.repeatAfterHours)
+      setErrors((prev) => {
+        const n = { ...prev };
+        delete n.repeatAfterHours;
+        return n;
+      });
+  };
+
   const toggleDay = (day: number) => {
     setForm((prev) => {
       const current = prev.daysOfWeek.split(",").filter(Boolean);
@@ -466,6 +581,14 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     if (!form.title.trim()) errs.title = "Title is required";
     else if (form.title.trim().length < 5)
       errs.title = "Title must be at least 5 characters";
+    else if (form.title.trim().length > TITLE_MAX_CHARS)
+      errs.title = `Title must be ${TITLE_MAX_CHARS} characters or fewer`;
+    if (countWords(form.shortDescription) > DESCRIPTION_MAX_WORDS)
+      errs.shortDescription = `Short description must be ${DESCRIPTION_MAX_WORDS} words or fewer`;
+    if (countWords(form.description) > DESCRIPTION_MAX_WORDS)
+      errs.description = `Description must be ${DESCRIPTION_MAX_WORDS} words or fewer`;
+    if (offerKind !== "EVERGREEN" && kindLocked(offerKind))
+      errs.offerKind = EVERGREEN_REQUIRED_MESSAGE;
     if (!form.offerType) errs.offerType = "Offer type is required";
 
     if (form.offerType === "FLAT") {
@@ -704,7 +827,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
           ...body,
         });
         if (result.qualityCheck === "PASSED") {
-          showToast({ type: "success", title: "Offer submitted for review" });
+          showSubmitSuccess(result, "Offer submitted for review");
         } else {
           showToast({
             type: "error",
@@ -730,12 +853,12 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       try {
         const result = await createOffer.mutateAsync(body);
         if (result.qualityCheck === "PASSED") {
-          showToast({
-            type: "success",
-            title: isReplacement
+          showSubmitSuccess(
+            result,
+            isReplacement
               ? "Replacement offer submitted for review"
               : "Offer submitted for review",
-          });
+          );
         } else {
           showToast({
             type: "error",
@@ -990,9 +1113,64 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
               <CardContent className="space-y-4">
                 <div>
                   <FieldLabel
+                    required
+                    info={
+                      <ul className="list-disc space-y-1 pl-4">
+                        <li><b>Evergreen</b> — always-on offer, dates set {FOREVER_YEARS} years from the start. Only one live at a time.</li>
+                        <li><b>Flash</b> — short, up to {FLASH_MAX_DAYS} days. Needs a live Evergreen offer.</li>
+                        <li><b>Regular</b> — a normal dated offer. Needs a live Evergreen offer.</li>
+                      </ul>
+                    }
+                  >
+                    What kind of offer are you creating?
+                  </FieldLabel>
+                  <div className="mt-2 grid gap-3 sm:grid-cols-3">
+                    {(
+                      [
+                        { kind: "EVERGREEN", label: "Evergreen Offer", hint: "Always-on, one live at a time" },
+                        { kind: "FLASH", label: "Flash Offer", hint: `Up to ${FLASH_MAX_DAYS} days` },
+                        { kind: "REGULAR", label: "Regular Offer", hint: "Normal start and end dates" },
+                      ] as const
+                    ).map(({ kind, label, hint }) => {
+                      const locked = kindLocked(kind);
+                      const active = offerKind === kind;
+                      return (
+                        <button
+                          key={kind}
+                          type="button"
+                          disabled={locked || liveForeverLoading}
+                          onClick={() => selectOfferKind(kind)}
+                          aria-pressed={active}
+                          className={`rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                            active ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-muted/50"
+                          }`}
+                        >
+                          <span className="block text-sm font-medium">{label}</span>
+                          <span className="block text-xs text-muted-foreground">
+                            {locked ? "Requires a live Evergreen offer" : hint}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {!liveForeverLoading && !hasLiveForever && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      You don&apos;t have a live Evergreen offer yet. Create one first —
+                      Flash and Regular offers unlock once it&apos;s live.
+                    </p>
+                  )}
+                  {(errors.offerKind || errors.isForever) && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {errors.offerKind || errors.isForever}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <FieldLabel
                     htmlFor="title"
                     required
-                    info="The headline employees see on the offer card. Lead with the benefit, e.g. “20% off all main courses”. 5–255 characters."
+                    info={`The headline employees see on the offer card. Lead with the benefit, e.g. “20% off all main courses”. 5–${TITLE_MAX_CHARS} characters.`}
                   >
                     Title
                   </FieldLabel>
@@ -1003,35 +1181,43 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     value={form.title}
                     onChange={set("title")}
                     placeholder="e.g. 20% Off All Menu Items"
-                    maxLength={255}
+                    maxLength={TITLE_MAX_CHARS}
                   />
 
-                  {errors.title && (
+                  {errors.title ? (
                     <p className="mt-1 text-xs text-destructive">
                       {errors.title}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {form.title.length}/{TITLE_MAX_CHARS}
                     </p>
                   )}
                 </div>
 
                 <div>
-                  <FieldLabel
+                  {/* <FieldLabel
                     htmlFor="shortDescription"
                     info="One-line summary shown under the title in offer lists. Keep it scannable."
                   >
                     Short Description
-                  </FieldLabel>
+                  </FieldLabel> */}
 
                   <Input
                     id="shortDescription"
                     className={inputClass}
                     value={form.shortDescription}
                     onChange={set("shortDescription")}
-                    placeholder="Brief description (max 500 chars)"
-                    maxLength={500}
+          
+                    style={{ display: "none" }}
                   />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {form.shortDescription.length}/500
-                  </p>
+                  {/* {errors.shortDescription ? (
+                    <p className="mt-1 text-xs text-destructive">{errors.shortDescription}</p>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {countWords(form.shortDescription)}/{DESCRIPTION_MAX_WORDS} words
+                    </p>
+                  )} */}
                 </div>
 
                 <div>
@@ -1047,16 +1233,19 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                     value={form.description}
                     onChange={set("description")}
-                    placeholder="Full offer description"
-                    maxLength={2000}
+                    placeholder={`Full offer description (max ${DESCRIPTION_MAX_WORDS} words)`}
                   />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {form.description.length}/2000
-                  </p>
+                  {errors.description ? (
+                    <p className="mt-1 text-xs text-destructive">{errors.description}</p>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {countWords(form.description)}/{DESCRIPTION_MAX_WORDS} words
+                    </p>
+                  )}
                 </div>
                 
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
+                  {/* <div>
                     <FieldLabel info="Request a highlighted placement in the app. Cannot be combined with Exclusive — turning one on turns the other off. Final placement is decided during review.">
                       Featured Offer
                     </FieldLabel>
@@ -1076,9 +1265,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                         {form.isFeatured ? "Featured" : "Not Featured"}
                       </button>
                     </div>
-                  </div>
+                  </div> */}
 
-                  <div>
+                  {/* <div>
                     <FieldLabel info="Mark this as only available through this platform (not offered to the general public). Cannot be combined with Featured.">
                       Exclusive Offer
                     </FieldLabel>
@@ -1098,7 +1287,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                         {form.isExclusive ? "Exclusive" : "Not Exclusive"}
                       </button>
                     </div>
-                  </div>
+                  </div> */}
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
@@ -1781,21 +1970,72 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     htmlFor="repeatAfterHours"
                     info="How long an employee must wait before redeeming this offer again. E.g. 24 = once per day, 168 = once per week. Leave empty to allow only one redemption per employee."
                   >
-                    Repeat after (hours)
+                    Repeat after
                   </FieldLabel>
 
-                  <Input
-                    id="repeatAfterHours"
-                    placeholder="e.g. 24"
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    value={form.repeatAfterHours}
-                    onChange={set("repeatAfterHours")}
-                  />
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {[1, 2, 3, 7, 14, 30].map((d) => {
+                      const active = Number(form.repeatAfterHours) === d * 24;
+                      return (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setRepeatHours(active ? "" : String(d * 24))}
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                            active
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-muted-foreground hover:bg-muted/80"
+                          }`}
+                        >
+                          {d === 1 ? "1 day" : d === 7 ? "1 week" : d === 30 ? "30 days" : `${d} days`}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="repeatAfterDays" className="text-xs text-muted-foreground">
+                        Days
+                      </label>
+                      <Input
+                        id="repeatAfterDays"
+                        placeholder="e.g. 1"
+                        className={inputClass}
+                        type="number"
+                        min={1}
+                        step={1}
+                        onKeyDown={blockNonMoneyKeys}
+                        value={repeatDays}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setRepeatDays(v);
+                          const d = Number(v);
+                          setRepeatHours(v && d > 0 ? String(Math.round(d * 24)) : "", false);
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="repeatAfterHours" className="text-xs text-muted-foreground">
+                        Hours (auto-filled, editable)
+                      </label>
+                      <Input
+                        id="repeatAfterHours"
+                        placeholder="e.g. 24"
+                        className={inputClass}
+                        type="number"
+                        min={1}
+                        onKeyDown={blockNonMoneyKeys}
+                        value={form.repeatAfterHours}
+                        onChange={(e) => setRepeatHours(e.target.value)}
+                      />
+                    </div>
+                  </div>
 
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Leave empty for one redemption per employee
+                    {Number(form.repeatAfterHours) > 0
+                      ? `Employees can redeem again every ${formatRepeat(Number(form.repeatAfterHours))}.`
+                      : "Leave empty for one redemption per employee"}
                   </p>
 
                   {errors.repeatAfterHours && (
@@ -1804,48 +2044,6 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     </p>
                   )}
                 </div>
-
-                {/* Offer duration type — chosen before the dates because it drives them */}
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label
-                    htmlFor="isFlash"
-                    className="flex cursor-pointer items-center justify-between gap-4 rounded-lg border p-4"
-                  >
-                    <div>
-                      <span className="text-sm font-medium">Flash Offer</span>
-                      <p className="text-xs text-muted-foreground">
-                        Short, limited-time offer — up to {FLASH_MAX_DAYS} days
-                        between start and end.
-                      </p>
-                    </div>
-                    <Checkbox
-                      id="isFlash"
-                      checked={form.isFlash}
-                      onCheckedChange={(checked) => toggleFlash(checked === true)}
-                    />
-                  </label>
-
-                  <label
-                    htmlFor="isForever"
-                    className="flex cursor-pointer items-center justify-between gap-4 rounded-lg border p-4"
-                  >
-                    <div>
-                      <span className="text-sm font-medium">Forever Offer</span>
-                      <p className="text-xs text-muted-foreground">
-                        Always-on offer. Dates are set to {FOREVER_YEARS} years
-                        from the start. Only one live Forever offer at a time.
-                      </p>
-                    </div>
-                    <Checkbox
-                      id="isForever"
-                      checked={form.isForever}
-                      onCheckedChange={(checked) => toggleForever(checked === true)}
-                    />
-                  </label>
-                </div>
-                {errors.isForever && (
-                  <p className="-mt-2 text-xs text-destructive">{errors.isForever}</p>
-                )}
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>

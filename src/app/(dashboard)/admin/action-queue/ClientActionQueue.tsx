@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Search, ExternalLink, Filter, X } from 'lucide-react'
+import { Search, ExternalLink, Filter, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { PageHeader } from '@/components/shared/page-header'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -37,6 +37,29 @@ function getDisplayType(item: any): string {
   const queueType = meta.queueType as string | undefined
   if (queueType && QUEUE_TYPE_MAP[queueType]) return QUEUE_TYPE_MAP[queueType].displayType
   return (item.type ?? '').replace(/_/g, ' ')
+}
+
+type SortKey = 'type' | 'entity' | 'title' | 'priority' | 'status' | 'createdAt'
+type SortDir = 'asc' | 'desc'
+
+// Lower rank = shown first. Pending (needs action) always at the top by default.
+const STATUS_RANK: Record<string, number> = {
+  PENDING: 0,
+  IN_PROGRESS: 1,
+  FAILED: 2,
+  SKIPPED: 3,
+  COMPLETED: 4,
+}
+
+function getSortValue(item: any, key: SortKey): string | number {
+  switch (key) {
+    case 'type': return getDisplayType(item).toLowerCase()
+    case 'entity': return getEntityName(item).toLowerCase()
+    case 'title': return (item.title ?? '').toLowerCase()
+    case 'priority': return Number(item.priority ?? 0)
+    case 'status': return STATUS_RANK[item.status] ?? 99
+    case 'createdAt': return new Date(item.createdAt).getTime() || 0
+  }
 }
 
 function getPriorityStyle(priority: number) {
@@ -85,6 +108,54 @@ export default function ActionQueuePage() {
   const { data, isLoading, isFetching } = useActionQueue(filters)
   const items = useMemo(() => data?.data ?? [], [data])
   const meta = data?.meta
+
+  // Default: status ascending (PENDING first), newest first within the same status.
+  const [sortKey, setSortKey] = useState<SortKey>('status')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+
+  const sortedItems = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1
+    return [...items].sort((a: any, b: any) => {
+      const av = getSortValue(a, sortKey)
+      const bv = getSortValue(b, sortKey)
+      if (av < bv) return -1 * dir
+      if (av > bv) return 1 * dir
+      // Tie-breakers: pending first, then newest first
+      const sr = (getSortValue(a, 'status') as number) - (getSortValue(b, 'status') as number)
+      if (sr !== 0) return sr
+      return (getSortValue(b, 'createdAt') as number) - (getSortValue(a, 'createdAt') as number)
+    })
+  }, [items, sortKey, sortDir])
+
+  const handleSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      // Sensible first-click direction per column
+      setSortDir(key === 'createdAt' || key === 'priority' ? 'desc' : 'asc')
+    }
+  }
+
+  const SortHeader = ({ label, k }: { label: string; k: SortKey }) => {
+    const active = sortKey === k
+    const Icon = !active ? ArrowUpDown : sortDir === 'asc' ? ArrowUp : ArrowDown
+    return (
+      <th
+        className="px-4 py-3 font-medium"
+        aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      >
+        <button
+          type="button"
+          onClick={() => handleSort(k)}
+          className={`inline-flex items-center gap-1 hover:text-foreground ${active ? 'text-foreground' : ''}`}
+        >
+          {label}
+          <Icon className={`h-3.5 w-3.5 ${active ? '' : 'opacity-50'}`} />
+        </button>
+      </th>
+    )
+  }
 
   // Once items load, open the deep-linked item with the page's normal
   // opener (its review route). The id/type params are dropped first so
@@ -149,7 +220,7 @@ export default function ActionQueuePage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Operations Center"
+        title="Action Center"
         description="Centralized approval and review inbox for all admin workflows"
       />
 
@@ -263,12 +334,12 @@ export default function ActionQueuePage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/30 text-left text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="px-4 py-3 font-medium">Entity</th>
-              <th className="px-4 py-3 font-medium">Title</th>
-              <th className="px-4 py-3 font-medium">Priority</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Created</th>
+              <SortHeader label="Type" k="type" />
+              <SortHeader label="Entity" k="entity" />
+              <SortHeader label="Title" k="title" />
+              <SortHeader label="Priority" k="priority" />
+              <SortHeader label="Status" k="status" />
+              <SortHeader label="Created" k="createdAt" />
               <th className="px-4 py-3 text-right font-medium">Actions</th>
             </tr>
           </thead>
@@ -290,7 +361,7 @@ export default function ActionQueuePage() {
                 </td>
               </tr>
             ) : (
-              items.map((item: any) => {
+              sortedItems.map((item: any) => {
                 const displayType = getDisplayType(item)
                 const entityName = getEntityName(item)
                 const priorityLabel = getPriorityLabel(item.priority)

@@ -3,7 +3,6 @@ import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { ActionQueueStatus, ActionQueueType } from '@prisma/client'
 import { getStaleOfferQueueItemIds } from '@/lib/action-queue-stale'
-
 // Map categories to actual Prisma ActionQueueType enum values
 const CATEGORY_TO_QUEUE_TYPE = {
   merchantApplications: 'NEW_MERCHANT_APPLICATION',

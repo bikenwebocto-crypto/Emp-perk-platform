@@ -11,7 +11,15 @@ import {
   validateFlatDiscount,
   validatePercentDiscount,
 } from "@/lib/offers/flat-discount";
-import { isEvergreenRange, validateMerchantForeverOfferPolicy } from "@/lib/offers/evergreen";
+import {
+  EVERGREEN_LIVE_MESSAGE,
+  EvergreenActivationError,
+  assertEvergreenActivationAllowed,
+  isEvergreenRange,
+  shouldAutoActivateEvergreen,
+  validateMerchantForeverOfferPolicy,
+} from "@/lib/offers/evergreen";
+import { ensureOfferQRCode } from "@/lib/offer-qr";
 import {
   BUSINESS_NOTIFICATION_TEMPLATES,
   channels,
@@ -174,6 +182,8 @@ async function firePostSubmitSideEffects(params: {
   merchantId: string;
   merchantBusinessName: string;
   replacesOfferId: string | null;
+  autoActivated: boolean;
+  redemptionType: string | null;
 }) {
   const {
     qcPassed,
@@ -183,9 +193,44 @@ async function firePostSubmitSideEffects(params: {
     merchantId,
     merchantBusinessName,
     replacesOfferId,
+    autoActivated,
+    redemptionType,
   } = params;
 
   try {
+    // Evergreen auto-activation: already LIVE, so skip the approval queue.
+    if (autoActivated) {
+      if (redemptionType === "IN_STORE_QR") {
+        ensureOfferQRCode(finalOfferId).catch((err) =>
+          console.error("[SUBMIT OFFER] Evergreen QR generation failed:", err),
+        );
+      }
+      // If this offer was previously queued for approval, close that item so
+      // admins don't see a stale request for an offer that is already LIVE.
+      const staleItems = await prisma.actionQueueItem.findMany({
+        where: { merchantId, type: "FIRST_OFFER_APPROVAL", status: "PENDING" },
+        select: { id: true, metadata: true },
+      });
+      const staleIds = staleItems
+        .filter((i) => (i.metadata as Record<string, unknown> | null)?.offerId === finalOfferId)
+        .map((i) => i.id);
+      if (staleIds.length > 0) {
+        await prisma.actionQueueItem.updateMany({
+          where: { id: { in: staleIds } },
+          data: { status: "SKIPPED", completedAt: new Date() },
+        });
+      }
+      await createAuditLog({
+        actorType: "merchant",
+        actorId: merchantId,
+        action: "EVERGREEN_OFFER_AUTO_ACTIVATED",
+        entityType: "MERCHANT_OFFER",
+        entityId: finalOfferId,
+        metadata: { title: finalOfferTitle },
+      });
+      return;
+    }
+
     if (!qcPassed) {
       const template =
         BUSINESS_NOTIFICATION_TEMPLATES.offerValidationFailed(finalOfferTitle);
@@ -434,9 +479,23 @@ export async function POST(
     });
     console.log("[SUBMIT OFFER] qcResult.passed:", qcResult.passed);
 
-    const targetStatus = qcResult.passed
-      ? "AWAITING_APPROVAL"
-      : "VALIDATION_FAILED";
+    // Evergreen (non-replacement) submissions go LIVE without admin approval;
+    // Flash / Regular / replacements keep the existing approval workflow.
+    const autoActivate = shouldAutoActivateEvergreen({
+      qcPassed: qcResult.passed,
+      isReplacement: !!offer.replacesOfferId,
+      offer: {
+        isForever: effectiveForeverValue,
+        isFlash: body.isFlash ?? offer.isFlash,
+        startDate: body.startDate ?? offer.startDate,
+        endDate: body.endDate ?? offer.endDate,
+      },
+    });
+    const targetStatus = !qcResult.passed
+      ? "VALIDATION_FAILED"
+      : autoActivate
+        ? "LIVE"
+        : "AWAITING_APPROVAL";
     console.log("[SUBMIT OFFER] targetStatus:", targetStatus);
 
     const liveOffers = await prisma.merchantOffer.findMany({
@@ -477,6 +536,11 @@ export async function POST(
     // fails, the client correctly gets an error.
     const offerId = await prisma.$transaction(
       async (tx) => {
+        if (autoActivate) {
+          // Lock merchant row + re-check so concurrent submits can't create
+          // two LIVE Evergreen offers.
+          await assertEvergreenActivationAllowed(tx, offer.merchant.id, id);
+        }
         if (
           body.shortDescription !== undefined ||
           body.description !== undefined ||
@@ -701,7 +765,11 @@ export async function POST(
 
         const statusUpdate = await tx.merchantOffer.updateMany({
           where: { id, status: { in: SUBMITTABLE_STATUSES } },
-          data: { status: targetStatus, submittedAt: new Date() },
+          data: {
+            status: targetStatus,
+            submittedAt: new Date(),
+            ...(autoActivate ? { liveAt: new Date() } : {}),
+          },
         });
 
         if (statusUpdate.count === 0) {
@@ -733,6 +801,8 @@ export async function POST(
       data: finalOffer,
       qualityCheck: qcResult.passed ? "PASSED" : "FAILED",
       validationErrors: qcResult.errors,
+      autoActivated: autoActivate,
+      ...(autoActivate ? { message: EVERGREEN_LIVE_MESSAGE } : {}),
     });
 
     // ── Step 4: fire notifications + audit log WITHOUT awaiting.
@@ -747,10 +817,16 @@ export async function POST(
       merchantBusinessName:
         offer.merchant?.businessName ?? merchant?.businessName ?? "Unknown",
       replacesOfferId: offer.replacesOfferId,
+      autoActivated: autoActivate,
+      redemptionType:
+        body.redemptionType ?? offer.redemption?.redemptionType ?? null,
     });
 
     return response;
   } catch (error) {
+    if (error instanceof EvergreenActivationError) {
+      return conflict(error.message);
+    }
     if (error instanceof Error && error.message === "CONCURRENT_SUBMIT") {
       return conflict(
         "This offer is already being submitted. Please refresh and try again.",

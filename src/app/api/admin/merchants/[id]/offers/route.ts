@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getRepeatAfterHours } from "@/lib/redemption-tracking";
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
+import { isForeverOffer } from "@/lib/offers/evergreen";
 
 export async function GET(
   _request: NextRequest,
@@ -45,6 +46,7 @@ export async function GET(
         offerType: true,
         startDate: true,
         endDate: true,
+        isForever: true,
 
         content: {
           select: {
@@ -150,9 +152,15 @@ export async function GET(
       };
     });
 
+    const now = new Date();
+    const hasLiveForever = offers.some(
+      (o) => o.status === "LIVE" && o.endDate > now && isForeverOffer(o),
+    );
+
     return NextResponse.json({
       success: true,
       data,
+      hasLiveForever,
       meta: {
         total: data.length,
       },

@@ -347,7 +347,7 @@ export default function MerchantsPage() {
     <div className="min-w-0 space-y-6">
       <PageHeader
         title="Merchant Operations"
-        description="Manage merchants, monitor health, and curate featured & homepage placements"
+        description="Manage merchants, monitor health"
         actions={(
           <div className="flex items-center gap-2">
           
@@ -405,10 +405,6 @@ export default function MerchantsPage() {
             onStatusChange={(v) => { setStatusFilter(v); setPage(1) }}
             city={cityFilter}
             onCityChange={(v) => { setCityFilter(v); setPage(1) }}
-            featured={featuredFilter}
-            onFeaturedChange={(v) => { setFeaturedFilter(v); setPage(1) }}
-            homepage={homepageFilter}
-            onHomepageChange={(v) => { setHomepageFilter(v); setPage(1) }}
             health={healthFilter}
             onHealthChange={(v) => { setHealthFilter(v); setPage(1) }}
             hasLiveOffers={hasLiveOffersFilter}

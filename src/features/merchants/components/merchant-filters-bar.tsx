@@ -12,10 +12,7 @@ interface MerchantFiltersBarProps {
   onStatusChange: (v: MerchantStatus | 'ALL') => void
   city: string
   onCityChange: (v: string) => void
-  featured: boolean | null
-  onFeaturedChange: (v: boolean | null) => void
-  homepage: boolean | null
-  onHomepageChange: (v: boolean | null) => void
+ 
   health: MerchantHealth | 'ALL'
   onHealthChange: (v: MerchantHealth | 'ALL') => void
   hasLiveOffers: boolean | null

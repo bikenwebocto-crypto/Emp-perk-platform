@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, useTransition, type FormEvent } from 'react';
+import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 
@@ -11,8 +12,8 @@ export function MfaVerifyClient() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isNavigating, startNavigation] = useTransition();
 
   useEffect(() => {
     if (didInitializeRef.current) return;
@@ -46,33 +47,30 @@ export function MfaVerifyClient() {
     void loadFactor();
   }, [router]);
 
+  const isBusy = isVerifying || isNavigating;
+
   const handleVerify = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setError('');
-    setIsSubmitting(true);
-    setIsVerifying(true);
+    if (isBusy) return;
+
+    // Show loading immediately; it stays on until /admin has rendered.
+    flushSync(() => {
+      setError('');
+      setIsVerifying(true);
+    });
 
     try {
-      const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
-      if (challengeError) {
-        throw challengeError;
-      }
-
-      const { error: verifyError } = await supabase.auth.mfa.verify({
-        factorId,
-        challengeId: challenge.id,
-        code,
-      });
-
+      const { error: verifyError } = await supabase.auth.mfa.challengeAndVerify({ factorId, code });
       if (verifyError) {
         throw verifyError;
       }
 
-      router.replace('/admin');
+      // isNavigating stays true until the /admin route finishes rendering.
+      startNavigation(() => {
+        router.replace('/admin');
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Verification failed.');
-    } finally {
-      setIsSubmitting(false);
       setIsVerifying(false);
     }
   };
@@ -111,10 +109,14 @@ export function MfaVerifyClient() {
 
             <button
               type="submit"
-              disabled={isSubmitting || !factorId}
-              className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              disabled={isBusy || !factorId}
+              aria-busy={isBusy}
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
             >
-              {isVerifying ? 'Verifying code…' : isSubmitting ? 'Sending request…' : 'Verify code'}
+              {isBusy && (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden />
+              )}
+              {isVerifying && !isNavigating ? 'Verifying code…' : isNavigating ? 'Redirecting…' : 'Verify code'}
             </button>
           </form>
         )}

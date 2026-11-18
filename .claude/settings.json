@@ -8,7 +8,9 @@
       "PowerShell(npm run build 2>&1)",
       "Bash(wc -l \"src/app/\\(dashboard\\)/admin/offers/replacements/\"*.tsx)",
       "PowerShell(npx vitest run --config tests/vitest.config.ts src/lib/offers/flat-discount.test.ts tests/unit/offers/flat-discount-api.spec.ts 2>&1)",
-      "PowerShell($o = npx tsc --noEmit -p . 2>&1; \"TOTAL: \" + \\($o | Select-String \"error TS\"\\).Count; $o | Select-String \"error TS\" | Select-Object -First 10)"
+      "PowerShell($o = npx tsc --noEmit -p . 2>&1; \"TOTAL: \" + \\($o | Select-String \"error TS\"\\).Count; $o | Select-String \"error TS\" | Select-Object -First 10)",
+      "Bash(npx tsc *)",
+      "PowerShell(Get-ChildItem prisma -Name | Select-Object -First 20; Get-ChildItem prisma\\\\migrations -Name -ErrorAction SilentlyContinue | Select-Object -Last 3; Select-String -Path prisma\\\\schema.prisma -Pattern 'isForever|liveAt|^model MerchantOffer|provider' | % { $_.Line })"
     ]
   }
 }
