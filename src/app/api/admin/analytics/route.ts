@@ -38,9 +38,26 @@ export async function GET(request: NextRequest) {
       redeemedAt: { gte: dateFrom, lte: dateTo },
     }
 
-    const [totalAgg, merchantAgg, companyAgg, trend] = await Promise.all([
+    if (isNaN(dateFrom.getTime()) || isNaN(dateTo.getTime()) || dateFrom > dateTo) {
+      return NextResponse.json(
+        { success: false, error: { code: 'BAD_REQUEST', message: 'Invalid date range' } },
+        { status: 400 }
+      )
+    }
+
+    // Previous period of equal length, immediately before the selected range
+    const spanMs = dateTo.getTime() - dateFrom.getTime()
+    const prevTo = new Date(dateFrom.getTime() - 1)
+    const prevFrom = new Date(prevTo.getTime() - spanMs)
+
+    const [totalAgg, prevAgg, merchantAgg, companyAgg, trend] = await Promise.all([
       prisma.redemption.aggregate({
         where,
+        _count: { _all: true },
+        _sum: { discountAmount: true, savingsAmount: true },
+      }),
+      prisma.redemption.aggregate({
+        where: { redeemedAt: { gte: prevFrom, lte: prevTo } },
         _count: { _all: true },
         _sum: { discountAmount: true, savingsAmount: true },
       }),
@@ -130,10 +147,22 @@ export async function GET(request: NextRequest) {
       byCategory.set(key, cur)
     }
 
+    const calcChange = (current: number, previous: number) => {
+      if (previous === 0) return current > 0 ? 100 : 0
+      return Math.round(((current - previous) / previous) * 100)
+    }
+    const curDiscount = Number(totalAgg._sum.discountAmount ?? 0)
+    const curSavings = Number(totalAgg._sum.savingsAmount ?? 0)
+
     return NextResponse.json({
       success: true,
       data: {
         period: { from: dateFrom, to: dateTo },
+        periodComparison: {
+          redemptionsChange: calcChange(totalAgg._count._all, prevAgg._count._all),
+          discountChange: calcChange(curDiscount, Number(prevAgg._sum.discountAmount ?? 0)),
+          savingsChange: calcChange(curSavings, Number(prevAgg._sum.savingsAmount ?? 0)),
+        },
         summary: {
           totalRedemptions: totalAgg._count._all,
           totalDiscount: Number(totalAgg._sum.discountAmount ?? 0),

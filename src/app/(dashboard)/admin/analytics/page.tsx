@@ -17,6 +17,7 @@ import { ShoppingBag, TrendingUp, Building2, Store, Gift, Clock, Banknote } from
 interface AnalyticsResponse {
   data: {
     period: { from: string; to: string }
+    periodComparison: { redemptionsChange: number; discountChange: number; savingsChange: number }
     summary: { totalRedemptions: number; totalDiscount: number; totalSavings: number }
     byMerchant: { merchantId: string; businessName: string; city: string | null; state: string| null; logoUrl: string | null; redemptions: number; totalSavings: number }[]
     byCompany: { companyId: string; name: string; redemptions: number; totalSavings: number }[]
@@ -29,7 +30,6 @@ interface AnalyticsResponse {
 interface OverviewResponse {
   data: {
     summary: { totalRedemptions: number; totalDiscount: number; totalSavings: number; activeMerchants: number; activeCompanies: number; activeOffers: number; pendingActions: number }
-    periodComparison: { redemptionsChange: number; discountChange: number; savingsChange: number }
   }
 }
 
@@ -75,7 +75,7 @@ export default function AdminAnalyticsPage() {
   const ov = overviewData?.data
   const summary = d?.summary
   const ovSummary = ov?.summary
-  const comp = ov?.periodComparison
+  const comp = d?.periodComparison
 
   const byMerchant = d?.byMerchant ?? []
   const topMerchants = useMemo(() => byMerchant.slice(0, 8), [byMerchant])
@@ -136,8 +136,8 @@ export default function AdminAnalyticsPage() {
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <AnalyticsKPICard label="Total Redemptions" value={ovSummary?.totalRedemptions ?? summary?.totalRedemptions ?? 0} icon={ShoppingBag} iconBg="bg-blue-100 text-blue-600" accentColor="from-blue-500 to-indigo-600" loading={loading} trend={comp ? { value: comp.redemptionsChange, isUpward: comp.redemptionsChange >= 0 } : undefined} />
-        <AnalyticsKPICard label="Total Savings" value={formatCurrency(ovSummary?.totalSavings ?? summary?.totalSavings ?? 0)} icon={Banknote} iconBg="bg-emerald-100 text-emerald-600" accentColor="from-emerald-500 to-teal-600" loading={loading} trend={comp ? { value: comp.savingsChange, isUpward: comp.savingsChange >= 0 } : undefined} />
+        <AnalyticsKPICard label="Total Redemptions" value={summary?.totalRedemptions ?? 0} icon={ShoppingBag} iconBg="bg-blue-100 text-blue-600" accentColor="from-blue-500 to-indigo-600" loading={loading} trend={comp ? { value: comp.redemptionsChange, isUpward: comp.redemptionsChange >= 0 } : undefined} />
+        <AnalyticsKPICard label="Total Savings" value={formatCurrency(summary?.totalSavings ?? 0)} icon={Banknote} iconBg="bg-emerald-100 text-emerald-600" accentColor="from-emerald-500 to-teal-600" loading={loading} trend={comp ? { value: comp.savingsChange, isUpward: comp.savingsChange >= 0 } : undefined} />
         <AnalyticsKPICard label="Active Merchants" value={ovSummary?.activeMerchants ?? 0} icon={Store} iconBg="bg-purple-100 text-purple-600" accentColor="from-purple-500 to-pink-600" loading={loading} />
         <AnalyticsKPICard label="Active Companies" value={ovSummary?.activeCompanies ?? 0} icon={Building2} iconBg="bg-amber-100 text-amber-600" accentColor="from-amber-500 to-orange-600" loading={loading} />
         <AnalyticsKPICard label="Active Offers" value={ovSummary?.activeOffers ?? 0} icon={Gift} iconBg="bg-rose-100 text-rose-600" accentColor="from-rose-500 to-red-600" loading={loading} />
