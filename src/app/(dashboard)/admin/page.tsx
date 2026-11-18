@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useDashboardStore } from '@/store/dashboard-store'
 import { useActionQueueStore } from '@/store/action-queue-store'
-import { useActionQueueStats } from '@/hooks/queries/use-action-queue'
+import { useActionQueue, useActionQueueStats } from '@/hooks/queries/use-action-queue'
 import { useAdminSidebarCounts } from '@/hooks/queries/use-admin-sidebar-counts'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
@@ -16,12 +16,10 @@ import {
   Building2,
   ShoppingBag,
   Clock,
-  CheckCircle2,
   FileText,
   Tag,
   Shield,
   Bug,
-  Bell,
   ArrowRight,
   Sparkles,
   Activity,
@@ -44,8 +42,22 @@ export default function AdminDashboard() {
   const pendingCount = useActionQueueStore((s) => s.pendingCount)
 
   const [loading, setLoading] = useState(true)
-  const [recentActivity, setRecentActivity] = useState([])
-  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
+  // Load pending approvals from the same API the Action Center uses, so the
+  // list always matches what admins see there.
+  const { data: pendingQueue } = useActionQueue({ status: 'PENDING', page: 1 } as any)
+  const pendingApprovals: PendingApproval[] = (pendingQueue?.data ?? [])
+    .slice(0, 10)
+    .map((item: any) => ({
+      id: item.id,
+      type: item.type,
+      title: item.title,
+      description: item.description,
+      referenceId: item.referenceId,
+      referenceType: item.referenceType,
+      priority: item.priority,
+      merchantName: item.merchant?.businessName ?? null,
+      createdAt: item.createdAt,
+    }))
 
   const { data: stats } = useActionQueueStats()
   // Same source as the sidebar "Tickets" badge, so both always match.
@@ -58,10 +70,7 @@ export default function AdminDashboard() {
         const res = await fetch('/api/admin/overview')
         if (!res.ok) throw new Error('Failed to fetch admin overview')
         const response = await res.json()
-        const { summary, recentActivity, pendingApprovals } = response.data
-        setSummary(summary)
-        setRecentActivity(recentActivity ?? [])
-        setPendingApprovals(pendingApprovals ?? [])
+        setSummary(response.data.summary)
       } catch (error) {
         console.error('Dashboard fetch error:', error)
       } finally {
@@ -128,16 +137,6 @@ export default function AdminDashboard() {
       gradient: 'from-rose-500 to-red-600',
       bg: 'bg-rose-50 dark:bg-rose-950/30',
       iconColor: 'text-rose-600 dark:text-rose-400',
-    },
-    {
-      title: 'System Alerts',
-      subtitle: 'Renewals & missing perks',
-      value: (stats?.renewalAlerts ?? 0) + (stats?.missingPerks ?? 0),
-      icon: Bell,
-      href: '/admin/action-queue?tab=ALERTS',
-      gradient: 'from-amber-500 to-orange-600',
-      bg: 'bg-amber-50 dark:bg-amber-950/30',
-      iconColor: 'text-amber-600 dark:text-amber-400',
     },
   ]
 
@@ -258,7 +257,7 @@ export default function AdminDashboard() {
           </div>
         </CardHeader>
         <CardContent className="p-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {queueCards.map((card) => {
               const isUrgent = card.value > 0
               return (
@@ -377,61 +376,6 @@ export default function AdminDashboard() {
         </Card>
       </div>
 
-      {/* Recent Activity */}
-      <Card className="overflow-hidden border-0 shadow-sm">
-        <CardHeader className="border-b bg-muted/30 pb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Activity className="h-5 w-5 text-emerald-600" />
-                Recent Activity
-              </CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Latest actions across the platform
-              </p>
-            </div>
-            <Link href="/admin/audit-logs">
-              <Button variant="ghost" size="sm">
-                View All
-                <ArrowRight className="ml-1 h-3 w-3" />
-              </Button>
-            </Link>
-          </div>
-        </CardHeader>
-        <CardContent className="p-2">
-          {recentActivity.length > 0 ? (
-            <div className="space-y-1">
-              {recentActivity.map((item: any, idx: number) => (
-                <div
-                  key={item.id ?? idx}
-                  className="flex items-center gap-3 rounded-lg p-3 transition-colors hover:bg-muted/40"
-                >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 text-emerald-600 dark:from-emerald-950/40 dark:to-teal-950/40">
-                    <CheckCircle2 className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm">
-                      <span className="text-muted-foreground">{item.action}</span>{' '}
-                      <span className="font-semibold">{item.user}</span>
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                    {item.time}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <Activity className="h-6 w-6" />
-              </div>
-              <p className="mt-3 text-sm font-medium">No recent activity</p>
-              <p className="mt-1 text-xs text-muted-foreground">Platform actions will appear here</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
     </div>
   )
 }

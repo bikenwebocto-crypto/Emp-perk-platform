@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/supabase/server";
 
@@ -37,10 +38,19 @@ export async function GET(request: NextRequest) {
     }
     if (merchantId) where.merchantId = merchantId;
 
+    const sortDir: Prisma.SortOrder = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
+    const sortBy = searchParams.get("sortBy");
+    const orderBy: Prisma.MerchantOfferOrderByWithRelationInput[] =
+      sortBy === "title"
+        ? [{ title: sortDir }, { id: "asc" as const }]
+        : sortBy === "merchant"
+          ? [{ merchant: { businessName: sortDir } }, { id: "asc" as const }]
+          : [{ deletedAt: sortDir }, { id: "asc" as const }];
+
     const [offers, total] = await Promise.all([
       prisma.merchantOffer.findMany({
         where,
-        orderBy: { deletedAt: "desc" },
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
