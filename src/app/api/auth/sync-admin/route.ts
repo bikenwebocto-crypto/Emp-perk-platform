@@ -155,9 +155,7 @@ export async function POST(request: NextRequest) {
     case 'COMPANY':
       profile = await prisma.companyAdmin.findFirst({ where: { accountId: accountByEmail.authUserId }, select: { id: true } })
       break
-    case 'EMPLOYEE':
-      profile = await prisma.employee.findFirst({ where: { accountId: accountByEmail.authUserId }, select: { id: true } })
-      break
+    // EMPLOYEE is rejected above — employees can't sign in to the web panel.
   }
 
   if (!profile) {
