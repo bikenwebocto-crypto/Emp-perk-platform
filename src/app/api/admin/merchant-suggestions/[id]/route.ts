@@ -125,10 +125,11 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
 // PATCH /api/admin/merchant-suggestions/[id]
 //
-// Body: { status?, adminNotes?, rejectionReason?, merchantId? }
+// Body: { status?, adminNotes?, rejectionReason? }
 //   - status must be an allowed transition from the current status
 //   - REJECTED requires rejectionReason
-//   - CONVERTED requires merchantId of an existing (non-deleted) merchant
+//   - CONVERTED is a plain status; merchants onboard themselves via the
+//     merchant onboarding site/API, so no merchant linkage is recorded here
 // The update is guarded on the status we read (updateMany + status in
 // where), so a concurrent change by another admin returns 409 instead of
 // being silently overwritten.
@@ -185,15 +186,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }
     }
 
-    let merchantId: string | null = null
-    if (nextStatus === 'CONVERTED') {
-      if (typeof body.merchantId !== 'string' || !body.merchantId.trim()) {
-        errors.merchantId = 'Select the merchant this suggestion was converted into'
-      } else {
-        merchantId = body.merchantId.trim()
-      }
-    }
-
     if (Object.keys(errors).length > 0) return badRequest('Invalid update', errors)
 
     const current = await prisma.merchantSuggestion.findUnique({ where: { id } })
@@ -209,16 +201,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       )
     }
 
-    if (merchantId) {
-      const merchant = await prisma.merchant.findFirst({
-        where: { id: merchantId, deletedAt: null },
-        select: { id: true },
-      })
-      if (!merchant) {
-        return badRequest('Invalid update', { merchantId: 'Merchant not found' })
-      }
-    }
-
     const data: Prisma.MerchantSuggestionUncheckedUpdateManyInput = {}
     if (adminNotes !== undefined) data.adminNotes = adminNotes
     if (nextStatus) {
@@ -228,34 +210,22 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (nextStatus === 'REJECTED') data.rejectionReason = rejectionReason
       // A rejection reason no longer applies once the suggestion is reopened.
       if (current.status === 'REJECTED') data.rejectionReason = null
-      if (nextStatus === 'CONVERTED') data.merchantId = merchantId
     }
 
-    try {
-      if (statusChanging) {
-        const { count } = await prisma.merchantSuggestion.updateMany({
-          where: { id, status: current.status },
-          data,
-        })
-        if (count === 0) {
-          return apiError(
-            409,
-            'CONFLICT',
-            'This suggestion was changed by someone else. Reload and try again.',
-          )
-        }
-      } else {
-        await prisma.merchantSuggestion.update({ where: { id }, data })
-      }
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    if (statusChanging) {
+      const { count } = await prisma.merchantSuggestion.updateMany({
+        where: { id, status: current.status },
+        data,
+      })
+      if (count === 0) {
         return apiError(
           409,
-          'MERCHANT_ALREADY_LINKED',
-          'That merchant is already linked to another suggestion.',
+          'CONFLICT',
+          'This suggestion was changed by someone else. Reload and try again.',
         )
       }
-      throw error
+    } else {
+      await prisma.merchantSuggestion.update({ where: { id }, data })
     }
 
     if (nextStatus) {
@@ -268,7 +238,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         changes: { status: { from: current.status, to: nextStatus } },
         metadata: {
           rejectionReason: rejectionReason ?? undefined,
-          merchantId: merchantId ?? undefined,
         },
       })
     } else if (adminNotes !== undefined && adminNotes !== current.adminNotes) {

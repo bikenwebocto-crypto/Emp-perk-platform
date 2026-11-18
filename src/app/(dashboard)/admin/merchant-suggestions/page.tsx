@@ -3,10 +3,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { AlertTriangle, ExternalLink, Lightbulb, Loader2, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Lightbulb, Loader2, RefreshCw, X } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DialogOverlay, DialogPortal, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -44,6 +43,52 @@ const ACTION_LABELS: Record<SuggestionStatus, string> = {
   REJECTED: 'Reject',
   CONVERTED: 'Mark Converted',
 }
+
+function actionLabel(from: SuggestionStatus, to: SuggestionStatus) {
+  if (from === 'REJECTED' && to === 'UNDER_REVIEW') return 'Reopen'
+  return ACTION_LABELS[to]
+}
+
+// Happy-path pipeline shown at the top of the drawer.
+const PIPELINE: SuggestionStatus[] = ['PENDING', 'UNDER_REVIEW', 'CONTACTED', 'CONVERTED']
+
+function StatusPipeline({ status }: { status: SuggestionStatus }) {
+  const currentIdx = PIPELINE.indexOf(status)
+  return (
+    <ol className="mt-3 flex flex-wrap items-center gap-1 text-xs">
+      {PIPELINE.map((s, i) => {
+        const done = currentIdx >= 0 && i < currentIdx
+        const current = s === status
+        return (
+          <li key={s} className="flex items-center gap-1">
+            <span
+              className={cn(
+                'rounded-full px-2 py-0.5',
+                current ? STATUS_STYLES[s] + ' font-semibold' : done ? 'bg-muted text-foreground' : 'text-muted-foreground',
+              )}
+            >
+              {STATUS_LABELS[s]}
+            </span>
+            {i < PIPELINE.length - 1 && <span className="text-muted-foreground">→</span>}
+          </li>
+        )
+      })}
+      {status === 'REJECTED' && (
+        <li className={cn('ml-2 rounded-full px-2 py-0.5 font-semibold', STATUS_STYLES.REJECTED)}>Rejected</li>
+      )}
+    </ol>
+  )
+}
+
+type SortKey = 'merchant' | 'contact' | 'suggestedBy' | 'createdAt' | 'status'
+
+const COLUMNS: { key: SortKey; label: string }[] = [
+  { key: 'merchant', label: 'Merchant' },
+  { key: 'contact', label: 'Contact' },
+  { key: 'suggestedBy', label: 'Suggested By' },
+  { key: 'createdAt', label: 'Date' },
+  { key: 'status', label: 'Status' },
+]
 
 interface SuggestionRow {
   id: string
@@ -128,11 +173,23 @@ function useDebounced<T>(value: T, delay = 300) {
 }
 
 export default function AdminMerchantSuggestionsPage() {
-  const { page, setPage, pageSize, resetPage } = useTablePagination({ defaultPageSize: 20 })
+  const { page, setPage, resetPage } = useTablePagination()
+  const [pageSize, setPageSize] = useState(20)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<SuggestionStatus | 'ALL'>('ALL')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [sortBy, setSortBy] = useState<SortKey>('createdAt')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const debouncedSearch = useDebounced(search)
+
+  function toggleSort(key: SortKey) {
+    if (sortBy === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else {
+      setSortBy(key)
+      setSortDir(key === 'createdAt' ? 'desc' : 'asc')
+    }
+    resetPage()
+  }
 
   const params = useMemo(() => {
     const p = new URLSearchParams()
@@ -140,8 +197,10 @@ export default function AdminMerchantSuggestionsPage() {
     p.set('pageSize', String(pageSize))
     if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim())
     if (statusFilter !== 'ALL') p.set('status', statusFilter)
+    p.set('sortBy', sortBy)
+    p.set('sortDir', sortDir)
     return p
-  }, [page, pageSize, debouncedSearch, statusFilter])
+  }, [page, pageSize, debouncedSearch, statusFilter, sortBy, sortDir])
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['admin-merchant-suggestions', params.toString()],
@@ -166,7 +225,7 @@ export default function AdminMerchantSuggestionsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Merchant Suggestions"
-        description="Merchants employees would like to see on the platform"
+        description="Every record here is created by an employee through the mobile app when they suggest a merchant they'd like to see on the platform. Review each suggestion and move it through Pending → Under Review → Contacted → Converted, or reject it."
         actions={
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
             <RefreshCw className={cn('mr-1 h-4 w-4', isFetching && 'animate-spin')} />
@@ -220,11 +279,26 @@ export default function AdminMerchantSuggestionsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/30 text-left text-xs font-medium uppercase text-muted-foreground">
-                  <th className="px-4 py-3">Merchant</th>
-                  <th className="px-4 py-3">Contact</th>
-                  <th className="px-4 py-3">Suggested By</th>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Status</th>
+                  {COLUMNS.map((c) => (
+                    <th
+                      key={c.key}
+                      className="px-4 py-3"
+                      aria-sort={sortBy === c.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(c.key)}
+                        className="inline-flex items-center gap-1 uppercase hover:text-foreground"
+                      >
+                        {c.label}
+                        {sortBy === c.key ? (
+                          sortDir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 opacity-40" />
+                        )}
+                      </button>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -262,12 +336,29 @@ export default function AdminMerchantSuggestionsPage() {
             </table>
           </div>
 
-          {meta && meta.totalPages > 1 && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-xs text-muted-foreground">
-                Page {page} of {meta.totalPages} ({meta.total} total)
-              </span>
-              <div className="flex gap-2">
+          {meta && (
+            <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span>
+                  Showing {(page - 1) * meta.pageSize + 1}–{Math.min(page * meta.pageSize, meta.total)} of {meta.total}
+                </span>
+                <label className="flex items-center gap-1">
+                  Rows per page
+                  <select
+                    value={pageSize}
+                    onChange={(e) => { setPageSize(Number(e.target.value)); resetPage() }}
+                    className="rounded-md border bg-background px-2 py-1 text-xs"
+                  >
+                    {[10, 20, 50, 100].map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  Page {page} of {Math.max(1, meta.totalPages)}
+                </span>
                 <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
                   Previous
                 </Button>
@@ -343,9 +434,6 @@ function DrawerBody({ id }: { id: string }) {
   const [notes, setNotes] = useState('')
   const [pendingStatus, setPendingStatus] = useState<SuggestionStatus | null>(null)
   const [rejectionReason, setRejectionReason] = useState('')
-  const [merchantSearch, setMerchantSearch] = useState('')
-  const [selectedMerchant, setSelectedMerchant] = useState<MerchantOption | null>(null)
-  const debouncedMerchantSearch = useDebounced(merchantSearch)
 
   const { data: detail, isLoading, error } = useQuery({
     queryKey: ['admin-merchant-suggestion', id],
@@ -360,18 +448,6 @@ function DrawerBody({ id }: { id: string }) {
   useEffect(() => {
     if (detail) setNotes(detail.adminNotes ?? '')
   }, [detail])
-
-  const { data: merchantResults, isFetching: searchingMerchants } = useQuery({
-    queryKey: ['admin-merchant-picker', debouncedMerchantSearch],
-    enabled: pendingStatus === 'CONVERTED' && debouncedMerchantSearch.trim().length >= 2,
-    queryFn: async () => {
-      const p = new URLSearchParams({ q: debouncedMerchantSearch.trim(), pageSize: '8' })
-      const res = await fetch(`/api/admin/merchants?${p.toString()}`)
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to search merchants')
-      return json.data as MerchantOption[]
-    },
-  })
 
   const mutation = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
@@ -388,8 +464,6 @@ function DrawerBody({ id }: { id: string }) {
       showToast({ type: 'success', title: body.status ? 'Status updated' : 'Notes saved' })
       setPendingStatus(null)
       setRejectionReason('')
-      setSelectedMerchant(null)
-      setMerchantSearch('')
       queryClient.invalidateQueries({ queryKey: ['admin-merchant-suggestion', id] })
       queryClient.invalidateQueries({ queryKey: ['admin-merchant-suggestions'] })
     },
@@ -422,10 +496,9 @@ function DrawerBody({ id }: { id: string }) {
 
   const dupSuggestions = detail.possibleDuplicates?.suggestions ?? []
   const dupMerchants = detail.possibleDuplicates?.merchants ?? []
-  const pickerOptions = merchantSearch.trim().length >= 2 ? merchantResults ?? [] : dupMerchants
 
   function handleStatusClick(status: SuggestionStatus) {
-    if (status === 'REJECTED' || status === 'CONVERTED') {
+    if (status === 'REJECTED') {
       setPendingStatus((prev) => (prev === status ? null : status))
       return
     }
@@ -435,8 +508,6 @@ function DrawerBody({ id }: { id: string }) {
   function confirmPending() {
     if (pendingStatus === 'REJECTED') {
       mutation.mutate({ status: 'REJECTED', rejectionReason })
-    } else if (pendingStatus === 'CONVERTED' && selectedMerchant) {
-      mutation.mutate({ status: 'CONVERTED', merchantId: selectedMerchant.id })
     }
   }
 
@@ -448,6 +519,7 @@ function DrawerBody({ id }: { id: string }) {
           <StatusBadge status={detail.status} />
           <span>Suggested {new Date(detail.createdAt).toLocaleString()}</span>
         </DialogDescription>
+        <StatusPipeline status={detail.status} />
       </div>
 
       <div className="flex-1 space-y-6 overflow-y-auto p-6">
@@ -486,16 +558,6 @@ function DrawerBody({ id }: { id: string }) {
                       {' '}by {detail.reviewedBy.firstName} {detail.reviewedBy.lastName}
                     </span>
                   )}
-                </dd>
-              </>
-            )}
-            {detail.merchant && (
-              <>
-                <dt className="text-muted-foreground">Converted to</dt>
-                <dd>
-                  <a href={`/admin/merchants/${detail.merchant.id}`} className="text-primary hover:underline">
-                    {detail.merchant.businessName}
-                  </a>
                 </dd>
               </>
             )}
@@ -597,44 +659,6 @@ function DrawerBody({ id }: { id: string }) {
           </div>
         )}
 
-        {pendingStatus === 'CONVERTED' && (
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="merchant-search">Converted to merchant</label>
-            <Input
-              id="merchant-search"
-              value={merchantSearch}
-              onChange={(e) => setMerchantSearch(e.target.value)}
-              placeholder="Search merchants by name..."
-            />
-            <div className="max-h-48 overflow-y-auto rounded-md border">
-              {searchingMerchants ? (
-                <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Searching...
-                </div>
-              ) : pickerOptions.length === 0 ? (
-                <p className="px-3 py-2 text-sm text-muted-foreground">
-                  {merchantSearch.trim().length >= 2 ? 'No merchants found.' : 'Type at least 2 characters to search.'}
-                </p>
-              ) : (
-                pickerOptions.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setSelectedMerchant(m)}
-                    className={cn(
-                      'flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted/50',
-                      selectedMerchant?.id === m.id && 'bg-primary/10',
-                    )}
-                  >
-                    <span className="font-medium">{m.businessName}</span>
-                    <span className="text-xs text-muted-foreground">{m.status}</span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
         {detail.allowedNextStatuses.length === 0 ? (
           <p className="text-sm text-muted-foreground">This suggestion is closed — no further status changes.</p>
         ) : pendingStatus ? (
@@ -644,16 +668,12 @@ function DrawerBody({ id }: { id: string }) {
             </Button>
             <Button
               size="sm"
-              variant={pendingStatus === 'REJECTED' ? 'destructive' : 'default'}
-              disabled={
-                mutation.isPending ||
-                (pendingStatus === 'REJECTED' && !rejectionReason.trim()) ||
-                (pendingStatus === 'CONVERTED' && !selectedMerchant)
-              }
+              variant="destructive"
+              disabled={mutation.isPending || !rejectionReason.trim()}
               onClick={confirmPending}
             >
               {mutation.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              Confirm {ACTION_LABELS[pendingStatus].toLowerCase()}
+              Confirm rejection
             </Button>
           </div>
         ) : (
@@ -666,7 +686,7 @@ function DrawerBody({ id }: { id: string }) {
                 disabled={mutation.isPending}
                 onClick={() => handleStatusClick(s)}
               >
-                {ACTION_LABELS[s]}
+                {actionLabel(detail.status, s)}
               </Button>
             ))}
           </div>

@@ -45,10 +45,14 @@ export function isMerchantSuggestionStatus(value: unknown): value is MerchantSug
 
 // ─── Status transitions ───────────────────────────────────────────────────
 
+// Linear pipeline: PENDING → UNDER_REVIEW → CONTACTED → CONVERTED.
+// Any open suggestion can be rejected; a rejected one can be reopened
+// (back to UNDER_REVIEW). CONVERTED is final. Order = forward step first,
+// so the UI can render buttons in this order.
 const STATUS_TRANSITIONS: Record<MerchantSuggestionStatus, MerchantSuggestionStatus[]> = {
   PENDING: ['UNDER_REVIEW', 'REJECTED'],
-  UNDER_REVIEW: ['CONTACTED', 'REJECTED', 'CONVERTED'],
-  CONTACTED: ['UNDER_REVIEW', 'REJECTED', 'CONVERTED'],
+  UNDER_REVIEW: ['CONTACTED', 'CONVERTED', 'REJECTED'],
+  CONTACTED: ['CONVERTED', 'REJECTED'],
   REJECTED: ['UNDER_REVIEW'],
   CONVERTED: [],
 }

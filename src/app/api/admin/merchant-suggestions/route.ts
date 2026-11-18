@@ -12,7 +12,8 @@ import {
 // GET /api/admin/merchant-suggestions
 //
 // Query: status, q (merchant name/email/phone, employee name, company name),
-// page, pageSize (max 100).
+// page, pageSize (max 100), sortBy (merchant|contact|suggestedBy|createdAt|status),
+// sortDir (asc|desc; default createdAt desc).
 // meta.counts holds per-status totals for the current search (ignoring the
 // status filter) so the stage bar can show them alongside the list.
 export async function GET(request: NextRequest) {
@@ -47,10 +48,23 @@ export async function GET(request: NextRequest) {
       ? { ...searchWhere, status }
       : searchWhere
 
+    const dir: Prisma.SortOrder = searchParams.get('sortDir') === 'asc' ? 'asc' : 'desc'
+    const SORTS: Record<string, Prisma.MerchantSuggestionOrderByWithRelationInput[]> = {
+      merchant: [{ merchantName: dir }],
+      contact: [{ merchantEmail: dir }],
+      suggestedBy: [{ employee: { firstName: dir } }, { employee: { lastName: dir } }],
+      createdAt: [{ createdAt: dir }],
+      status: [{ status: dir }],
+    }
+    const orderBy = [
+      ...(SORTS[searchParams.get('sortBy') ?? ''] ?? SORTS.createdAt!),
+      { id: 'asc' as const }, // stable paging
+    ]
+
     const [rows, total, grouped] = await Promise.all([
       prisma.merchantSuggestion.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: pageSize,
         include: {

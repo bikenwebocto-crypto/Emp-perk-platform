@@ -161,11 +161,20 @@ export function LoginClient({ branding }: LoginClientProps) {
             : body?.error?.message ||
               "Something went wrong. Please try again.";
 
+        const isEmployeeBlocked =
+          body?.error?.code === "EMPLOYEE_WEB_ACCESS_BLOCKED";
+
+        // Employees must use the mobile app — drop the web session entirely.
+        if (isEmployeeBlocked) {
+          await supabase.auth.signOut();
+          clearClientSession(queryClient);
+        }
+
         setError(errorMessage);
 
         window.setTimeout(() => {
           setError("");
-        }, 5000);
+        }, isEmployeeBlocked ? 10000 : 5000);
 
         syncedRef.current = false;
         setIsSyncing(false);

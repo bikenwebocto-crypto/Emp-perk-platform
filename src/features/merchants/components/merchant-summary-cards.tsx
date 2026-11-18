@@ -2,11 +2,8 @@
 import {
   Store,
   Clock,
-  Star,
-  Home,
   Package,
   TrendingUp,
-  Receipt,
   Activity,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
@@ -50,27 +47,11 @@ const SPECS: CardSpec[] = [
   },
   {
     key: 'pendingApproval',
-    label: 'Pending Approval',
+    label: 'Pending Merchants',
     icon: Clock,
     gradient: 'from-amber-500 to-orange-600',
     bg: 'bg-amber-100 dark:bg-amber-950/40',
     iconColor: 'text-amber-600',
-  },
-  {
-    key: 'featured',
-    label: 'Featured',
-    icon: Star,
-    gradient: 'from-yellow-500 to-amber-600',
-    bg: 'bg-yellow-100 dark:bg-yellow-950/40',
-    iconColor: 'text-yellow-600',
-  },
-  {
-    key: 'homepageMerchants',
-    label: 'Homepage',
-    icon: Home,
-    gradient: 'from-pink-500 to-rose-600',
-    bg: 'bg-pink-100 dark:bg-pink-950/40',
-    iconColor: 'text-pink-600',
   },
   {
     key: 'liveOffers',
@@ -89,14 +70,6 @@ const SPECS: CardSpec[] = [
     iconColor: 'text-violet-600',
   },
   {
-    key: 'todaysRedemptions',
-    label: 'Today Redemptions',
-    icon: Activity,
-    gradient: 'from-cyan-500 to-blue-600',
-    bg: 'bg-cyan-100 dark:bg-cyan-950/40',
-    iconColor: 'text-cyan-600',
-  },
-  {
     key: 'thisMonthRedemptions',
     label: 'Redemptions This Month',
     sublabel: sinceStartOfMonth,
@@ -110,7 +83,7 @@ const SPECS: CardSpec[] = [
 export function MerchantSummaryCards({ summary, isLoading }: SummaryCardsProps) {
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {SPECS.map((s) => (
           <Skeleton key={s.key} className="h-24 rounded-xl" />
         ))}
@@ -119,7 +92,7 @@ export function MerchantSummaryCards({ summary, isLoading }: SummaryCardsProps) 
   }
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
       {SPECS.map((spec) => {
         const value = summary?.[spec.key] ?? 0
         const Icon = spec.icon

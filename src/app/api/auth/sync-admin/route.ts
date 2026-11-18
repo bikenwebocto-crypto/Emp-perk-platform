@@ -13,6 +13,15 @@ const dashboardMap: Record<string, string> = {
   EMPLOYEE: '/employee',
 }
 
+const EMPLOYEE_WEB_BLOCKED_RESPONSE = {
+  success: false,
+  error: {
+    code: 'EMPLOYEE_WEB_ACCESS_BLOCKED',
+    message:
+      'Employee accounts can’t sign in on the web. Please download the Perks&More mobile app and log in there with the same email and password to access your perks and offers.',
+  },
+}
+
 async function getMfaRedirectForRole(supabase: Awaited<ReturnType<typeof createClient>>, role: string | null | undefined): Promise<string> {
   if (!requiresMfaForRole(role)) return dashboardMap[role ?? 'EMPLOYEE'] ?? '/employee'
 
@@ -80,6 +89,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (existingAccount.role === 'EMPLOYEE') {
+      return NextResponse.json(EMPLOYEE_WEB_BLOCKED_RESPONSE, { status: 403 })
+    }
+
     await prisma.account.update({
       where: { authUserId: user.id },
       data: { lastLoginAt: new Date() },
@@ -124,6 +137,10 @@ export async function POST(request: NextRequest) {
       },
       { status: 403 },
     )
+  }
+
+  if (accountByEmail.role === 'EMPLOYEE' || accountByEmail.profileType === 'EMPLOYEE') {
+    return NextResponse.json(EMPLOYEE_WEB_BLOCKED_RESPONSE, { status: 403 })
   }
 
   // Verify the linked profile still exists
