@@ -58,7 +58,9 @@ export function disableAdminCopy(params: { name: string; hasEmployeeRecord?: boo
     ],
     note: params.hasEmployeeRecord
       ? 'They were promoted from an employee. Disabling does NOT give them mobile app access back. To make them an employee again, choose Revert to Employee after disabling.'
-      : undefined,
+      : params.hasEmployeeRecord === false
+        ? 'This admin was added directly and has no employee account, so they cannot be reverted to an employee.'
+        : undefined,
   }
 }
 
@@ -68,7 +70,9 @@ export function reactivateAdminCopy(params: { name: string; hasEmployeeRecord?: 
     impacts: ['They can sign in to the web admin dashboard again with their existing password.'],
     note: params.hasEmployeeRecord
       ? 'If you want them back as an employee instead, choose Revert to Employee rather than Reactivate.'
-      : undefined,
+      : params.hasEmployeeRecord === false
+        ? 'This admin was added directly and has no employee account, so they cannot be reverted to an employee.'
+        : undefined,
   }
 }
 

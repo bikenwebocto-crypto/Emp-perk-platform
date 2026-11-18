@@ -8,7 +8,7 @@ import {
   type RowSelectionState,
   type ColumnDef as TanStackColumnDef,
 } from '@tanstack/react-table'
-import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -277,29 +277,56 @@ export function DataTable<T extends Record<string, unknown>>({
         </table>
       </div>
 
-      {pagination && totalPages > 1 && (
-        <div className="flex items-center justify-center border-t pt-3">
-           <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-            size="sm"
-               disabled={isLoading || pagination.page <= 1}
-               onClick={() => pagination.onPageChange(pagination.page - 1)}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-           </div>
+      {pagination && (
+        <div className="mt-3 flex items-center justify-between border-t pt-3">
           <p className="text-xs text-muted-foreground">
-            Page {pagination.page} of {totalPages} ({pagination.total} total)
+            {pagination.total === 0
+              ? '0 records'
+              : `${(pagination.page - 1) * pagination.pageSize + 1}-${Math.min(pagination.page * pagination.pageSize, pagination.total)} of ${pagination.total} records`}
           </p>
           <div className="flex items-center gap-1">
             <Button
-               variant="outline"
-            size="sm"
-               disabled={isLoading || pagination.page >= totalPages}
-               onClick={() => pagination.onPageChange(pagination.page + 1)}
+              variant="outline"
+              size="sm"
+              disabled={isLoading || pagination.page <= 1}
+              onClick={() => pagination.onPageChange(1)}
+              aria-label="First page"
+              title="First page"
+            >
+              <ChevronsLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isLoading || pagination.page <= 1}
+              onClick={() => pagination.onPageChange(pagination.page - 1)}
+              aria-label="Previous page"
+              title="Previous page"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="px-2 text-xs text-muted-foreground">
+              Page {pagination.page} of {Math.max(1, totalPages)}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isLoading || pagination.page >= totalPages}
+              onClick={() => pagination.onPageChange(pagination.page + 1)}
+              aria-label="Next page"
+              title="Next page"
             >
               <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isLoading || pagination.page >= totalPages}
+              onClick={() => pagination.onPageChange(totalPages)}
+              aria-label="Last page"
+              title="Last page"
+            >
+              <ChevronsRight className="h-4 w-4" />
             </Button>
           </div>
         </div>

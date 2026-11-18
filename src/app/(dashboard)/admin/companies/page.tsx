@@ -14,7 +14,7 @@ import { useRouter } from 'next/navigation'
 import { useCompanies, useUpdateCompanyStatus } from '@/hooks/queries/use-companies'
 import { useTablePagination } from '@/hooks/use-table-pagination'
 import { showToast } from '@/hooks/use-toast'
-import type { ColumnDef } from '@/types'
+import type { ColumnDef, TableSortConfig } from '@/types'
 import flags from 'react-phone-number-input/flags'
 import { formatPhone, phoneCountry } from '@/lib/phone'
 
@@ -23,22 +23,28 @@ type AdminStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE'
 type StatusAction = 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'CANCELLED'
 type ConfirmActionType = StatusAction | null
 
-function getStatusActions(status: string): { primary: StatusAction | null; secondary: StatusAction[] } {
+function getStatusActions(status: string): {
+  primary: StatusAction | null
+  secondary: StatusAction[]
+} {
   switch (status) {
     case 'PENDING':
     case 'APPROVED_PENDING_PAYMENT':
-      return { primary: 'ACTIVE', secondary: ['CANCELLED'] }
+      return { primary: 'ACTIVE', secondary: [] }
+
     case 'ACTIVE':
-      return { primary: 'PAUSED', secondary: ['SUSPENDED', 'CANCELLED'] }
+      return { primary: 'PAUSED', secondary: ['SUSPENDED'] }
+
     case 'PAUSED':
-      return { primary: 'ACTIVE', secondary: ['SUSPENDED', 'CANCELLED'] }
+      return { primary: 'ACTIVE', secondary: ['SUSPENDED'] }
+
     case 'SUSPENDED':
       return { primary: 'ACTIVE', secondary: ['CANCELLED'] }
+
     default:
       return { primary: null, secondary: [] }
   }
 }
-
 function PhoneCell({ value }: { value: string | null | undefined }) {
   if (!value) return <span className="text-muted-foreground">—</span>
   const country = phoneCountry(value)
@@ -55,30 +61,40 @@ function PhoneCell({ value }: { value: string | null | undefined }) {
   )
 }
 
-const STATUS_ACTION_CONFIG: Record<StatusAction, { label: string; icon: typeof CheckCircle2; className: string; confirmMessage: string }> = {
+const STATUS_ACTION_CONFIG: Record<StatusAction, {
+  label: string
+  icon: typeof CheckCircle2
+  className: string
+  confirmMessage: string
+  impact: string
+}> = {
   ACTIVE: {
     label: 'Activate',
     icon: CheckCircle2,
     className: 'border-green-200 text-green-700 hover:bg-green-50 hover:text-green-800 dark:border-green-800 dark:text-green-400 dark:hover:bg-green-950/50',
     confirmMessage: 'Mark this company as active?',
+    impact: 'Restores company access for employees and sends the company activation notification.',
   },
   PAUSED: {
     label: 'Pause',
     icon: Pause,
     className: 'border-amber-200 text-amber-700 hover:bg-amber-50 hover:text-amber-800 dark:border-amber-800 dark:text-amber-400 dark:hover:bg-amber-950/50',
-    confirmMessage: 'Pause this company? Employees will lose access until reactivated.',
+    confirmMessage: 'Pause this company?',
+    impact: 'Temporarily blocks employees from using company access. The company record and data remain; you can restore access later with Activate.',
   },
   SUSPENDED: {
     label: 'Suspend',
     icon: Ban,
     className: 'border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/50',
-    confirmMessage: 'Suspend this company? This is a stronger action than pausing.',
+    confirmMessage: 'Suspend this company?',
+    impact: 'Blocks employees from using company access and sends company admins a suspension notification. The record remains and can be reactivated.',
   },
   CANCELLED: {
     label: 'Cancel',
     icon: XCircle,
     className: 'border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/50',
-    confirmMessage: 'Cancel this company? This action is typically not reversible.',
+    confirmMessage: 'Cancel this company?',
+    impact: 'Changes the company status to Cancelled and closes its pending admin action items. The record is not deleted; this status has no reactivation action in this screen.',
   },
 }
 
@@ -88,8 +104,13 @@ export default function CompaniesPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
   const [adminStatusFilter, setAdminStatusFilter] = useState<AdminStatusFilter>('ALL')
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null)
+  const [selectedCompanyRecord, setSelectedCompanyRecord] = useState<any | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState<ConfirmActionType>(null)
+  const [sortConfig, setSortConfig] = useState<TableSortConfig>({
+    key: 'joinedAt',
+    direction: 'desc',
+  })
 
   const { page, setPage, pageSize } = useTablePagination({ defaultPageSize: 10 })
 
@@ -99,12 +120,15 @@ export default function CompaniesPage() {
     q: search || undefined,
     page,
     pageSize,
+    sortBy: sortConfig.key,
+    sortDir: sortConfig.direction,
   })
 
   const updateStatus = useUpdateCompanyStatus()
 
-  const handleStatusChange = useCallback((id: string, status: StatusAction) => {
+  const handleStatusChange = useCallback((id: string, status: StatusAction, company: any) => {
     setSelectedCompany(id)
+    setSelectedCompanyRecord(company)
     setConfirmAction(status)
     setConfirmOpen(true)
   }, [])
@@ -118,11 +142,13 @@ export default function CompaniesPage() {
           showToast({ type: 'success', title: res.message ?? `Company ${status.toLowerCase()}` })
           setConfirmOpen(false)
           setSelectedCompany(null)
+          setSelectedCompanyRecord(null)
         },
         onError: (err: Error) => {
           showToast({ type: 'error', title: 'Status update failed', description: err.message })
           setConfirmOpen(false)
           setSelectedCompany(null)
+          setSelectedCompanyRecord(null)
         },
       },
     )
@@ -164,7 +190,7 @@ export default function CompaniesPage() {
       ),
     },
     {
-      key: 'contactEmail',
+      key: 'companyEmail',
       header: 'Contact Email',
       render: (c: any) => (
         <div className="flex items-center gap-1 text-sm">
@@ -181,6 +207,7 @@ export default function CompaniesPage() {
     {
       key: 'primaryAdmin',
       header: 'Primary Admin',
+      sortable: false,
       render: (c: any) => {
         const admin = c.primaryAdmin
         if (!admin) {
@@ -242,9 +269,9 @@ export default function CompaniesPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={(e) => { e.stopPropagation(); handleStatusChange(c.id, primary) }}
+                  onClick={(e) => { e.stopPropagation(); handleStatusChange(c.id, primary, c) }}
                   className={`h-8 ${cfg.className}`}
-                  title={cfg.label}
+                  title={`${cfg.label}: ${cfg.impact}`}
                 >
                   <Icon className="h-3.5 w-3.5" /> {cfg.label}
                 </Button>
@@ -258,9 +285,9 @@ export default function CompaniesPage() {
                   key={status}
                   variant="outline"
                   size="sm"
-                  onClick={(e) => { e.stopPropagation(); handleStatusChange(c.id, status) }}
+                  onClick={(e) => { e.stopPropagation(); handleStatusChange(c.id, status, c) }}
                   className={`h-8 w-8 p-0 ${cfg.className}`}
-                  title={cfg.label}
+                  title={`${cfg.label}: ${cfg.impact}`}
                 >
                   <Icon className="h-3.5 w-3.5" />
                 </Button>
@@ -290,7 +317,10 @@ export default function CompaniesPage() {
       />
       <FilterBar
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value)
+          setPage(1)
+        }}
         searchPlaceholder="Search by company name, contact email, or admin email..."
         filters={[
           {
@@ -305,7 +335,10 @@ export default function CompaniesPage() {
               { label: 'Cancelled', value: 'CANCELLED' },
             ],
             value: statusFilter,
-            onChange: (v) => setStatusFilter(v as StatusFilter),
+            onChange: (v) => {
+              setStatusFilter(v as StatusFilter)
+              setPage(1)
+            },
           },
           {
             key: 'adminStatus',
@@ -315,7 +348,10 @@ export default function CompaniesPage() {
               { label: 'Inactive Admin', value: 'INACTIVE' },
             ],
             value: adminStatusFilter,
-            onChange: (v) => setAdminStatusFilter(v as AdminStatusFilter),
+            onChange: (v) => {
+              setAdminStatusFilter(v as AdminStatusFilter)
+              setPage(1)
+            },
           },
         ]}
       />
@@ -326,6 +362,11 @@ export default function CompaniesPage() {
         isLoading={isLoading}
         emptyMessage="No companies found"
         onRowClick={(c) => router.push(`/admin/companies/${c.id}`)}
+        sortConfig={sortConfig}
+        onSort={(config) => {
+          setSortConfig(config.key ? config : { key: 'joinedAt', direction: 'desc' })
+          setPage(1)
+        }}
         pagination={{
           page,
           pageSize,
@@ -345,10 +386,35 @@ export default function CompaniesPage() {
           } else {
             setConfirmOpen(false)
             setSelectedCompany(null)
+            setSelectedCompanyRecord(null)
           }
         }}
-        onCancel={() => { setConfirmOpen(false); setSelectedCompany(null) }}
-      />
+        onCancel={() => {
+          setConfirmOpen(false)
+          setSelectedCompany(null)
+          setSelectedCompanyRecord(null)
+        }}
+      >
+        {confirmAction && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+            {STATUS_ACTION_CONFIG[confirmAction].impact}
+          </p>
+        )}
+        {selectedCompanyRecord && (
+          <div className="rounded-md border bg-muted/30 p-3 text-sm">
+            <dl className="grid grid-cols-[90px_1fr] gap-x-3 gap-y-1.5">
+              <dt className="text-muted-foreground">Company</dt>
+              <dd className="font-medium">{selectedCompanyRecord.name}</dd>
+              <dt className="text-muted-foreground">Email</dt>
+              <dd className="break-all">{selectedCompanyRecord.companyEmail || '—'}</dd>
+              <dt className="text-muted-foreground">Status</dt>
+              <dd><StatusBadge status={selectedCompanyRecord.status} /></dd>
+              <dt className="text-muted-foreground">Employees</dt>
+              <dd>{selectedCompanyRecord.employeeCount}</dd>
+            </dl>
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   )
 }

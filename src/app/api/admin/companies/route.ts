@@ -111,6 +111,26 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get('page') ?? '1'));
     const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get('pageSize') ?? '20')));
     const q = searchParams.get('q');
+    const sortBy = searchParams.get('sortBy');
+    const sortDir = searchParams.get('sortDir') === 'asc' ? 'asc' : 'desc';
+
+    const orderBy: Record<string, unknown> = (() => {
+      switch (sortBy) {
+        case 'name':
+          return { name: sortDir };
+        case 'companyEmail':
+          return { email: sortDir };
+        case 'phone':
+          return { phone: sortDir };
+        case 'status':
+          return { status: sortDir };
+        case 'employeeCount':
+          return { _count: { employees: sortDir } };
+        case 'joinedAt':
+        default:
+          return { createdAt: sortDir };
+      }
+    })();
 
     const where: Record<string, unknown> = { deletedAt: null };
     if (status && status !== 'ALL') where.status = status as CompanyStatus;
@@ -168,7 +188,7 @@ export async function GET(request: NextRequest) {
     const [companies, total] = await Promise.all([
       prisma.company.findMany({
         where: where as any,
-        orderBy: { createdAt: 'desc' },
+        orderBy: orderBy as any,
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {

@@ -22,6 +22,26 @@ const EMPLOYEE_WEB_BLOCKED_RESPONSE = {
   },
 }
 
+/**
+ * An employee account that also holds an ACTIVE Company Admin row (promoted
+ * employee) may sign in to the web panel as a Company Admin. The account's
+ * role is realigned to COMPANY_ADMIN so middleware/auth context route it to
+ * /company; the Employee row is untouched, so mobile access keeps working.
+ * Returns true when the account was promoted to admin access.
+ */
+async function allowEmployeeWithActiveAdmin(authUserId: string): Promise<boolean> {
+  const admin = await prisma.companyAdmin.findFirst({
+    where: { accountId: authUserId, isActive: true },
+    select: { id: true },
+  })
+  if (!admin) return false
+  await prisma.account.update({
+    where: { authUserId },
+    data: { role: 'COMPANY_ADMIN', profileType: 'COMPANY' },
+  })
+  return true
+}
+
 async function getMfaRedirectForRole(supabase: Awaited<ReturnType<typeof createClient>>, role: string | null | undefined): Promise<string> {
   if (!requiresMfaForRole(role)) return dashboardMap[role ?? 'EMPLOYEE'] ?? '/employee'
 
@@ -89,8 +109,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (existingAccount.role === 'EMPLOYEE') {
-      return NextResponse.json(EMPLOYEE_WEB_BLOCKED_RESPONSE, { status: 403 })
+    let role = existingAccount.role
+    if (role === 'EMPLOYEE' || existingAccount.profileType === 'EMPLOYEE') {
+      if (!(await allowEmployeeWithActiveAdmin(existingAccount.authUserId))) {
+        return NextResponse.json(EMPLOYEE_WEB_BLOCKED_RESPONSE, { status: 403 })
+      }
+      role = 'COMPANY_ADMIN'
     }
 
     await prisma.account.update({
@@ -98,11 +122,11 @@ export async function POST(request: NextRequest) {
       data: { lastLoginAt: new Date() },
     })
 
-    const redirectTo = await getMfaRedirectForRole(supabase, existingAccount.role)
+    const redirectTo = await getMfaRedirectForRole(supabase, role)
 
     return NextResponse.json({
       success: true,
-      role: existingAccount.role,
+      role,
       redirectTo,
     })
   }
@@ -139,13 +163,19 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  if (accountByEmail.role === 'EMPLOYEE' || accountByEmail.profileType === 'EMPLOYEE') {
-    return NextResponse.json(EMPLOYEE_WEB_BLOCKED_RESPONSE, { status: 403 })
+  let role = accountByEmail.role
+  let profileType = accountByEmail.profileType
+  if (role === 'EMPLOYEE' || profileType === 'EMPLOYEE') {
+    if (!(await allowEmployeeWithActiveAdmin(accountByEmail.authUserId))) {
+      return NextResponse.json(EMPLOYEE_WEB_BLOCKED_RESPONSE, { status: 403 })
+    }
+    role = 'COMPANY_ADMIN'
+    profileType = 'COMPANY'
   }
 
   // Verify the linked profile still exists
   let profile: { id: string } | null = null
-  switch (accountByEmail.profileType) {
+  switch (profileType) {
     case 'ADMIN':
       profile = await prisma.adminUser.findFirst({ where: { accountId: accountByEmail.authUserId }, select: { id: true } })
       break
@@ -177,11 +207,11 @@ export async function POST(request: NextRequest) {
     data: { lastLoginAt: new Date() },
   })
 
-  const redirectTo = await getMfaRedirectForRole(supabase, accountByEmail.role)
+  const redirectTo = await getMfaRedirectForRole(supabase, role)
 
   return NextResponse.json({
     success: true,
-    role: accountByEmail.role,
+    role,
     redirectTo,
   })
 }

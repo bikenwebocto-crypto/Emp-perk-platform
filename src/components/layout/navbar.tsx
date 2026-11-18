@@ -154,21 +154,6 @@ export function Navbar({
       </h1>
 
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Realtime indicator */}
-        <div
-          className="hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium sm:flex"
-          style={{
-            backgroundColor: `hsl(var(--live-indicator-bg))`,
-            color: `hsl(var(--live-indicator-text))`,
-          }}
-        >
-          <span
-            className="realtime-dot h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: `hsl(var(--live-dot-color))` }}
-          />
-          Live
-        </div>
-
         {/* Notifications */}
         <NotificationBell
           fetchUrl={notificationBase}

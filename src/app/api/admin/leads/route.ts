@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/supabase/server';
 
-const LEAD_TYPES = ['MERCHANT', 'EMPLOYER', 'INDIVIDUAL_WAITLIST', 'CONTACT_MESSAGE'] as const;
+const LEAD_TYPES = ['MERCHANT', 'EMPLOYER', 'EMPLOYEE_ACCESS', 'INDIVIDUAL_WAITLIST', 'CONTACT_MESSAGE'] as const;
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'REJECTED', 'CONVERTED'] as const;
 
 function unauthorized() {
@@ -27,6 +27,8 @@ function forbidden() {
 //   - status   : NEW | CONTACTED | REJECTED | CONVERTED
 //   - q        : search across company name, email, first/last name
 //   - page, pageSize
+//   - sortBy   : type | referralSource | companyName | contact | email | status | createdAt
+//   - sortDir  : asc | desc
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser();
@@ -39,6 +41,20 @@ export async function GET(request: NextRequest) {
     const q = searchParams.get('q')?.trim();
     const page = Math.max(1, parseInt(searchParams.get('page') ?? '1') || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get('pageSize') ?? '20') || 20));
+
+    const sortDir: Prisma.SortOrder = searchParams.get('sortDir') === 'asc' ? 'asc' : 'desc';
+    const sortBy = searchParams.get('sortBy') ?? 'createdAt';
+    const SORTS: Record<string, Prisma.LeadOrderByWithRelationInput[]> = {
+      type: [{ type: sortDir }],
+      referralSource: [{ referralSource: { sort: sortDir, nulls: 'last' } }],
+      companyName: [{ companyName: { sort: sortDir, nulls: 'last' } }],
+      contact: [{ firstName: sortDir }, { lastName: sortDir }],
+      email: [{ email: sortDir }],
+      status: [{ status: sortDir }],
+      createdAt: [{ createdAt: sortDir }],
+    };
+    // Tie-breaker keeps pagination stable when sort values repeat.
+    const orderBy = [...(SORTS[sortBy] ?? SORTS.createdAt!), { id: 'asc' as const }];
 
     const where: Prisma.LeadWhereInput = {};
     if (type && (LEAD_TYPES as readonly string[]).includes(type)) where.type = type as Prisma.LeadWhereInput['type'];
@@ -63,7 +79,7 @@ export async function GET(request: NextRequest) {
     const [leads, total] = await Promise.all([
       prisma.lead.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {

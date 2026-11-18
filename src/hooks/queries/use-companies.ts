@@ -17,6 +17,8 @@ export function useCompanies(filters?: {
   page?: number;
   pageSize?: number;
   q?: string;
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
 }) {
   return useQuery({
     queryKey: companyKeys.list(filters ?? {}),
@@ -27,6 +29,8 @@ export function useCompanies(filters?: {
       if (filters?.page) params.set('page', String(filters.page));
       if (filters?.pageSize) params.set('pageSize', String(filters.pageSize));
       if (filters?.q) params.set('q', filters.q);
+      if (filters?.sortBy) params.set('sortBy', filters.sortBy);
+      if (filters?.sortDir) params.set('sortDir', filters.sortDir);
 
       const res = await fetch(`/api/admin/companies?${params}`);
       const json = await res.json();

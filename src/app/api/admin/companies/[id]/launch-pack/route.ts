@@ -27,7 +27,8 @@ export async function POST(
     if (user.userType !== 'admin') return forbidden(user.userType)
 
     const { id } = await params
-    const result = await sendLaunchPack(id, user.id)
+    if (!user.profileId) return forbidden(user.userType)
+    const result = await sendLaunchPack(id, user.profileId)
     return NextResponse.json({ success: true, data: result })
   } catch (error) {
     return internalError(error)

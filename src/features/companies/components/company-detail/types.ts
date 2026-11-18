@@ -54,8 +54,6 @@ export interface CompanyDetailPermissions {
   manageCompanyStatus: boolean;
   /** Billing status select and payment reminders. */
   manageBilling: boolean;
-  /** Internal platform note (never shown to the company). */
-  viewAdminNote: boolean;
   /** Promote another admin to primary. */
   transferPrimary: boolean;
   /** Admin id of the viewer, whose own login cannot be disabled. */
@@ -70,7 +68,6 @@ export function permissionsFor(
     return {
       manageCompanyStatus: true,
       manageBilling: true,
-      viewAdminNote: true,
       transferPrimary: true,
       selfAdminId: null,
     };
@@ -78,7 +75,6 @@ export function permissionsFor(
   return {
     manageCompanyStatus: false,
     manageBilling: false,
-    viewAdminNote: false,
     transferPrimary: viewer?.isPrimary ?? false,
     selfAdminId: viewer?.adminId ?? null,
   };

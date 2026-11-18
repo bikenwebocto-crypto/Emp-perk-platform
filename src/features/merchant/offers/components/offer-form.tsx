@@ -166,7 +166,7 @@ function urlToPendingImage(url: string, index: number): PendingImage {
 
 const FOREVER_YEARS = 5;
 
-const TITLE_MAX_CHARS = 30;
+const TITLE_MAX_CHARS = 40;
 const DESCRIPTION_MAX_WORDS = 400;
 
 function countWords(text: string): number {
@@ -266,6 +266,9 @@ export function OfferForm({
   const [errors, setErrors] = useState<FormErrors>({});
   const [showStrength, setShowStrength] = useState(false);
   const [pendingAction, setPendingAction] = useState<"draft" | "submit" | null>(null);
+  // Synchronous lock: state updates are async, so a fast double-click can slip
+  // past `disabled`. Stays set after success until the page navigates away.
+  const submittingRef = useRef(false);
   const isBusy =
     pendingAction !== null ||
     createOffer.isPending ||
@@ -774,9 +777,15 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       showToast({ type: "error", title: "Title is required to save a draft" });
       return;
     }
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setPendingAction("draft");
+    let succeeded = false;
     const allUrls = await resolveAllImageUrls();
-    if (allUrls === null) return setPendingAction(null);
+    if (allUrls === null) {
+      submittingRef.current = false;
+      return setPendingAction(null);
+    }
 
     try {
       const body = withMerchant({ ...buildBody(true), imageUrls: allUrls });
@@ -787,6 +796,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         await createOffer.mutateAsync(body);
         showToast({ type: "success", title: "Draft saved" });
       }
+      succeeded = true;
       if (onSuccess) {
         onSuccess();
       } else {
@@ -799,24 +809,36 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         description: err.message,
       });
     } finally {
-      setPendingAction(null);
+      // On success keep the buttons locked while navigation completes.
+      if (!succeeded) {
+        submittingRef.current = false;
+        setPendingAction(null);
+      }
     }
   };
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
     if (!validate()) return;
 
+    submittingRef.current = true;
     setPendingAction("submit");
+    let succeeded = false;
     try {
-      await doSubmit();
+      succeeded = await doSubmit();
     } finally {
-      setPendingAction(null);
+      // On success keep the buttons locked while navigation completes.
+      if (!succeeded) {
+        submittingRef.current = false;
+        setPendingAction(null);
+      }
     }
   };
 
-  const doSubmit = async () => {
+  /** Returns true once the offer is saved and we're navigating away. */
+  const doSubmit = async (): Promise<boolean> => {
     const allUrls = await resolveAllImageUrls();
-    if (allUrls === null) return;
+    if (allUrls === null) return false;
 
     const body = withMerchant({ ...buildBody(false), imageUrls: allUrls });
 
@@ -835,19 +857,21 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
             description: "Fix the errors and resubmit",
           });
           if (result.validationErrors) setErrors(result.validationErrors);
-          return; // stay on the form so the merchant can see the errors
+          return false; // stay on the form so the merchant can see the errors
         }
         if (onSuccess) {
           onSuccess();
         } else {
           router.push(fallbackRoute);
         }
+        return true;
       } catch (err: any) {
         showToast({
           type: "error",
           title: "Submission failed",
           description: err.message,
         });
+        return false;
       }
     } else {
       try {
@@ -876,12 +900,15 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         } else {
           router.push(fallbackRoute);
         }
+        // Offer exists server-side either way; keep locked to avoid a duplicate.
+        return true;
       } catch (err: any) {
         showToast({
           type: "error",
           title: "Failed to submit",
           description: err.message,
         });
+        return false;
       }
     }
   };

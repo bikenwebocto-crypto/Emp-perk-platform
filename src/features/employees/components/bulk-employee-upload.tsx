@@ -32,13 +32,12 @@ const COLUMNS: { field: BulkRowField; label: string; className: string }[] = [
   { field: 'department', label: 'Department', className: 'min-w-[120px]' },
   { field: 'jobTitle', label: 'Job title', className: 'min-w-[120px]' },
   { field: 'phone', label: 'Phone', className: 'min-w-[110px]' },
-  { field: 'employeeId', label: 'Employee ID', className: 'min-w-[100px]' },
 ]
 
 const SAMPLE_CSV = [
-  ['name', 'email', 'department', 'jobTitle', 'phone', 'employeeId'],
-  ['Anna Kowalski', 'anna@example.com', 'HR', 'HR Manager', '+357 99 000000', 'E-001'],
-  ['John Smith', 'john@example.com', 'Engineering', 'Developer', '', 'E-002'],
+  ['name', 'email', 'department', 'jobTitle', 'phone'],
+  ['Anna Kowalski', 'anna@example.com', 'HR', 'HR Manager', '+357 99 000000'],
+  ['John Smith', 'john@example.com', 'Engineering', 'Developer', ''],
 ]
 
 type Step = 'upload' | 'review' | 'result'
@@ -412,8 +411,8 @@ export function BulkEmployeeUpload({ open, onOpenChange, companyId: fixedCompany
             <CSVUploadDropzone onUpload={handleFile} isUploading={validating} acceptedFormats=".csv" />
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
               <p>
-                Columns: <span className="font-medium">name, email</span> (required); department, jobTitle, phone,
-                employeeId (optional). Up to 500 rows.
+                Columns: <span className="font-medium">name, email</span> (required); department, jobTitle, phone
+                (optional). Up to 500 rows.
               </p>
               <Button
                 type="button"

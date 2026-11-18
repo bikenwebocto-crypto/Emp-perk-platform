@@ -349,9 +349,6 @@ export default function CompanyDashboard() {
             <Button variant="outline" className="w-full justify-start gap-2" onClick={() => router.push('/company/employees')}>
               <Users className="h-4 w-4" /> View All Employees
             </Button>
-            <Button variant="outline" className="w-full justify-start gap-2" onClick={() => router.push('/company/billing')}>
-              <CreditCard className="h-4 w-4" /> View Billing
-            </Button>
             <Button variant="outline" className="w-full justify-start gap-2" onClick={() => router.push('/company/settings')}>
               <TrendingUp className="h-4 w-4" /> Settings
             </Button>

@@ -321,6 +321,14 @@ export function AdministratorsCard({
                             From employee
                           </span>
                         )}
+                        {a.hasEmployeeRecord === false && (
+                          <span
+                            title="Added directly as an admin. They have no employee account, so they cannot be reverted to an employee."
+                            className="ml-2 inline-flex cursor-help items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground"
+                          >
+                            Admin only
+                          </span>
+                        )}
                         {isSelf && (
                           <span className="ml-2 text-xs font-normal text-muted-foreground">
                             (you)

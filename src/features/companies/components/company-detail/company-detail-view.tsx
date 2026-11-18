@@ -7,13 +7,11 @@ import {
   ArrowLeft,
   Ban,
   CheckCircle,
-  FileSpreadsheet,
-  Mail,
   Pause,
   Power,
   PowerOff,
-  Send,
   ShieldCheck,
+  Upload,
   Users,
   XCircle,
 } from "lucide-react";
@@ -36,13 +34,12 @@ import {
   useAddCompanyDetailAdmin,
   useCompanyDetailData,
   useCompanyDetailEmployees,
-  useConfirmCompanyCsvImport,
   useInvalidateCompanyDetail,
   usePromoteCompanyDetailEmployee,
   useRevertCompanyDetailAdmin,
   useUpdateCompanyDetailAdmin,
 } from "@/hooks/queries/use-company-detail-view";
-import { CSVUploadDropzone } from "@/features/csv-uploads/components/csv-upload-dropzone";
+import { BulkEmployeeUpload } from "@/features/employees/components/bulk-employee-upload";
 import type { ColumnDef, CompanyAdminSummary } from "@/types";
 import {
   ActionImpact,
@@ -61,7 +58,6 @@ import {
   CityReadinessBanner,
   CompanyHeaderCard,
   CompanyInfoCard,
-  CsvPreviewPanel,
   PrimaryAdminCard,
 } from "./sections";
 import { AdminFormModal, PasswordRevealModal, TransferPrimaryModal } from "./admin-modals";
@@ -71,7 +67,6 @@ import {
   type AdminFormState,
   type CityReadiness,
   type CompanyDetailScope,
-  type ImportPreview,
 } from "./types";
 
 async function fetchReadiness(id: string): Promise<CityReadiness> {
@@ -111,16 +106,12 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
     enabled: isSuperAdmin && !!id,
   });
 
-  const [adminNote, setAdminNote] = useState("");
-  const [noteSaved, setNoteSaved] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<string>("");
+  const [confirmLaunchPackOpen, setConfirmLaunchPackOpen] = useState(false);
 
-  // CSV preview state
-  const [showCSVUpload, setShowCSVUpload] = useState(false);
-  const [preview, setPreview] = useState<{ csv: string; data: ImportPreview } | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [confirmImportOpen, setConfirmImportOpen] = useState(false);
+  // Bulk employee upload dialog (same flow as the Employees tab)
+  const [showUpload, setShowUpload] = useState(false);
 
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [employeeStatusFilter, setEmployeeStatusFilter] = useState("ALL");
@@ -332,22 +323,6 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
     );
   }, [id, confirmAction, updateDetail, invalidate]);
 
-  const handleSaveNote = useCallback(() => {
-    if (!adminNote.trim() && !company?.adminNote) return;
-    updateDetail.mutate(
-      { id, adminNote },
-      {
-        onSuccess: () => {
-          showToast({ type: "success", title: "Admin note saved" });
-          setNoteSaved(true);
-          setTimeout(() => setNoteSaved(false), 3000);
-        },
-        onError: (err: Error) =>
-          showToast({ type: "error", title: "Failed to save note", description: err.message }),
-      },
-    );
-  }, [id, adminNote, updateDetail, company]);
-
   const sendLaunchPack = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/admin/companies/${id}/launch-pack`, { method: "POST" });
@@ -365,51 +340,6 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
     onError: (err: Error) => showToast({ type: "error", title: "Failed", description: err.message }),
   });
 
-
-  // ----- CSV preview/confirm flow ---------------------------------
-
-  const handleCSVSelected = useCallback(
-    async (file: File) => {
-      setPreviewLoading(true);
-      try {
-        const formData = new FormData();
-        formData.append("file", file);
-        const res = await fetch(endpoints.csvPreview, { method: "POST", body: formData });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error?.message ?? "Preview failed");
-
-        const csv = await file.text();
-        setPreview({ csv, data: json.data });
-      } catch (err: any) {
-        showToast({ type: "error", title: "Preview failed", description: err.message });
-      } finally {
-        setPreviewLoading(false);
-      }
-    },
-    [endpoints.csvPreview],
-  );
-
-  const confirmImport = useConfirmCompanyCsvImport(scope, companyIdProp);
-  const runConfirmImport = useCallback(() => {
-    if (!preview) return;
-    confirmImport.mutate(
-      { csv: preview.csv, bodyHash: preview.data.bodyHash },
-      {
-        onSuccess: (json: any) => {
-          showToast({
-            type: "success",
-            title: "Import complete",
-            description: json.message ?? `${json.data?.imported} imported`,
-          });
-          setPreview(null);
-          setShowCSVUpload(false);
-          setConfirmImportOpen(false);
-        },
-        onError: (err: Error) =>
-          showToast({ type: "error", title: "Import failed", description: err.message }),
-      },
-    );
-  }, [preview, confirmImport]);
 
   // ----- Admin management handlers --------------------------------
 
@@ -689,7 +619,7 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
   const history = company.statusHistory ?? [];
   const enrolledCount = company._count?.employees ?? 0;
   const cityReadiness = readiness as CityReadiness | undefined;
-  const markActiveDisabled = !cityReadiness?.ready && company.status !== "ACTIVE";
+  const markActiveDisabled = !cityReadiness?.ready;
 
   return (
     <div className="space-y-6">
@@ -719,6 +649,97 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
 
       {/* SECTION 2: Primary Administrator (the login owner) */}
       <PrimaryAdminCard primaryAdmin={primaryAdmin} onAssign={openAddAdminModal} />
+         {/* Admin Actions (platform-level company lifecycle) */}
+      {permissions.manageCompanyStatus && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Admin Actions</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              For reference only. Status changes are made from the Companies list.
+            </p>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {company.status !== "ACTIVE" && (
+            <div className="space-y-1 rounded-md border p-3">
+              <div className="flex items-center text-sm font-medium text-green-600">
+                <CheckCircle className="mr-1 h-4 w-4" />
+                Mark Active
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Restores employee access. Sends company admins an approval notification and the
+                launch pack, and active employees the launch pack in the app. Anyone who already
+                received these is not sent them again.
+                {markActiveDisabled && (
+                  <span className="block text-destructive">
+                    Unavailable: city readiness not met. Update the city or wait for more merchants to join.
+                  </span>
+                )}
+              </p>
+            </div>
+            )}
+            {company.status !== "PAUSED" && (
+              <div className="space-y-1 rounded-md border p-3">
+                <div className="flex items-center text-sm font-medium text-amber-600">
+                  <Pause className="mr-1 h-4 w-4" />
+                  Pause
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Temporarily blocks employee access. Data is kept; access returns when the company is
+                  marked Active. No notification is sent.
+                </p>
+              </div>
+            )}
+            {company.status !== "SUSPENDED" && (
+              <div className="space-y-1 rounded-md border p-3">
+                <div className="flex items-center text-sm font-medium text-destructive">
+                  <Ban className="mr-1 h-4 w-4" />
+                  Suspend
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Blocks employee access and sends company admins a suspension notification (only the
+                  first time; employees are not notified). Reversed by marking the company Active.
+                </p>
+              </div>
+            )}
+            {company.status !== "CANCELLED" && (
+              <div className="space-y-1 rounded-md border p-3">
+                <div className="flex items-center text-sm font-medium text-destructive">
+                  <XCircle className="mr-1 h-4 w-4" />
+                  Cancel
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Sets the status to Cancelled and removes employee access. No notification is sent.
+                  The record is not deleted, and there is no reactivate option in the admin screens.
+                </p>
+              </div>
+            )}
+            <div className="space-y-1 rounded-md border p-3">
+              <div className="flex items-center text-sm font-medium">
+                <ShieldCheck className="mr-1 h-4 w-4" />
+                Make Admin
+              </div>
+              <p className="text-xs text-muted-foreground">
+                An employee can be promoted to company admin with Make Admin in the Employees list.
+                The company must always have at least one active primary admin. A promoted admin can
+                be turned back into an employee: disable them, then choose Revert to Employee.
+              </p>
+            </div>
+            <div className="space-y-1 rounded-md border p-3">
+              <div className="flex items-center text-sm font-medium text-destructive">
+                <PowerOff className="mr-1 h-4 w-4" />
+                Disable Admin
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Done from the Administrators section. The admin can no longer sign in anywhere; their
+                record is kept and they can be reactivated. The last active admin cannot be disabled,
+                and disabling the primary admin first transfers the primary role to another active
+                admin. Admins promoted from an employee can then be reverted to an employee; admins
+                added directly cannot.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* SECTION 2b: Company Administrators (full management) */}
       <AdministratorsCard
@@ -734,62 +755,7 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
         onRevertToEmployee={setRevertingAdmin}
       />
 
-      {/* Admin Actions (platform-level company lifecycle) */}
-      {permissions.manageCompanyStatus && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Admin Actions</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="success"
-              onClick={() => handleStatusChange("ACTIVE")}
-              disabled={markActiveDisabled}
-              title={
-                markActiveDisabled
-                  ? "City readiness not met. Update the city or wait for more merchants to join."
-                  : undefined
-              }
-            >
-              <CheckCircle className="mr-1 h-4 w-4" />
-              Mark Active
-            </Button>
-            {company.status !== "PAUSED" && (
-              <Button size="sm" variant="warning" onClick={() => handleStatusChange("PAUSED")}>
-                <Pause className="mr-1 h-4 w-4" />
-                Pause
-              </Button>
-            )}
-            {company.status !== "SUSPENDED" && (
-              <Button size="sm" variant="destructive" onClick={() => handleStatusChange("SUSPENDED")}>
-                <Ban className="mr-1 h-4 w-4" />
-                Suspend
-              </Button>
-            )}
-            {company.status !== "CANCELLED" && (
-              <Button size="sm" variant="destructive" onClick={() => handleStatusChange("CANCELLED")}>
-                <XCircle className="mr-1 h-4 w-4" />
-                Cancel
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => sendLaunchPack.mutate()}
-              disabled={sendLaunchPack.isPending}
-            >
-              <Send className="mr-1 h-4 w-4" />
-              {sendLaunchPack.isPending ? "Sending…" : "Send Launch Pack"}
-            </Button>
-            <Button size="sm" variant="outline" disabled title="Coming soon">
-              <Mail className="mr-1 h-4 w-4" />
-              Transfer Admin Email
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
+   
       {/* SECTION 3: Employee Summary */}
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
@@ -798,36 +764,13 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
             Employees ({enrolledCount})
           </CardTitle>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => setShowCSVUpload(!showCSVUpload)}>
-              <FileSpreadsheet className="mr-1 h-4 w-4" />
-              {showCSVUpload ? "Hide" : "Bulk Upload"} CSV
+            <Button size="sm" variant="outline" onClick={() => setShowUpload(true)} disabled={!id}>
+              <Upload className="mr-1 h-4 w-4" />
+              Bulk Upload
             </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {showCSVUpload && !preview && (
-            <>
-              <p className="text-xs text-muted-foreground">
-                Required columns: <code>firstName</code>, <code>lastName</code>,{" "}
-                <code>email</code>, <code>department</code> (optional),{" "}
-                <code>jobTitle</code> (optional). Header row is required.
-              </p>
-              <CSVUploadDropzone
-                onUpload={handleCSVSelected}
-                isUploading={previewLoading}
-                acceptedFormats=".csv"
-              />
-            </>
-          )}
-
-          {preview && (
-            <CsvPreviewPanel
-              preview={preview.data}
-              onCancel={() => setPreview(null)}
-              onConfirm={() => setConfirmImportOpen(true)}
-            />
-          )}
-
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="text"
@@ -864,31 +807,6 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
         </CardContent>
       </Card>
 
-      {/* Admin Note (internal to the platform team) */}
-      {permissions.viewAdminNote && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Admin Note</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <textarea
-              className="w-full rounded border p-3 text-sm"
-              rows={3}
-              maxLength={500}
-              placeholder="Add an internal note about this company (max 500 characters). Not visible to the company admin."
-              value={adminNote}
-              onChange={(e) => setAdminNote(e.target.value)}
-            />
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">{adminNote.length}/500</span>
-              <Button size="sm" onClick={handleSaveNote} disabled={updateDetail.isPending}>
-                {noteSaved ? "Saved" : updateDetail.isPending ? "Saving..." : "Save Note"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* SECTION 4: Activity Log */}
       <ActivityLogCard history={history} />
 
@@ -907,15 +825,31 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
         />
       )}
 
-      <ConfirmDialog
-        open={confirmImportOpen}
-        title="Confirm Employee Import"
-        message={`This will create ${preview?.data.validCount ?? 0} new employee records. ${preview?.data.invalidCount ?? 0} invalid rows will be skipped. This action cannot be undone.`}
-        confirmLabel="Import"
-        loading={confirmImport.isPending}
-        onConfirm={runConfirmImport}
-        onCancel={() => setConfirmImportOpen(false)}
-      />
+      {permissions.manageCompanyStatus && (
+        <ConfirmDialog
+          open={confirmLaunchPackOpen}
+          title="Resend Launch Pack"
+          variant="default"
+          message="This will email the launch pack again to every active admin and employee of this company."
+          confirmLabel="Send"
+          loading={sendLaunchPack.isPending}
+          onConfirm={() =>
+            sendLaunchPack.mutate(undefined, { onSettled: () => setConfirmLaunchPackOpen(false) })
+          }
+          onCancel={() => setConfirmLaunchPackOpen(false)}
+        />
+      )}
+
+      {id && (
+        <BulkEmployeeUpload
+          open={showUpload}
+          onOpenChange={(open) => {
+            setShowUpload(open);
+            if (!open) invalidate.employees();
+          }}
+          companyId={id}
+        />
+      )}
 
       <AdminFormModal
         open={adminModalOpen}

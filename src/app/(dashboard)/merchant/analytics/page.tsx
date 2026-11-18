@@ -18,6 +18,7 @@ interface AnalyticsResponse {
     period: { from: string; to: string }
     summary: {
       totalRedemptions: number
+      totalViews: number
       totalDiscount: number
       totalSavings: number
       allTimeRedemptions: number
@@ -29,10 +30,10 @@ interface AnalyticsResponse {
       title: string
       status: string
       views: number
-      saves: number
       redemptions: number
       conversionRate: number
     }[]
+    statusDistribution: { status: string; count: number }[]
     branchPerformance: { id: string; name: string; type: string; redemptions: number }[]
     redemptionTrend: { date: string; total: number }[]
   }
@@ -54,7 +55,7 @@ export default function MerchantAnalyticsPage() {
   if (from) params.set('from', from)
   if (to) params.set('to', to)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['merchant-analytics', params.toString()],
     queryFn: async () => {
       const res = await fetch(`/api/merchant/analytics/summary?${params.toString()}`)
@@ -78,20 +79,18 @@ export default function MerchantAnalyticsPage() {
     }))
   }, [topOffers])
 
-  const pieData = useMemo(() => {
-    const counts: Record<string, number> = {}
-    topOffers.forEach((o) => {
-      const label = STATUS_LABELS[o.status] ?? o.status
-      counts[label] = (counts[label] || 0) + 1
-    })
-    return Object.entries(counts).map(([name, value]) => ({ name, value }))
-  }, [topOffers])
+  const statusDistribution = data?.data.statusDistribution
+  const pieData = useMemo(
+    () =>
+      (statusDistribution ?? []).map((s) => ({ name: STATUS_LABELS[s.status] ?? s.status, value: s.count })),
+    [statusDistribution]
+  )
 
-  const totalViews = topOffers.reduce((sum, o) => sum + o.views, 0)
+  const totalViews = summary?.totalViews ?? 0
   const totalRedemptions = summary?.totalRedemptions ?? 0
   const conversionRate = totalViews > 0 ? ((totalRedemptions / totalViews) * 100).toFixed(1) : '0.0'
 
-  const loading = isLoading || !summary
+  const loading = isLoading
 
   return (
     <div className="space-y-6">
@@ -115,6 +114,15 @@ export default function MerchantAnalyticsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {isError && (
+        <Card className="border-destructive/50">
+          <CardContent className="flex items-center justify-between gap-3 p-4 text-sm">
+            <span className="text-destructive">{(error as Error)?.message ?? 'Failed to load analytics'}</span>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>Retry</Button>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <AnalyticsKPICard label="Total Views" value={totalViews.toLocaleString()} icon={Eye} iconBg="bg-blue-100 text-blue-600" accentColor="from-blue-500 to-indigo-600" loading={loading} />
@@ -199,7 +207,7 @@ export default function MerchantAnalyticsPage() {
                       <p className="font-medium">
                         #{i + 1} {o.title}
                       </p>
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{o.status}</span>
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{STATUS_LABELS[o.status] ?? o.status}</span>
                     </div>
                     <div className="mt-1 flex gap-4 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1"><Eye className="h-3 w-3" /> {o.views} views</span>
@@ -252,7 +260,7 @@ export default function MerchantAnalyticsPage() {
             <p className="text-sm text-muted-foreground">No redemptions in the selected period.</p>
           ) : (
             <AnalyticsBarChart
-              data={trend.map((t) => ({ date: new Date(t.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }), Redemptions: t.total }))}
+              data={trend.map((t) => ({ date: new Date(t.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }), Redemptions: t.total }))}
               xKey="date"
               bars={[{ key: 'Redemptions', color: '#3b82f6', name: 'Redemptions' }]}
               height={200}

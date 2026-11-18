@@ -266,14 +266,10 @@ export function MerchantOperationsTable({
               <th className="w-12 px-2"></th>
               <SortHeader label="Merchant" sortKey="businessName" currentSort={sortConfig} onSort={onSortChange} />
               <SortHeader label="Status" sortKey="status" currentSort={sortConfig} onSort={onSortChange} align="center" />
-              <SortHeader label="Priority" sortKey="priority" currentSort={sortConfig} onSort={onSortChange} align="center" />
-              <SortHeader label="City" sortKey="city" currentSort={sortConfig} onSort={onSortChange} />
-              <th className="px-2 pb-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Phone</th>
               <th className="px-2 pb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Offers</th>
               <SortHeader label="Engagement" sortKey="views" currentSort={sortConfig} onSort={onSortChange} align="center" />
               <SortHeader label="Redeemed" sortKey="redemptions" currentSort={sortConfig} onSort={onSortChange} align="center" />
               {/* <SortHeader label="Conversion" sortKey="redemptions" currentSort={sortConfig} onSort={onSortChange} align="center" /> */}
-              <th className="px-2 pb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Network</th>
               <th className="px-2 pb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Health</th>
               <SortHeader label="Last activity" sortKey="lastActivity" currentSort={sortConfig} onSort={onSortChange} align="center" />
               <SortHeader label="Created" sortKey="createdAt" currentSort={sortConfig} onSort={onSortChange} align="center" />
@@ -316,21 +312,6 @@ export function MerchantOperationsTable({
                 {/* Status */}
                 <td className="py-3 text-center">
                   <StatusBadge status={row.status} />
-                </td>
-
-                {/* Priority */}
-                <td className="py-3 text-center">
-                  <PriorityCell value={row.displayPriority} />
-                </td>
-
-                {/* City */}
-                <td className="py-3 text-xs text-muted-foreground">
-                  {row.city ?? <span className="text-muted-foreground/40">—</span>}
-                </td>
-
-                {/* Phone */}
-                <td className="py-3 text-xs text-muted-foreground">
-                  <PhoneCell value={row.contactPhone} />
                 </td>
 
                 {/* Offers (Live / Pending / Archived / Rejected) */}
@@ -391,30 +372,6 @@ export function MerchantOperationsTable({
                   )}
                 </td> */}
 
-                {/* Network: companies, employees, branches */}
-                <td className="py-3">
-                  <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-0.5" title="Companies">
-                      <Building2 className="h-3 w-3" />
-                      <span className="font-medium tabular-nums">{row.relations.companies}</span>
-                    </span>
-                    <span className="flex items-center gap-0.5" title="Employees">
-                      <Users className="h-3 w-3" />
-                      <span className="font-medium tabular-nums">{row.relations.employees}</span>
-                    </span>
-                    <span className="flex items-center gap-0.5" title="Branches">
-                      <GitBranch className="h-3 w-3" />
-                      <span className="font-medium tabular-nums">{row.relations.branches}</span>
-                    </span>
-                    {row.relations.openIssues > 0 && (
-                      <span className="flex items-center gap-0.5 text-rose-600" title="Open issues">
-                        <AlertCircle className="h-3 w-3" />
-                        <span className="font-bold tabular-nums">{row.relations.openIssues}</span>
-                      </span>
-                    )}
-                  </div>
-                </td>
-
                 {/* Health */}
                 <td className="py-3 text-center">
                   <HealthBadge health={row.health} />
@@ -463,7 +420,6 @@ export function MerchantOperationsTable({
               <th className="w-10 px-2"></th>
               <SortHeader label="Merchant" sortKey="businessName" currentSort={sortConfig} onSort={onSortChange} />
               <SortHeader label="Status" sortKey="status" currentSort={sortConfig} onSort={onSortChange} align="center" />
-              <SortHeader label="Priority" sortKey="priority" currentSort={sortConfig} onSort={onSortChange} align="center" />
               <th className="px-2 pb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Offers</th>
               <SortHeader label="Engagement" sortKey="redemptions" currentSort={sortConfig} onSort={onSortChange} align="center" />
               <SortHeader label="Last activity" sortKey="lastActivity" currentSort={sortConfig} onSort={onSortChange} align="center" />
@@ -501,9 +457,6 @@ export function MerchantOperationsTable({
                     <StatusBadge status={row.status} />
                     <HealthBadge health={row.health} />
                   </div>
-                </td>
-                <td className="py-3 text-center">
-                  <PriorityCell value={row.displayPriority} />
                 </td>
                 <td className="py-3">
                   <div className="flex items-center justify-center gap-1">

@@ -21,6 +21,7 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 import { authenticateFromBearer, buildAuthContext } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
 import type { User } from '@supabase/supabase-js'
 import type { Account, Company, Employee } from '@prisma/client'
 
@@ -90,7 +91,29 @@ export async function getAuthenticatedMobileEmployee(
       }
     }
 
-    if (ctx.role !== 'EMPLOYEE') {
+    // A Company Admin who was promoted from an employee keeps their Employee
+    // row and may still use the mobile app with the same login.
+    let employee: Employee | null = null
+    let company: Company | null = ctx.company
+    if (ctx.role === 'EMPLOYEE') {
+      employee = ctx.profile as Employee | null
+    } else if (ctx.role === 'COMPANY_ADMIN') {
+      employee = await prisma.employee.findFirst({
+        where: { accountId: ctx.account.authUserId, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+      })
+      if (!employee) {
+        return {
+          ok: false,
+          response: authError(
+            403,
+            'ROLE_NOT_ALLOWED',
+            'This endpoint is only available for employee accounts.',
+          ),
+        }
+      }
+      company = await prisma.company.findUnique({ where: { id: employee.companyId } })
+    } else {
       return {
         ok: false,
         response: authError(
@@ -101,7 +124,6 @@ export async function getAuthenticatedMobileEmployee(
       }
     }
 
-    const employee = ctx.profile as Employee | null
     if (!employee) {
       return {
         ok: false,
@@ -124,7 +146,6 @@ export async function getAuthenticatedMobileEmployee(
       }
     }
 
-    const company = ctx.company
     if (
       !company ||
       company.deletedAt ||

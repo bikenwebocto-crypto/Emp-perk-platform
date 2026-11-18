@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-export type LeadType = 'MERCHANT' | 'EMPLOYER' | 'INDIVIDUAL_WAITLIST' | 'CONTACT_MESSAGE';
+export type LeadType = 'MERCHANT' | 'EMPLOYER' | 'EMPLOYEE_ACCESS' | 'INDIVIDUAL_WAITLIST' | 'CONTACT_MESSAGE';
 export type LeadStatus = 'NEW' | 'CONTACTED' | 'REJECTED' | 'CONVERTED';
 
 export interface Lead {
@@ -49,7 +49,7 @@ export const leadKeys = {
   detail: (id: string) => [...leadKeys.details(), id] as const,
 };
 
-export function useLeads(filters?: { type?: string; status?: string; q?: string; page?: number; pageSize?: number }) {
+export function useLeads(filters?: { type?: string; status?: string; q?: string; page?: number; pageSize?: number; sortBy?: string; sortDir?: 'asc' | 'desc' }) {
   return useQuery({
     queryKey: leadKeys.list(filters ?? {}),
     queryFn: async () => {
@@ -59,6 +59,8 @@ export function useLeads(filters?: { type?: string; status?: string; q?: string;
       if (filters?.q) params.set('q', filters.q);
       if (filters?.page) params.set('page', String(filters.page));
       if (filters?.pageSize) params.set('pageSize', String(filters.pageSize));
+      if (filters?.sortBy) params.set('sortBy', filters.sortBy);
+      if (filters?.sortDir) params.set('sortDir', filters.sortDir);
 
       const res = await fetch(`/api/admin/leads?${params}`);
       const json = await res.json();

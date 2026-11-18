@@ -1,34 +1,44 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Mail, Store, Building2, User, MessageSquare } from 'lucide-react'
+import { Mail, Store, Building2, User, Users, MessageSquare } from 'lucide-react'
 import { PageHeader } from '@/components/shared/page-header'
 import { FilterBar } from '@/components/shared/filter-bar'
 import { DataTable } from '@/components/shared/data-table'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { useLeads, type Lead } from '@/hooks/queries/use-leads'
+import { useLeads, type Lead, type LeadType } from '@/hooks/queries/use-leads'
 import { useTablePagination } from '@/hooks/use-table-pagination'
 import { LeadActions } from '@/features/leads/components/lead-actions'
-import type { ColumnDef } from '@/types'
+import type { ColumnDef, TableSortConfig } from '@/types'
 
-type TypeTab = 'ALL' | 'MERCHANT' | 'EMPLOYER' | 'INDIVIDUAL_WAITLIST' | 'CONTACT_MESSAGE'
+type TypeTab = 'ALL' | LeadType
 type StatusFilter = 'ALL' | 'NEW' | 'CONTACTED' | 'REJECTED' | 'CONVERTED'
 
 const TYPE_TABS: { label: string; value: TypeTab }[] = [
   { label: 'All', value: 'ALL' },
   { label: 'Merchants', value: 'MERCHANT' },
   { label: 'Employers', value: 'EMPLOYER' },
+  { label: 'Employee access', value: 'EMPLOYEE_ACCESS' },
   { label: 'Individuals', value: 'INDIVIDUAL_WAITLIST' },
   { label: 'Messages', value: 'CONTACT_MESSAGE' },
 ]
+
+const TYPE_META: Record<LeadType, { label: string; Icon: typeof Store }> = {
+  MERCHANT: { label: 'Merchant', Icon: Store },
+  EMPLOYER: { label: 'Employer', Icon: Building2 },
+  EMPLOYEE_ACCESS: { label: 'Employee access', Icon: Users },
+  INDIVIDUAL_WAITLIST: { label: 'Individual', Icon: User },
+  CONTACT_MESSAGE: { label: 'Message', Icon: MessageSquare },
+}
 
 export default function LeadsPage() {
   const router = useRouter()
   const [search, setSearch] = useState('')
   const [typeTab, setTypeTab] = useState<TypeTab>('ALL')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
+  const [sortConfig, setSortConfig] = useState<TableSortConfig>({ key: 'createdAt', direction: 'desc' })
 
   const { page, setPage, pageSize } = useTablePagination({ defaultPageSize: 10 })
 
@@ -38,30 +48,35 @@ export default function LeadsPage() {
     q: search || undefined,
     page,
     pageSize,
+    sortBy: sortConfig.key || 'createdAt',
+    sortDir: sortConfig.direction,
   })
 
   const leads = useMemo<any[]>(() => data?.data ?? [], [data])
 
-  const columns: ColumnDef<any>[] = [
+  const handleSort = useCallback((config: TableSortConfig) => {
+    // Clearing the sort (third click) falls back to newest first.
+    setSortConfig(config.key ? config : { key: 'createdAt', direction: 'desc' })
+    setPage(1)
+  }, [setPage])
+
+  const columns = useMemo<ColumnDef<any>[]>(() => [
     {
       key: 'type',
       header: 'Type',
-      render: (l: Lead) => (
-        <span className="inline-flex items-center gap-1.5 text-sm">
-          {l.type === 'MERCHANT'
-            ? <><Store className="h-3.5 w-3.5 text-muted-foreground" /> Merchant</>
-            : l.type === 'EMPLOYER'
-              ? <><Building2 className="h-3.5 w-3.5 text-muted-foreground" /> Employer</>
-              : l.type === 'INDIVIDUAL_WAITLIST'
-                ? <><User className="h-3.5 w-3.5 text-muted-foreground" /> Individual</>
-                : <><MessageSquare className="h-3.5 w-3.5 text-muted-foreground" /> Message</>}
-        </span>
-      ),
+      render: (l: Lead) => {
+        const meta = TYPE_META[l.type] ?? { label: l.type, Icon: MessageSquare }
+        return (
+          <span className="inline-flex items-center gap-1.5 text-sm">
+            <meta.Icon className="h-3.5 w-3.5 text-muted-foreground" /> {meta.label}
+          </span>
+        )
+      },
     },
     {
       key: 'referralSource',
       header: 'Source',
-      render: (l: Lead) => <span className="text-sm">{l.referralSource ?? '—'}</span>,
+      render: (l: Lead) => <span className="text-sm">{l.referralSource ?? l.hearAbout ?? '—'}</span>,
     },
     {
       key: 'companyName',
@@ -106,7 +121,7 @@ export default function LeadsPage() {
       sortable: false,
       render: (l: Lead) => <LeadActions lead={l} compact />,
     },
-  ]
+  ], [])
 
   return (
     <div className="space-y-6">
@@ -149,6 +164,8 @@ export default function LeadsPage() {
         keyExtractor={(l: any) => l.id}
         isLoading={isLoading}
         emptyMessage="No leads found"
+        sortConfig={sortConfig}
+        onSort={handleSort}
         onRowClick={(l: any) => router.push(`/admin/leads/${l.id}`)}
         pagination={{
           page,

@@ -78,6 +78,15 @@ export async function PATCH(
         );
       }
 
+      // No-op transitions would write duplicate status history / audit
+      // rows and re-send notifications (e.g. "company approved" again).
+      if (body.status === previousStatus) {
+        return NextResponse.json(
+          { success: false, error: { code: 'VALIDATION', message: `Company is already ${previousStatus}` } },
+          { status: 409 },
+        );
+      }
+
       // City Readiness Gate: cannot transition to ACTIVE unless the
       // headquarters city meets the merchant/category thresholds.
       if (body.status === 'ACTIVE') {

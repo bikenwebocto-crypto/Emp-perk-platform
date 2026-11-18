@@ -199,40 +199,6 @@ export function MerchantActionsMenu({
           )}
 
           <DropdownMenuSeparator />
-          <DropdownMenuLabel className="text-xs">Display</DropdownMenuLabel>
-
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" />
-              <span>Priority: {row.displayPriority}</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuPortal>
-              <DropdownMenuSubContent>
-                <DropdownMenuLabel className="text-xs">Quick set</DropdownMenuLabel>
-                {PRIORITY_PRESETS.map((p) => (
-                  <DropdownMenuItem key={p} onClick={() => handlePriorityPreset(p)}>
-                    {p === 0 ? 'Reset to 0' : `Set to ${p}`}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-xs">Custom value</DropdownMenuLabel>
-                <div className="flex items-center gap-1 p-2">
-                  <input
-                    type="number"
-                    min={0}
-                    value={customPriority}
-                    onChange={(e) => setCustomPriority(e.target.value)}
-                    className="h-7 w-20 rounded border bg-background px-2 text-xs"
-                  />
-                  <Button size="sm" variant="outline" onClick={handleCustomPriority} className="h-7 text-xs">
-                    Set
-                  </Button>
-                </div>
-              </DropdownMenuSubContent>
-            </DropdownMenuPortal>
-          </DropdownMenuSub>
-
-          <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => onDelete?.(row.id)}
             className="flex items-center gap-2 text-rose-600"

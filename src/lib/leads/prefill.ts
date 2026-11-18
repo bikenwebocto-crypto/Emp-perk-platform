@@ -35,7 +35,7 @@ export interface CompanyPrefill {
 /** Lead types that can be converted into a company or a merchant. */
 export const CONVERTIBLE_LEAD_TYPES = ['MERCHANT', 'EMPLOYER'] as const
 
-export type LeadType = 'MERCHANT' | 'EMPLOYER' | 'INDIVIDUAL_WAITLIST' | 'CONTACT_MESSAGE'
+export type LeadType = 'MERCHANT' | 'EMPLOYER' | 'EMPLOYEE_ACCESS' | 'INDIVIDUAL_WAITLIST' | 'CONTACT_MESSAGE'
 
 /** Where the Convert action sends the admin for each lead type. */
 export function convertHref(lead: { id: string; type: LeadType }): string {

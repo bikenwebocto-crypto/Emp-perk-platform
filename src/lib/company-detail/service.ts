@@ -717,11 +717,14 @@ export async function promoteEmployeeToCompanyAdmin(params: PromoteEmployeeParam
             },
           })
 
-      // 3. Deactivate the employee row (keep deletedAt null so history stays).
-      await tx.employee.update({
-        where: { id: employee.id },
-        data: { status: 'INACTIVE' },
-      })
+      // 3. Keep the employee row ACTIVE so the same login can still use the
+      //    employee mobile app (see getAuthenticatedMobileEmployee).
+      if (employee.status !== 'ACTIVE') {
+        await tx.employee.update({
+          where: { id: employee.id },
+          data: { status: 'ACTIVE' },
+        })
+      }
 
       // 4. Auto-assign primary if this company has no active primary yet.
       await ensurePrimaryAdmin(employee.companyId, tx)
@@ -741,19 +744,9 @@ export async function promoteEmployeeToCompanyAdmin(params: PromoteEmployeeParam
       }
     })
 
-    // After commit: the person no longer uses the mobile app — drop any
-    // employee push tokens so they stop receiving employee notifications.
-    // DeviceToken.role uses the lowercase 'employee' value (see device-token.service).
-    // The promotion is committed at this point, so these side effects are
+    // The promotion is committed at this point, so side effects are
     // best-effort: a failure must not turn a successful promotion into a 500.
-    try {
-      await prisma.deviceToken.deleteMany({
-        where: { userId: result.accountId, role: 'employee' },
-      })
-    } catch (error) {
-      console.error('Promotion device token cleanup failed:', error)
-    }
-
+    // Employee push tokens are kept — the person still uses the mobile app.
     try {
       await createAuditLog(
         fromCurrentUser(actor, 'EMPLOYEE_PROMOTED_TO_COMPANY_ADMIN', 'company_admin', result.admin.id, {
