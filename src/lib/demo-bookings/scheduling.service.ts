@@ -157,6 +157,7 @@ export interface RescheduleDemoBookingInput {
   bookingId: string;
   /** New UTC instant. */
   startsAt: Date;
+  meetingLink: string;
   /** null/undefined keeps the booking's current display zone. */
   timezone?: string | null;
   /** null/undefined keeps the booking's current duration. */
@@ -171,6 +172,7 @@ export interface RescheduledBooking {
   startsAt: Date;
   durationMinutes: number;
   timezone: string;
+  meetingLink: string;
 }
 
 export interface RescheduleRequester {
@@ -191,9 +193,6 @@ export type RescheduleResult =
   | { ok: false; kind: 'POLICY'; violation: PolicyViolation }
   | { ok: false; kind: 'CONFLICT'; message: string; availableSlots: Date[] };
 
-/** A cancelled or already-completed meeting cannot be moved. */
-const RESCHEDULE_BLOCKED_STATUSES: readonly string[] = ['CANCELLED', 'COMPLETED'];
-
 /**
  * Move an existing booking to a new time, using exactly the same policy checks
  * and locking as a create. The booking being moved is excluded from its own
@@ -209,7 +208,7 @@ export async function rescheduleDemoBooking(
     include: { lead: { select: { email: true, firstName: true, companyName: true } } },
   });
   if (!booking) return { ok: false, kind: 'NOT_FOUND' };
-  if (RESCHEDULE_BLOCKED_STATUSES.includes(booking.status)) {
+  if (booking.status !== 'PENDING') {
     return { ok: false, kind: 'INVALID_STATE', status: booking.status };
   }
 
@@ -235,22 +234,36 @@ export async function rescheduleDemoBooking(
       return { kind: 'conflict' as const };
     }
 
-    const updated = await tx.demoBooking.update({
-      where: { id: input.bookingId },
-      data: { startsAt: input.startsAt, durationMinutes, timezone },
-      select: {
-        id: true,
-        reference: true,
-        status: true,
-        leadId: true,
-        startsAt: true,
-        durationMinutes: true,
-        timezone: true,
-      },
+    const updatedCount = await tx.demoBooking.updateMany({
+      where: { id: input.bookingId, status: 'PENDING' },
+      data: { startsAt: input.startsAt, durationMinutes, timezone, meetingLink: input.meetingLink },
     });
+    if (updatedCount.count === 0) {
+      const current = await tx.demoBooking.findUnique({
+        where: { id: input.bookingId },
+        select: { status: true },
+      });
+      return { kind: 'state_changed' as const, status: current?.status ?? 'UNKNOWN' };
+    }
 
-    return { kind: 'updated' as const, updated };
+    return {
+      kind: 'updated' as const,
+      updated: {
+        id: booking.id,
+        reference: booking.reference,
+        status: booking.status,
+        leadId: booking.leadId,
+        startsAt: input.startsAt,
+        durationMinutes,
+        timezone,
+        meetingLink: input.meetingLink,
+      },
+    };
   });
+
+  if (outcome.kind === 'state_changed') {
+    return { ok: false, kind: 'INVALID_STATE', status: outcome.status };
+  }
 
   if (outcome.kind === 'conflict') {
     const slots = await getAvailableSlots(targetDay, durationMinutes, now, input.bookingId);

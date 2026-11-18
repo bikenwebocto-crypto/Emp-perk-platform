@@ -4,7 +4,7 @@ vi.mock('@/lib/prisma', () => {
   const prisma: any = {
     $executeRaw: vi.fn(),
     lead: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
-    demoBooking: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    demoBooking: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
     auditLog: { create: vi.fn() },
   }
   prisma.$transaction = vi.fn((fn: (tx: unknown) => unknown) => fn(prisma))
@@ -64,10 +64,15 @@ function bookingRow(overrides: Record<string, unknown> = {}) {
 const params = { params: Promise.resolve({ id: 'booking-1' }) }
 
 function request(body: unknown) {
+  const bodyRecord = body as Record<string, unknown>
+  const payload =
+    bodyRecord.startsAt && !bodyRecord.meetingLink
+      ? { ...bodyRecord, meetingLink: 'https://meet.example.com/demo' }
+      : bodyRecord
   return new Request('http://localhost/api/admin/demo-bookings/booking-1', {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   }) as any
 }
 
@@ -82,15 +87,7 @@ beforeEach(() => {
   db.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(db))
   db.demoBooking.findUnique.mockResolvedValue(bookingRow())
   db.demoBooking.findMany.mockResolvedValue([])
-  db.demoBooking.update.mockResolvedValue({
-    id: 'booking-1',
-    reference: 'DEMO-ABC1234567',
-    status: 'PENDING',
-    leadId: 'lead-1',
-    startsAt: new Date(NEW_START),
-    durationMinutes: 30,
-    timezone: 'Europe/Nicosia',
-  })
+  db.demoBooking.updateMany.mockResolvedValue({ count: 1 })
   db.$executeRaw.mockResolvedValue(0)
 })
 
@@ -100,7 +97,7 @@ describe('PATCH /api/admin/demo-bookings/[id] authorization', () => {
     const { status, json } = await patch({ startsAt: NEW_START })
     expect(status).toBe(401)
     expect(json.error.code).toBe('UNAUTHORIZED')
-    expect(db.demoBooking.update).not.toHaveBeenCalled()
+    expect(db.demoBooking.updateMany).not.toHaveBeenCalled()
   })
 
   it('rejects a non-admin user', async () => {
@@ -108,7 +105,7 @@ describe('PATCH /api/admin/demo-bookings/[id] authorization', () => {
     const { status, json } = await patch({ startsAt: NEW_START })
     expect(status).toBe(403)
     expect(json.error.code).toBe('FORBIDDEN')
-    expect(db.demoBooking.update).not.toHaveBeenCalled()
+    expect(db.demoBooking.updateMany).not.toHaveBeenCalled()
   })
 })
 
@@ -123,12 +120,13 @@ describe('PATCH /api/admin/demo-bookings/[id] reschedule', () => {
     expect(json.data.emailSent).toBe(true)
 
     // Atomic update with the new UTC instant, duration and display zone.
-    expect(db.demoBooking.update).toHaveBeenCalledTimes(1)
-    const updateData = db.demoBooking.update.mock.calls[0][0]
-    expect(updateData.where).toEqual({ id: 'booking-1' })
+    expect(db.demoBooking.updateMany).toHaveBeenCalledTimes(1)
+    const updateData = db.demoBooking.updateMany.mock.calls[0][0]
+    expect(updateData.where).toEqual({ id: 'booking-1', status: 'PENDING' })
     expect(updateData.data.startsAt.toISOString()).toBe(NEW_START)
     expect(updateData.data.durationMinutes).toBe(30)
     expect(updateData.data.timezone).toBe('Europe/Nicosia')
+    expect(updateData.data.meetingLink).toBe('https://meet.example.com/demo')
 
     // The audit trail records the previous and new time.
     expect(createAuditLog).toHaveBeenCalledTimes(1)
@@ -164,7 +162,7 @@ describe('PATCH /api/admin/demo-bookings/[id] reschedule', () => {
     const { status } = await patch({ startsAt: NEW_START })
 
     expect(status).toBe(200)
-    expect(db.demoBooking.update).toHaveBeenCalledTimes(1)
+    expect(db.demoBooking.updateMany).toHaveBeenCalledTimes(1)
   })
 
   it('returns 409 with refreshed options when the new slot is taken', async () => {
@@ -178,7 +176,7 @@ describe('PATCH /api/admin/demo-bookings/[id] reschedule', () => {
     expect(json.error.code).toBe('SLOT_UNAVAILABLE')
     expect(Array.isArray(json.error.availableSlots)).toBe(true)
     expect(json.error.availableSlots).not.toContain(NEW_START)
-    expect(db.demoBooking.update).not.toHaveBeenCalled()
+    expect(db.demoBooking.updateMany).not.toHaveBeenCalled()
     expect(emailService.sendEmail).not.toHaveBeenCalled()
   })
 
@@ -194,7 +192,15 @@ describe('PATCH /api/admin/demo-bookings/[id] reschedule', () => {
     const { status, json } = await patch({ startsAt: NEW_START })
     expect(status).toBe(409)
     expect(json.error.code).toBe('INVALID_STATE')
-    expect(db.demoBooking.update).not.toHaveBeenCalled()
+    expect(db.demoBooking.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('refuses to reschedule a confirmed booking', async () => {
+    db.demoBooking.findUnique.mockResolvedValue(bookingRow({ status: 'CONFIRMED' }))
+    const { status, json } = await patch({ startsAt: NEW_START })
+    expect(status).toBe(409)
+    expect(json.error.code).toBe('INVALID_STATE')
+    expect(db.demoBooking.updateMany).not.toHaveBeenCalled()
   })
 
   it('does not fail the reschedule when the email cannot be sent', async () => {
@@ -204,7 +210,7 @@ describe('PATCH /api/admin/demo-bookings/[id] reschedule', () => {
 
     expect(status).toBe(200)
     expect(json.data.emailSent).toBe(false)
-    expect(db.demoBooking.update).toHaveBeenCalledTimes(1)
+    expect(db.demoBooking.updateMany).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -212,7 +218,7 @@ describe('PATCH /api/admin/demo-bookings/[id] validation', () => {
   it('requires a zone-qualified start time', async () => {
     const missing = await patch({})
     expect(missing.status).toBe(400)
-    expect(missing.json.error.details).toHaveProperty('startsAt')
+    expect(missing.json.error.details).toHaveProperty('meetingLink')
 
     const naive = await patch({ startsAt: '2026-11-16T10:00:00' })
     expect(naive.status).toBe(400)
@@ -231,7 +237,7 @@ describe('PATCH /api/admin/demo-bookings/[id] validation', () => {
     const { status, json } = await patch({ startsAt: NEW_START, durationMinutes: 45 })
     expect(status).toBe(400)
     expect(json.error.details).toHaveProperty('durationMinutes')
-    expect(db.demoBooking.update).not.toHaveBeenCalled()
+    expect(db.demoBooking.updateMany).not.toHaveBeenCalled()
   })
 
   it('rejects a time inside the notice window', async () => {

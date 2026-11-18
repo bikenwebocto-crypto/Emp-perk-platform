@@ -27,7 +27,7 @@ export function isDemoBookingStatus(value: unknown): value is DemoBookingStatus 
 
 const STATUS_TRANSITIONS: Record<DemoBookingStatus, DemoBookingStatus[]> = {
   PENDING: ['CONFIRMED', 'CANCELLED'],
-  CONFIRMED: ['COMPLETED', 'CANCELLED'],
+  CONFIRMED: ['COMPLETED'],
   CANCELLED: [],
   COMPLETED: [],
 }

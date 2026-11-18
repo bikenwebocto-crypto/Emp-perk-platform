@@ -58,6 +58,7 @@ function bookingRow(overrides: Record<string, unknown> = {}) {
     startsAt: new Date('2026-11-16T08:00:00Z'),
     durationMinutes: 30,
     timezone: 'Europe/Nicosia',
+    meetingLink: 'https://meet.example.com/demo',
     createdAt: new Date('2026-10-01T09:00:00Z'),
     lead: LEAD,
     ...overrides,
@@ -142,6 +143,14 @@ describe('GET /api/admin/demo-bookings/[id]', () => {
     expect(json.data.allowedNextStatuses).toEqual(['CONFIRMED', 'CANCELLED'])
   })
 
+  it('only allows completion after confirmation', async () => {
+    db.demoBooking.findUnique.mockResolvedValue(bookingRow({ status: 'CONFIRMED' }))
+    const res = await getBooking(get('http://localhost/api/admin/demo-bookings/booking-1'), params as any)
+    const json = await res.json()
+
+    expect(json.data.allowedNextStatuses).toEqual(['COMPLETED'])
+  })
+
   it('returns 404 for an unknown booking', async () => {
     db.demoBooking.findUnique.mockResolvedValue(null)
     const res = await getBooking(get('http://localhost/api/admin/demo-bookings/nope'), params as any)
@@ -153,6 +162,8 @@ describe('PATCH /api/admin/demo-bookings/[id] status', () => {
   it('confirms a pending booking, audits it and emails the requester', async () => {
     db.demoBooking.findUnique
       .mockResolvedValueOnce(bookingRow({ status: 'PENDING' }))
+      .mockResolvedValueOnce(bookingRow({ status: 'PENDING' }))
+      .mockResolvedValueOnce(bookingRow({ status: 'CONFIRMED' }))
       .mockResolvedValueOnce(bookingRow({ status: 'CONFIRMED' }))
 
     const res = await patchBooking(patch({ status: 'CONFIRMED' }), params as any)
@@ -177,19 +188,28 @@ describe('PATCH /api/admin/demo-bookings/[id] status', () => {
     expect(vi.mocked(emailService.sendEmail).mock.calls[0][0].subject).toContain('confirmed')
   })
 
-  it('cancels a confirmed booking and frees the slot (no collision check needed)', async () => {
-    db.demoBooking.findUnique
-      .mockResolvedValueOnce(bookingRow({ status: 'CONFIRMED' }))
-      .mockResolvedValueOnce(bookingRow({ status: 'CANCELLED' }))
+  it('does not allow a confirmed booking to be cancelled', async () => {
+    db.demoBooking.findUnique.mockResolvedValue(bookingRow({ status: 'CONFIRMED' }))
 
     const res = await patchBooking(patch({ status: 'CANCELLED' }), params as any)
     const json = await res.json()
 
-    expect(res.status).toBe(200)
-    expect(json.data.status).toBe('CANCELLED')
-    expect(vi.mocked(emailService.sendEmail).mock.calls[0][0].subject).toContain('cancelled')
-    // Cancelling never needs the scheduling lock.
+    expect(res.status).toBe(409)
+    expect(json.error.code).toBe('INVALID_TRANSITION')
+    expect(db.demoBooking.updateMany).not.toHaveBeenCalled()
+    expect(emailService.sendEmail).not.toHaveBeenCalled()
     expect(db.$executeRaw).not.toHaveBeenCalled()
+  })
+
+  it('does not allow changing the meeting link after confirmation', async () => {
+    db.demoBooking.findUnique.mockResolvedValue(bookingRow({ status: 'CONFIRMED' }))
+
+    const res = await patchBooking(patch({ meetingLink: 'https://meet.example.com/changed' }), params as any)
+    const json = await res.json()
+
+    expect(res.status).toBe(409)
+    expect(json.error.code).toBe('INVALID_STATE')
+    expect(db.demoBooking.updateMany).not.toHaveBeenCalled()
   })
 
   it('does not email the visitor when a meeting is marked completed', async () => {

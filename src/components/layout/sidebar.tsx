@@ -15,7 +15,7 @@ import { Loader2 } from 'lucide-react'
 import {
   LayoutDashboard, Store, Users, FileText, BarChart3, Settings, CreditCard,
   ShoppingBag, MapPin, Gift, Building2, UserCircle, Bell, Upload, LogOut,
-  Zap, Search, Bookmark, Palette, Trash2, Lightbulb, Tags, Inbox, KeyRound,
+  Zap, Bookmark, Palette, Trash2, Lightbulb, Inbox, KeyRound,
   CalendarClock, ShieldAlert, ShieldCheck, UserCheck,
 } from 'lucide-react'
 import { canAdminAccessPath } from '@/lib/access/account-access'
@@ -53,17 +53,14 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Merchants', href: '/admin/merchants', icon: Store },
     { label: 'Merchant Suggestions', href: '/admin/merchant-suggestions', icon: Lightbulb },
     { label: 'Demo Bookings', href: '/admin/demo-bookings', icon: CalendarClock },
-    { label: 'Categories', href: '/admin/categories', icon: Tags },
     { label: 'Stores', href: '/admin/stores', icon: MapPin },
     { label: 'Companies', href: '/admin/companies', icon: Building2 },
     { label: 'Leads', href: '/admin/leads', icon: Inbox },
     { label: 'Employees', href: '/admin/employees', icon: Users },
     { label: 'CSV Uploads', href: '/admin/csv-uploads', icon: Upload },
-    { label: 'Audit Logs', href: '/admin/audit-logs', icon: Search },
     { label: 'Tickets', href: '/admin/complaints', icon: FileText },
     { label: 'Banners', href: '/admin/banners', icon: Palette },
     { label: 'Notifications', href: '/admin/notifications', icon: Bell },
-    { label: 'Login Branding', href: '/admin/settings/login-branding', icon: Palette },
     { label: 'Accounts', href: '/admin/accounts', icon: KeyRound },
     { label: 'MFA Recovery', href: '/admin/mfa-recovery', icon: ShieldAlert },
     { label: 'Recovery Approvals', href: '/admin/recovery-approvals', icon: ShieldCheck },

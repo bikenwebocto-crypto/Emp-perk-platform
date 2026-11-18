@@ -1,6 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
-import { canAdminAccessPath, canAdminCallApi, adminLandingPath } from "@/lib/access/account-access";
+import {
+  BLOCKED_ADMIN_PATHS,
+  canAdminAccessPath,
+  canAdminCallApi,
+  adminLandingPath,
+} from "@/lib/access/account-access";
 import { hasVerifiedTotpFactor, requiresMfaForRole } from "@/lib/auth/mfa";
 
 const ROLE_DASHBOARD_MAP: Record<string, string> = {
@@ -218,7 +223,13 @@ export async function middleware(request: NextRequest) {
 
   // Admin permission level: each admin role only opens its own /admin pages.
   // SUPPORT_ADMIN has no overview, so it is sent to its tickets list instead.
-  if (role === "SUPER_ADMIN" && !canAdminAccessPath(roleInfo?.adminRole, pathname)) {
+  if (
+    pathname.startsWith("/admin") &&
+    (
+      BLOCKED_ADMIN_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
+      (role === "SUPER_ADMIN" && !canAdminAccessPath(roleInfo?.adminRole, pathname))
+    )
+  ) {
     return NextResponse.redirect(new URL(adminLandingPath(roleInfo?.adminRole), request.url))
   }
 

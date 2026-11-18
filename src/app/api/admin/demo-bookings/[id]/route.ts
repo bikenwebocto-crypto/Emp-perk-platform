@@ -76,8 +76,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 // PATCH /api/admin/demo-bookings/[id] — reschedule OR change status.
 //
 // Body (exactly one kind of change per call):
-//   { startsAt, meetingLink, timezone?, durationMinutes? }  — move the meeting (meetingLink required)
-//   { status }                                              — confirm / cancel / complete
+//   { startsAt, meetingLink, timezone?, durationMinutes? }  — move a pending meeting
+//   { meetingLink }                                         — set the link before confirmation
+//   { status }                                              — confirm / cancel a pending, or complete a confirmed booking
 //
 // Admin-only. A reschedule validates the new time against policy, excludes this
 // booking from its own collision check, re-checks availability under the same
@@ -122,6 +123,37 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         }
       }
       return await changeStatus(id, body.status, adminId)
+    }
+    // Meeting link only — set/replace the link without moving the meeting.
+    if (hasMeetingLink && !hasStart) {
+      const raw = body.meetingLink
+      if (typeof raw !== 'string' || !/^https?:\/\/\S+$/i.test(raw.trim())) {
+        return badRequest('Invalid meeting link', { meetingLink: 'Enter a valid http(s) meeting link.' })
+      }
+      const current = await prisma.demoBooking.findUnique({ where: { id }, select: { status: true, meetingLink: true, reference: true } })
+      if (!current) return notFound('Demo booking not found')
+      if (current.status !== 'PENDING') {
+        return apiError(409, 'INVALID_STATE', 'The meeting link can only be changed before the booking is confirmed.')
+      }
+      const meetingLink = raw.trim()
+      const updated = await prisma.demoBooking.updateMany({
+        where: { id, status: 'PENDING' },
+        data: { meetingLink },
+      })
+      if (updated.count === 0) {
+        return apiError(409, 'CONFLICT', 'The booking was confirmed or changed by someone else. Reload and try again.')
+      }
+      await createAuditLog({
+        actorType: 'admin',
+        actorId: adminId,
+        action: 'demo_booking.meeting_link_updated',
+        entityType: 'demo_booking',
+        entityId: id,
+        changes: { meetingLink: { from: current.meetingLink, to: meetingLink } },
+        metadata: { reference: current.reference },
+      })
+      const detail = await loadDetail(id)
+      return NextResponse.json({ success: true, data: detail })
     }
     return await reschedule(id, body, adminId)
   } catch (error) {
@@ -246,6 +278,7 @@ async function reschedule(id: string, body: Record<string, unknown>, adminId: st
     startsAt: parsed.input.startsAt,
     timezone: parsed.input.timezone,
     durationMinutes: parsed.input.durationMinutes,
+    meetingLink,
   })
 
   if (!result.ok) {
@@ -263,11 +296,8 @@ async function reschedule(id: string, body: Record<string, unknown>, adminId: st
     }
   }
 
-  // Save meeting link
-  await prisma.demoBooking.update({ where: { id }, data: { meetingLink } })
-
   const { previous, booking, requester } = result
-  const fullBooking = await prisma.demoBooking.findUnique({ where: { id: booking.id }, select: { meetingLink: true } })
+  const bookingMeetingLink = booking.meetingLink
 
   await createAuditLog({
     actorType: 'admin',
@@ -279,7 +309,7 @@ async function reschedule(id: string, body: Record<string, unknown>, adminId: st
       startsAt: { from: previous.startsAt.toISOString(), to: booking.startsAt.toISOString() },
       durationMinutes: { from: previous.durationMinutes, to: booking.durationMinutes },
       timezone: { from: previous.timezone, to: booking.timezone },
-      meetingLink: { from: null, to: fullBooking?.meetingLink },
+      meetingLink: { from: null, to: bookingMeetingLink },
     },
     metadata: { reference: booking.reference, leadId: booking.leadId },
   })
@@ -287,14 +317,14 @@ async function reschedule(id: string, body: Record<string, unknown>, adminId: st
   let emailSent = false
   if (requester.email) {
     try {
-      const bookingMeetingLink = fullBooking?.meetingLink ?? undefined
+      const meetingLinkForEmail = bookingMeetingLink ?? undefined
       const endTime = new Date(booking.startsAt.getTime() + booking.durationMinutes * 60 * 1000)
       const icsContent = generateICalInvite({
         title: `Demo Meeting - ${requester.companyName}`,
         description: `Demo meeting with ${requester.firstName} from ${requester.companyName}. Reference: ${booking.reference}`,
         startDate: booking.startsAt,
         endDate: endTime,
-        meetingLink: bookingMeetingLink,
+        meetingLink: meetingLinkForEmail,
         attendeeEmail: requester.email,
         attendeeName: requester.firstName,
         uid: booking.reference,
@@ -308,7 +338,7 @@ async function reschedule(id: string, body: Record<string, unknown>, adminId: st
         next: formatInTimeZone(booking.startsAt, booking.timezone),
         timezone: booking.timezone,
         durationMinutes: booking.durationMinutes,
-        meetingLink: bookingMeetingLink,
+        meetingLink: meetingLinkForEmail,
       })
       const sent = await emailService.sendEmail({
         to: requester.email,

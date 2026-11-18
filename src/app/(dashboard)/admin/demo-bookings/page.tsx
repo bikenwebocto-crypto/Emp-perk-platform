@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { AlertTriangle, CalendarClock, Loader2, Mail, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, CalendarClock, Info, Loader2, Mail, RefreshCw, X } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -114,30 +114,100 @@ function StatusBadge({ status }: { status: DemoStatus }) {
     </span>
   )
 }
+/** Small "i" icon that reveals an explanation on hover/focus. */
+function InfoTip({ text, className }: { text: string; className?: string }) {
+  return (
+    <span
+      tabIndex={0}
+      role="img"
+      aria-label={text}
+      title={text}
+      className={cn('inline-flex cursor-help text-muted-foreground hover:text-foreground focus:outline-none', className)}
+    >
+      <Info className="h-3.5 w-3.5" />
+    </span>
+  )
+}
+
 function MeetingLinkEditor({
   meetingLink,
+  editable,
+  mutation,
 }: {
   meetingLink: string | null
+  editable: boolean
+  mutation: ReturnType<typeof useMutation<BookingDetail, Error, Record<string, unknown>>>
 }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(meetingLink ?? '')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    setValue(meetingLink ?? '')
+    setEditing(false)
+  }, [meetingLink])
+
+  function save() {
+    const v = value.trim()
+    if (!/^https?:\/\/\S+$/i.test(v)) {
+      setError('Enter a valid http(s) link.')
+      return
+    }
+    setError('')
+    mutation.mutate({ meetingLink: v })
+  }
+
   return (
-    <Section title="Meeting link">
+    <Section
+      title="Meeting link"
+      info="Required before a booking can be confirmed. It is included in the confirmation email and calendar invite. Saving the link alone does not email the requester."
+    >
       <div className="space-y-2">
-        {meetingLink ? (
-          <a
-            href={meetingLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-primary hover:underline break-all"
-          >
-            {meetingLink}
-          </a>
+        {editing ? (
+          <>
+            <input
+              type="url"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder="https://teams.microsoft.com/... or https://meet.google.com/..."
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            />
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={() => setEditing(false)} disabled={mutation.isPending}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={save} disabled={!value.trim() || mutation.isPending}>
+                {mutation.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                Save link
+              </Button>
+            </div>
+          </>
         ) : (
-          <p className="text-sm text-muted-foreground">No meeting link set. Add it via Reschedule Meeting.</p>
+          <div className="flex items-start justify-between gap-2">
+            {meetingLink ? (
+              <a
+                href={meetingLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="break-all text-sm text-primary hover:underline"
+              >
+                {meetingLink}
+              </a>
+            ) : (
+              <p className="text-sm text-muted-foreground">No meeting link set yet.</p>
+            )}
+            {editable && (
+              <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                {meetingLink ? 'Edit' : 'Add link'}
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </Section>
   )
-} 
+}
 function useDebounced<T>(value: T, delay = 300) {
   const [debounced, setDebounced] = useState(value)
   useEffect(() => {
@@ -221,8 +291,6 @@ export default function AdminDemoBookingsPage() {
           />
         ))}
       </div>
-
-      <DayCalendar date={calendarDate} setDate={setCalendarDate} onSelect={setSelectedId} />
 
       <FilterBar
         searchValue={search}
@@ -314,6 +382,7 @@ export default function AdminDemoBookingsPage() {
       )}
 
       <BookingDrawer id={selectedId} onClose={() => setSelectedId(null)} />
+      <DayCalendar date={calendarDate} setDate={setCalendarDate} onSelect={setSelectedId} />
     </div>
   )
 }
@@ -523,8 +592,13 @@ function DrawerBody({ id }: { id: string }) {
       if (!res.ok) throw new Error(errorMessage(json, 'Update failed'))
       return json.data as BookingDetail
     },
-    onSuccess: (_data, body) => {
-      showToast({ type: 'success', title: body.startsAt ? 'Booking rescheduled' : 'Status updated' })
+    onSuccess: (data, body) => {
+      const title = body.startsAt ? 'Booking rescheduled' : body.status ? 'Status updated' : 'Meeting link saved'
+      const emailNote =
+        data.emailSent === false && (body.status === 'CONFIRMED' || body.status === 'CANCELLED')
+          ? 'The requester email could not be sent — please contact them manually.'
+          : undefined
+      showToast({ type: emailNote ? 'info' : 'success', title, description: emailNote })
       setPendingCancel(false)
       queryClient.invalidateQueries({ queryKey: ['admin-demo-booking', id] })
       queryClient.invalidateQueries({ queryKey: ['admin-demo-bookings'] })
@@ -561,7 +635,7 @@ function DrawerBody({ id }: { id: string }) {
     )
   }
 
-  const reschedulable = detail.status === 'PENDING' || detail.status === 'CONFIRMED'
+  const reschedulable = detail.status === 'PENDING'
 
   return (
     <>
@@ -603,7 +677,7 @@ function DrawerBody({ id }: { id: string }) {
             <dd>{new Date(detail.createdAt).toLocaleString()}</dd>
           </dl>
         </Section>
-        <MeetingLinkEditor meetingLink={detail.meetingLink} />
+        <MeetingLinkEditor meetingLink={detail.meetingLink} editable={reschedulable} mutation={mutation} />
         <Section title="Requester">
           <dl className="grid grid-cols-[140px_1fr] gap-x-4 gap-y-2 text-sm">
             <dt className="text-muted-foreground">Name</dt>
@@ -627,13 +701,21 @@ function DrawerBody({ id }: { id: string }) {
                 <dd>{detail.lead.hearAbout}</dd>
               </>
             )}
+            <dt className="flex items-center gap-1 text-muted-foreground">
+              Marketing consent
+              <InfoTip text="Whether the requester agreed to be contacted when submitting the Book a Demo form." />
+            </dt>
+            <dd>{detail.lead.consentAt ? `Given ${new Date(detail.lead.consentAt).toLocaleString()}` : 'Not given'}</dd>
           </dl>
         </Section>
 
-        <Section title="Notes from the requester">
+        <Section title="Message from the requester" info="What the requester wrote in the Book a Demo form.">
           <p className="whitespace-pre-wrap text-sm">
-            {detail.notes || <span className="text-muted-foreground">No notes given.</span>}
+            {detail.lead.message || detail.notes || <span className="text-muted-foreground">No message given.</span>}
           </p>
+          {detail.lead.message && detail.notes && detail.notes !== detail.lead.message && (
+            <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">Booking notes: {detail.notes}</p>
+          )}
         </Section>
 
         {reschedulable && <RescheduleSection detail={detail} mutation={mutation} />}
@@ -658,7 +740,18 @@ function DrawerBody({ id }: { id: string }) {
             </Button>
           </div>
         ) : (
-          <div className="flex flex-wrap justify-end gap-2">
+          <>
+          {detail.allowedNextStatuses.includes('CONFIRMED') && !detail.meetingLink && (
+            <p className="flex items-center gap-1.5 text-xs text-amber-700">
+              <Info className="h-3.5 w-3.5 shrink-0" />
+              Add a meeting link above before confirming.
+            </p>
+          )}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <InfoTip
+              className="mr-auto"
+              text="Confirm emails the requester with the meeting link and a calendar invite. Cancel emails a cancellation notice. Mark completed is internal only (no email)."
+            />
             {detail.allowedNextStatuses.map((s) => {
               const canConfirm = s === 'CONFIRMED' ? (!!detail.startsAt && !!detail.meetingLink) : true
               return (
@@ -675,6 +768,7 @@ function DrawerBody({ id }: { id: string }) {
               )
             })}
           </div>
+          </>
         )}
       </div>
     </>
@@ -724,7 +818,10 @@ function RescheduleSection({
   }
 
   return (
-    <Section title="Reschedule Meeting">
+    <Section
+      title="Reschedule Meeting"
+      info="Move the meeting to another open slot (Nicosia time). The requester is emailed the new time in their own timezone. To only change the link, use Meeting link above."
+    >
       <div className="space-y-2">
         <input
           type="date"
@@ -789,10 +886,13 @@ function RescheduleSection({
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, info, children }: { title: string; info?: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="mb-2 text-sm font-semibold">{title}</h3>
+      <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+        {title}
+        {info && <InfoTip text={info} />}
+      </h3>
       {children}
     </section>
   )

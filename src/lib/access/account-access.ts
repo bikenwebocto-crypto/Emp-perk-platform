@@ -187,10 +187,24 @@ export function adminLandingPath(adminRole: string | null | undefined): string {
  */
 export const MFA_RECOVERY_PATHS = ['/admin/mfa-recovery']
 
+/** Admin pages intentionally unavailable across every admin role. */
+export const BLOCKED_ADMIN_PATHS = [
+  '/admin/settings/login-branding',
+  '/admin/categories',
+  '/admin/audit-logs',
+] as const
+
+/** Admin APIs intentionally unavailable across every admin role. */
+export const BLOCKED_ADMIN_API_PATHS = [
+  '/api/admin/settings/login-branding',
+  '/api/admin/categories',
+] as const
+
 /** Can an admin with this AdminRole open this /admin path? Unknown role → false. */
 export function canAdminAccessPath(adminRole: string | null | undefined, pathname: string): boolean {
   const role = normaliseAdminRole(adminRole)
   if (!role) return false
+  if (BLOCKED_ADMIN_PATHS.some((p) => matches(pathname, p))) return false
   if (ACCOUNTS_PATHS.some((p) => matches(pathname, p))) return canAccessAccounts({ adminRole: role })
   if (MFA_RECOVERY_PATHS.some((p) => matches(pathname, p))) return role === 'SUPER_ADMIN'
   if (pathname === '/admin') return ADMIN_OVERVIEW_ROLES.includes(role)
@@ -257,6 +271,7 @@ export const SUPPORT_ADMIN_API_ALLOWLIST = [
 export function canAdminCallApi(adminRole: string | null | undefined, pathname: string): boolean {
   const role = normaliseAdminRole(adminRole)
   if (!role) return false
+  if (BLOCKED_ADMIN_API_PATHS.some((p) => matches(pathname, p))) return false
   if (role !== 'SUPPORT_ADMIN') return true
   if (pathname.startsWith('/api/admin/notifications/announce')) return false
   return SUPPORT_ADMIN_API_ALLOWLIST.some((p) => matches(pathname, p))
