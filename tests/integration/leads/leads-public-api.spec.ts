@@ -16,8 +16,12 @@ vi.mock('@/services/business-notification.service', () => ({
   channels: (...list: unknown[]) => list,
   publishBusinessToAdmins: vi.fn().mockResolvedValue(undefined),
 }))
+vi.mock('@/services/user-validation.service', () => ({
+  validateUserEmail: vi.fn(),
+}))
 
 import { prisma } from '@/lib/prisma'
+import { validateUserEmail } from '@/services/user-validation.service'
 import { publishBusinessToAdmins } from '@/services/business-notification.service'
 import { setRateLimiter, type RateLimiter } from '@/lib/rate-limit'
 import { POST } from '@/app/api/leads/route'
@@ -85,6 +89,7 @@ beforeEach(() => {
   db.lead.findFirst.mockResolvedValue(null)
   db.lead.create.mockResolvedValue({ id: 'lead-1', createdAt: new Date('2026-02-01T10:00:00Z') })
   db.$executeRaw.mockResolvedValue(0)
+  vi.mocked(validateUserEmail).mockResolvedValue({ exists: false, role: null, userId: null })
 })
 
 describe('POST /api/leads validation', () => {
@@ -94,7 +99,7 @@ describe('POST /api/leads validation', () => {
     const after = Date.now()
 
     expect(status).toBe(201)
-    expect(json.data).toMatchObject({ id: 'lead-1', deduplicated: false })
+    expect(json.data).toEqual({ id: 'lead-1' })
 
     const data = db.lead.create.mock.calls[0][0].data
     expect(data.type).toBe('MERCHANT')
@@ -157,24 +162,34 @@ describe('POST /api/leads validation', () => {
 })
 
 describe('POST /api/leads dedupe', () => {
-  it('updates the open lead instead of creating a row when the same email and type is NEW or CONTACTED', async () => {
-    db.lead.findFirst.mockResolvedValue({ id: 'lead-existing', attribution: null })
+  it('returns 409 LEAD_ALREADY_EXISTS and writes nothing when the same email and type is already open', async () => {
+    db.lead.findFirst.mockResolvedValue({ id: 'lead-existing' })
 
     const { status, json } = await post(merchantBody)
 
-    expect(status).toBe(201)
-    expect(json.id).toBe('lead-existing')
-    expect(json.data).toEqual({ id: 'lead-existing', deduplicated: true })
+    expect(status).toBe(409)
+    expect(json.success).toBe(false)
+    expect(json.error.code).toBe('LEAD_ALREADY_EXISTS')
     expect(db.lead.create).not.toHaveBeenCalled()
-    expect(db.lead.update).toHaveBeenCalledTimes(1)
-    expect(db.lead.update.mock.calls[0][0].where).toEqual({ id: 'lead-existing' })
-    expect(db.lead.update.mock.calls[0][0].data).not.toHaveProperty('createdAt')
+    expect(db.lead.update).not.toHaveBeenCalled()
     expect(db.lead.findFirst.mock.calls[0][0].where).toEqual({
       email: 'founder@example.com',
       type: 'MERCHANT',
-      status: { in: ['NEW', 'CONTACTED'] },
+      status: { in: ['NEW', 'CONTACTED', 'CONVERTED'] },
     })
     expect(publishBusinessToAdmins).not.toHaveBeenCalled()
+  })
+
+  it('returns 409 USER_ALREADY_EXISTS when the email already has an account', async () => {
+    vi.mocked(validateUserEmail).mockResolvedValue({ exists: true, role: 'MERCHANT', userId: 'm-1' })
+
+    const { status, json } = await post(merchantBody)
+
+    expect(status).toBe(409)
+    expect(json.error.code).toBe('USER_ALREADY_EXISTS')
+    expect(validateUserEmail).toHaveBeenCalledWith('founder@example.com')
+    expect(db.lead.findFirst).not.toHaveBeenCalled()
+    expect(db.lead.create).not.toHaveBeenCalled()
   })
 
   it('does not dedupe across lead types', async () => {

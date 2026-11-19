@@ -7,6 +7,10 @@ export interface AdminSidebarCounts {
   merchantSuggestions: number
   demoBookings: number
   tickets: number
+  /** Companies awaiting activation (PENDING / APPROVED_PENDING_PAYMENT). */
+  companies: number
+  /** Platform team admins invited but not yet activated (never logged in). */
+  platformTeam: number
 }
 
 export const adminSidebarCountKeys = {

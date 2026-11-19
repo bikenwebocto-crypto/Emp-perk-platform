@@ -3,6 +3,7 @@ import { useState, useCallback, useMemo } from 'react'
 import {
   useReactTable,
   getCoreRowModel,
+  getSortedRowModel,
   flexRender,
   type SortingState,
   type RowSelectionState,
@@ -57,9 +58,10 @@ function toTanStackCols<T>(columns: ColumnDef<T>[], selectable: boolean, onRowCl
   for (const col of columns) {
     result.push({
       id: col.key,
-      accessorKey: col.key,
+      accessorFn: (row: T) => (col.sortValue ? col.sortValue(row) : (row as Record<string, unknown>)[col.key]) as any,
       header: col.header,
-      enableSorting: col.sortable !== false,
+      enableSorting: col.sortable !== false && col.header !== '',
+      sortUndefined: 'last',
       size: col.width ? parseInt(col.width) : undefined,
       cell: col.render ? (info) => col.render!(info.row.original) : undefined,
       meta: { align: col.align } as TanStackMeta,
@@ -133,7 +135,9 @@ export function DataTable<T extends Record<string, unknown>>({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    manualSorting: true,
+    // Server sorts when the parent controls sorting; otherwise sort the loaded rows client-side.
+    getSortedRowModel: isExternallySorted ? undefined : getSortedRowModel(),
+    manualSorting: isExternallySorted,
     manualPagination: true,
     enableRowSelection: selectable,
     enableSorting: sortable,

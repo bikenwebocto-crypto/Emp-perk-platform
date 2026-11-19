@@ -1,4 +1,5 @@
 'use client'
+import { BillingUnavailable } from '@/components/shared/billing-unavailable'
 import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -119,11 +120,6 @@ function CompanyOverview({ company }: { company: Company }) {
           <h2 className="truncate text-lg font-semibold">{company?.name ?? 'Your company'}</h2>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <StatusBadge status={company?.status ?? 'UNKNOWN'} />
-            {company?.billing?.plan && (
-              <span className="rounded-full bg-secondary px-2 py-0.5 font-medium text-secondary-foreground">
-                {company.billing.plan}
-              </span>
-            )}
             {company?.approvedDomain && (
               <span className="flex items-center gap-1">
                 <Globe className="h-3 w-3" /> @{company.approvedDomain}
@@ -383,27 +379,20 @@ function AccountStatusCard({ company, error }: { company: Company; error: unknow
     )
   }
 
-  const b = company?.billing
-  const stats = [
-    { label: 'Billing status', value: b?.billingStatus ?? '—' },
-    { label: 'Plan', value: b?.plan ?? '—' },
-    { label: 'Next renewal', value: fmtDate(b?.renewalDate) },
-    { label: 'Trial', value: b?.isTrial ? `Until ${fmtDate(b?.trialEndsAt)}` : 'No' },
-  ]
-
   return (
     <Card>
       <CardContent className="pt-6">
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {stats.map((s) => (
-            <div key={s.label} className="rounded-md bg-muted/40 p-3">
-              <dt className="text-xs text-muted-foreground">{s.label}</dt>
-              <dd className="mt-1 text-sm font-semibold">{s.value}</dd>
-            </div>
-          ))}
+          <div className="rounded-md bg-muted/40 p-3">
+            <dt className="text-xs text-muted-foreground">Status</dt>
+            <dd className="mt-1 text-sm font-semibold">{company?.status ?? '—'}</dd>
+          </div>
         </dl>
-        <p className="mt-4 text-xs text-muted-foreground">
-          Need a status or billing change? Contact your account manager, or use the cancellation request below.
+        <div className="mt-4">
+          <BillingUnavailable compact />
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Need a status change? Contact your account manager, or use the cancellation request below.
         </p>
       </CardContent>
     </Card>

@@ -70,7 +70,9 @@ export type ScheduleResult =
       /** Other open bookings this request overlaps; the admin resolves them. */
       overlapCount: number;
     }
-  | { ok: false; kind: 'POLICY'; violation: PolicyViolation };
+  | { ok: false; kind: 'POLICY'; violation: PolicyViolation }
+  /** This email already has an upcoming PENDING/CONFIRMED demo; nothing was written. */
+  | { ok: false; kind: 'DUPLICATE'; existing: { reference: string; startsAt: Date; timezone: string; status: string } };
 
 export async function scheduleDemoBooking(
   input: ScheduleDemoBookingInput,
@@ -93,6 +95,18 @@ export async function scheduleDemoBooking(
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`demo_booking_slot:${dayKey}`}))`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`demo_booking_lead:${input.email}:${input.type}`}))`;
 
+    // One open demo per email + type: an upcoming PENDING/CONFIRMED booking blocks a new one.
+    const existingBooking = await tx.demoBooking.findFirst({
+      where: {
+        status: { in: ['PENDING', 'CONFIRMED'] },
+        startsAt: { gte: now },
+        lead: { email: input.email, type: input.type },
+      },
+      orderBy: { startsAt: 'asc' },
+      select: { reference: true, startsAt: true, timezone: true, status: true },
+    });
+    if (existingBooking) return { kind: 'duplicate' as const, existing: existingBooking };
+
     const nearby = await tx.demoBooking.findMany({
       where: candidateOverlapWhere(candidate),
       select: { id: true, startsAt: true, durationMinutes: true, status: true },
@@ -105,8 +119,14 @@ export async function scheduleDemoBooking(
       select: { id: true },
     });
 
+    // Only overwrite fields the visitor actually filled in, so a demo request
+    // never blanks out details saved by an earlier form.
+    const leadUpdate = Object.fromEntries(
+      Object.entries(input.lead).filter(([, v]) => v !== null && v !== undefined && v !== ''),
+    ) as Partial<DemoLeadContact>;
+
     const leadId = existing
-      ? (await tx.lead.update({ where: { id: existing.id }, data: input.lead, select: { id: true } })).id
+      ? (await tx.lead.update({ where: { id: existing.id }, data: leadUpdate, select: { id: true } })).id
       : (
           await tx.lead.create({
             data: {
@@ -141,8 +161,10 @@ export async function scheduleDemoBooking(
       },
     });
 
-    return { leadId, booking, overlapCount };
+    return { kind: 'created' as const, leadId, booking, overlapCount };
   });
+
+  if (outcome.kind === 'duplicate') return { ok: false, kind: 'DUPLICATE', existing: outcome.existing };
 
   return {
     ok: true,

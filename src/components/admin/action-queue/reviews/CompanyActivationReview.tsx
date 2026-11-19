@@ -1,5 +1,6 @@
 'use client'
 
+import { BillingUnavailable } from '@/components/shared/billing-unavailable'
 import { Building2, Users, MapPin, Globe, Mail, CreditCard, Calendar } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatusBadge } from '@/components/shared/status-badge'
@@ -102,41 +103,8 @@ export function CompanyActivationReview({ entity }: ReviewComponentProps) {
             <CreditCard className="h-4 w-4" /> Billing
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          {entity.billing ? (
-            <>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Plan</span>
-                <span className="font-medium capitalize">{entity.billing.plan}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Status</span>
-                <StatusBadge status={entity.billing.billingStatus ?? 'ACTIVE'} />
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Per Employee</span>
-                <span>${Number(entity.billing.pricePerEmployee).toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Trial</span>
-                <span>{entity.billing.isTrial ? 'Yes' : 'No'}</span>
-              </div>
-              {entity.billing.trialEndsAt && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Trial Ends</span>
-                  <span>{new Date(entity.billing.trialEndsAt).toLocaleDateString()}</span>
-                </div>
-              )}
-              {entity.billing.renewalDate && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Renewal</span>
-                  <span>{new Date(entity.billing.renewalDate).toLocaleDateString()}</span>
-                </div>
-              )}
-            </>
-          ) : (
-            <p className="text-muted-foreground">No billing record on file</p>
-          )}
+        <CardContent className="text-sm">
+          <BillingUnavailable compact />
         </CardContent>
       </Card>
     </div>

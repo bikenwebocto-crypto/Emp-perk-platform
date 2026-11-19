@@ -12,10 +12,14 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { showToast } from '@/hooks/use-toast'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   useMerchantBranches,
   useDeleteBranch,
+  branchKeys,
 } from '@/hooks/queries/use-merchant-branches'
+import { useTableSort } from '@/hooks/use-table-sort'
+import { SortableTh } from '@/components/shared/sortable-th'
 import {
   BRANCH_STATUS_LABELS,
   BRANCH_STATUS_STYLES,
@@ -56,6 +60,16 @@ const branches = useMemo(() => {
   return allBranches
 }, [allBranches, statusFilter])
 
+  const queryClient = useQueryClient()
+  const branchSort = useTableSort<any>(branches, {
+    name: (b) => b.name,
+    location: (b) => (b.branchType === 'IN_STORE' ? `${b.city ?? ''} ${b.state ?? ''} ${b.country ?? ''}`.trim() : null),
+    type: (b) => BRANCH_DISPLAY_TYPE_LABELS[getBranchDisplayType(b)],
+    status: (b) => b.status,
+    createdAt: (b) => (b.createdAt ? new Date(b.createdAt).getTime() : null),
+  })
+  const sortProps = { activeKey: branchSort.sortKey, dir: branchSort.sortDir, onSort: branchSort.toggleSort }
+
   const [activating, setActivating] = useState(false)
   const [deactivating, setDeactivating] = useState(false)
 
@@ -70,6 +84,7 @@ const branches = useMemo(() => {
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error?.message ?? 'Failed to activate')
       showToast({ type: 'success', title: 'Branch activated' })
+      await queryClient.invalidateQueries({ queryKey: branchKeys.lists() })
       router.refresh()
     } catch (e: any) {
       showToast({ type: 'error', title: 'Failed to activate', description: e.message })
@@ -89,6 +104,7 @@ const branches = useMemo(() => {
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error?.message ?? 'Failed to deactivate')
       showToast({ type: 'success', title: 'Branch deactivated' })
+      await queryClient.invalidateQueries({ queryKey: branchKeys.lists() })
       router.refresh()
     } catch (e: any) {
       showToast({ type: 'error', title: 'Failed to deactivate', description: e.message })
@@ -201,16 +217,16 @@ const hasFilter =
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/30 text-left text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Branch</th>
-                <th className="px-4 py-3 font-medium">Location</th>
-                <th className="px-4 py-3 font-medium">Type</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Created</th>
+                <SortableTh label="Branch" sortKey="name" {...sortProps} className="px-4 py-3 font-medium" />
+                <SortableTh label="Location" sortKey="location" {...sortProps} className="px-4 py-3 font-medium" />
+                <SortableTh label="Type" sortKey="type" {...sortProps} className="px-4 py-3 font-medium" />
+                <SortableTh label="Status" sortKey="status" {...sortProps} className="px-4 py-3 font-medium" />
+                <SortableTh label="Created" sortKey="createdAt" {...sortProps} className="px-4 py-3 font-medium" />
                 <th className="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {branches.map((b: any) => {
+              {branchSort.sorted.map((b: any) => {
                 const displayType = getBranchDisplayType(b)
                 const isActive = b.isActive && b.status === 'ACTIVE'
                 return (

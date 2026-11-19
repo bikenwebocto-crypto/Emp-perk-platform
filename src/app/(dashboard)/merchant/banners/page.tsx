@@ -73,6 +73,25 @@ interface OfferHit {
   endDate: string;
 }
 
+const STATUS_LABELS: Record<string, { label: string; hint: string }> = {
+  PENDING: {
+    label: "Awaiting review",
+    hint: "Our team is reviewing your banner. You can still edit it.",
+  },
+  APPROVED: {
+    label: "Approved",
+    hint: "Your banner has been approved by our team.",
+  },
+  REJECTED: {
+    label: "Rejected",
+    hint: "This booking was not approved. You can submit a new booking.",
+  },
+  CANCELLED: {
+    label: "Cancelled",
+    hint: "This booking was cancelled and will not be shown.",
+  },
+};
+
 function statusBadge(s: string) {
   const cls =
     s === "PENDING"
@@ -85,8 +104,11 @@ function statusBadge(s: string) {
             ? "bg-gray-100 text-gray-800"
             : "bg-gray-100 text-gray-800";
   return (
-    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
-      {s}
+    <span
+      className={`rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}
+      title={STATUS_LABELS[s]?.hint}
+    >
+      {STATUS_LABELS[s]?.label ?? s}
     </span>
   );
 }
@@ -100,27 +122,30 @@ function derivedBadges(booking: Booking) {
       badges.push(
         <span
           key="expired"
+          title="The booking period has ended and the banner is no longer shown."
           className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800"
         >
-          Expired
+          Ended
         </span>,
       );
     } else if (!booking.paid) {
       badges.push(
         <span
           key="not-visible"
+          title="Approved, but payment has not been received yet. The banner goes live once payment is confirmed."
           className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
         >
-          Not Visible
+          Not live – awaiting payment
         </span>,
       );
     } else {
       badges.push(
         <span
           key="visible"
+          title="Approved and paid. Employees can see this banner during the booked dates."
           className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800"
         >
-          Visible
+          Live
         </span>,
       );
     }
@@ -129,8 +154,13 @@ function derivedBadges(booking: Booking) {
 }
 
 const POSITION_LABELS: Record<string, string> = {
-  TOP: "Top",
-  BOTTOM: "Bottom",
+  TOP: "Top banner",
+  BOTTOM: "Bottom banner",
+};
+
+const POSITION_HINTS: Record<string, string> = {
+  TOP: "Shown at the top of the employee app – the most visible spot.",
+  BOTTOM: "Shown lower down the page, below the main content.",
 };
 
 function toDateKey(d: Date): string {
@@ -458,8 +488,9 @@ export default function MerchantBannersPage() {
     onSuccess: () => {
       showToast({
         type: "success",
-        title: "Booking submitted",
-        description: "Your banner booking has been submitted successfully.",
+        title: "Booking request sent",
+        description:
+          "Our team will review your banner. Once it is approved and paid, it goes live on the dates you picked.",
       });
 
       setPendingBannerFile(null);
@@ -496,7 +527,11 @@ export default function MerchantBannersPage() {
       queryClient.invalidateQueries({ queryKey: ["merchant-banners"] });
       setEditBooking(null);
       setEditPendingFile(null);
-      showToast({ type: "success", title: "Booking updated" });
+      showToast({
+        type: "success",
+        title: "Banner updated",
+        description: "Your changes are saved and will be included in the review.",
+      });
     },
     onError: (e: any) =>
       showToast({ type: "error", title: "Failed", description: e?.message }),
@@ -614,20 +649,52 @@ export default function MerchantBannersPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Banner Bookings"
-        description="Book promotional banner slots and manage your bookings"
+        title="Banner Advertising"
+        description="Promote your business with a banner that employees see in the app. Pick a spot, choose your dates and upload your design."
         actions={
           <Button onClick={() => setShowBook((s) => !s)}>
             <Plus className="mr-1 h-4 w-4" />
-            {showBook ? "Cancel" : "Book a Banner"}
+            {showBook ? "Close" : "Book a Banner"}
           </Button>
         }
       />
 
+      <Card>
+        <CardContent className="pt-6">
+          <p className="mb-3 text-sm font-semibold">How banner booking works</p>
+          <ol className="grid gap-3 text-xs text-muted-foreground sm:grid-cols-4">
+            {[
+              ["1. Choose a spot", "Pick a banner position and a free slot."],
+              [
+                "2. Pick your dates",
+                "Select a start and end date. The price is per day.",
+              ],
+              [
+                "3. Add your banner",
+                "Upload an image and choose where a click should lead.",
+              ],
+              [
+                "4. Review & go live",
+                "We review your request. Once approved and paid, your banner is shown on the booked dates.",
+              ],
+            ].map(([t, d]) => (
+              <li key={t} className="rounded-md bg-muted/30 p-3">
+                <p className="font-medium text-foreground">{t}</p>
+                <p className="mt-1">{d}</p>
+              </li>
+            ))}
+          </ol>
+        </CardContent>
+      </Card>
+
       {showBook && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Book a Banner Slot</CardTitle>
+            <CardTitle className="text-base">Book a Banner</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Fields marked * are required. You won&apos;t be charged until your
+              booking is approved.
+            </p>
           </CardHeader>
           <CardContent>
             {
@@ -638,7 +705,7 @@ export default function MerchantBannersPage() {
 
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Position
+                    Step 1 · Where should your banner appear? *
                   </label>
 
                   <select
@@ -651,9 +718,12 @@ export default function MerchantBannersPage() {
                       setPickedEnd("");
                     }}
                   >
-                    <option value="TOP">Top</option>
-                    <option value="BOTTOM">Bottom</option>
+                    <option value="TOP">Top banner</option>
+                    <option value="BOTTOM">Bottom banner</option>
                   </select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {POSITION_HINTS[selectedPosition]}
+                  </p>
                 </div>
 
                 {/* -------------------------------------------------- */}
@@ -664,7 +734,8 @@ export default function MerchantBannersPage() {
                   <Skeleton className="h-24 w-full" />
                 ) : !positionSlots ? (
                   <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                    No active banner slot for this position.
+                    Banners can&apos;t be booked in this position right now.
+                    Please try another position or check back later.
                   </div>
                 ) : (
                   <>
@@ -672,24 +743,33 @@ export default function MerchantBannersPage() {
 
                     <div className="rounded-md bg-muted/30 p-3 text-sm text-muted-foreground">
                       <p>
-                        €{Number(positionSlots.pricePerDay).toFixed(2)}/day ·{" "}
-                        {positionSlots.availableCount} of{" "}
+                        <span className="font-medium text-foreground">
+                          €{Number(positionSlots.pricePerDay).toFixed(2)} per
+                          day
+                        </span>{" "}
+                        · {positionSlots.availableCount} of{" "}
                         {positionSlots.slotCount} slot
-                        {positionSlots.slotCount !== 1 ? "s" : ""} available
+                        {positionSlots.slotCount !== 1 ? "s" : ""} free right
+                        now
                       </p>
 
                       <p className="mt-1 text-xs">
-                        Min: {positionSlots.minDays} days · Max:{" "}
-                        {positionSlots.maxDays} days
+                        You can book between {positionSlots.minDays} and{" "}
+                        {positionSlots.maxDays} days at a time. Each slot shows
+                        one merchant&apos;s banner at a time.
                       </p>
                     </div>
 
                     {/* Slot selection */}
 
                     <div>
-                      <label className="mb-2 block text-xs font-medium text-muted-foreground">
-                        Choose a slot
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                        Step 2 · Choose a slot *
                       </label>
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        Slots are banner places in this position. Greyed-out
+                        slots have no free dates left.
+                      </p>
 
                       <div className="grid gap-2 sm:grid-cols-3">
                         {positionSlots.slots.map((slot) => {
@@ -728,8 +808,8 @@ export default function MerchantBannersPage() {
                               {isAvailable ? (
                                 <p className="mt-1 text-emerald-600">
                                   {(slot.bookings?.length ?? 0) > 0
-                                    ? "Partially booked"
-                                    : "Available"}
+                                    ? "Some dates free"
+                                    : "All dates free"}
                                 </p>
                               ) : (
                                 <>
@@ -739,7 +819,7 @@ export default function MerchantBannersPage() {
 
                                   {slot.bookedUntil && (
                                     <p className="mt-0.5 text-muted-foreground">
-                                      until{" "}
+                                      Free again after{" "}
                                       {new Date(
                                         slot.bookedUntil,
                                       ).toLocaleDateString()}
@@ -761,13 +841,13 @@ export default function MerchantBannersPage() {
                       <>
                         <div className="rounded-md bg-primary/10 p-3 text-sm">
                           <p className="font-medium">
-                            Selected slot: Slot {selectedSlot.slotNumber}
+                            You picked Slot {selectedSlot.slotNumber}
                           </p>
 
                           <p className="mt-1 text-xs text-muted-foreground">
                             {bookedRanges.length > 0 ? (
                               <>
-                                Booked days:{" "}
+                                Already taken (not selectable):{" "}
                                 {bookedRanges
                                   .map(
                                     (r) =>
@@ -780,7 +860,7 @@ export default function MerchantBannersPage() {
                                   .join(", ")}
                               </>
                             ) : (
-                              "No existing bookings for this slot"
+                              "This slot is completely free – pick any dates."
                             )}
                           </p>
                         </div>
@@ -790,7 +870,7 @@ export default function MerchantBannersPage() {
                         <div>
                           <div className="mb-2 flex items-center justify-between">
                             <label className="text-xs font-medium text-muted-foreground">
-                              Select dates (
+                              Step 3 · Click a start date, then an end date * (
                               {new Date(
                                 calendarMonth.year,
                                 calendarMonth.month,
@@ -879,17 +959,17 @@ export default function MerchantBannersPage() {
                           <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <span className="inline-block h-3 w-3 rounded bg-primary" />
-                              Selected
+                              Start / end date
                             </span>
 
                             <span className="flex items-center gap-1">
                               <span className="inline-block h-3 w-3 rounded bg-primary/20" />
-                              In range
+                              Your banner runs
                             </span>
 
                             <span className="flex items-center gap-1">
                               <span className="inline-block h-3 w-3 rounded bg-muted text-muted-foreground/40 line-through" />
-                              Booked
+                              Taken or past
                             </span>
                           </div>
 
@@ -910,15 +990,20 @@ export default function MerchantBannersPage() {
                                 To:{" "}
                                 {pickedEnd
                                   ? new Date(pickedEnd).toLocaleDateString()
-                                  : "pick an end date"}
+                                  : "now click an end date"}
                               </p>
 
                               {days > 0 && (
                                 <>
-                                  <p>Days: {days}</p>
+                                  <p>
+                                    {days} day{days !== 1 ? "s" : ""} × €
+                                    {Number(positionSlots.pricePerDay).toFixed(
+                                      2,
+                                    )}
+                                  </p>
 
                                   <p className="font-semibold">
-                                    Total:{" "}
+                                    Estimated total:{" "}
                                     {Intl.NumberFormat("en-GB", {
                                       style: "currency",
                                       currency: "EUR",
@@ -957,8 +1042,8 @@ export default function MerchantBannersPage() {
                     }
                     onDeferredFile={(file) => setPendingBannerFile(file)}
                     uploadMode="deferred"
-                    label="Banner Image *"
-                    helperText="Recommended size: 1200×400 px, max 5 MB, PNG/JPG/WEBP"
+                    label="Step 4 · Upload your banner image *"
+                    helperText="Use a wide image (1200×400 px works best). PNG, JPG or WEBP, up to 5 MB. Keep text short and readable on mobile."
                   />
                 </div>
 
@@ -968,7 +1053,7 @@ export default function MerchantBannersPage() {
 
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Alt Text
+                    Image description (optional)
                   </label>
 
                   <Input
@@ -979,8 +1064,12 @@ export default function MerchantBannersPage() {
                         altText: e.target.value,
                       }))
                     }
-                    placeholder="Describe the banner image"
+                    placeholder="e.g. 20% off all pizzas this weekend"
                   />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    A short description of the image, read aloud by screen
+                    readers and shown if the image fails to load.
+                  </p>
                 </div>
 
                 {/* -------------------------------------------------- */}
@@ -989,12 +1078,11 @@ export default function MerchantBannersPage() {
 
                 <div className="border-t pt-5">
                   <label className="mb-2 block text-sm font-semibold">
-                    Banner Destination
+                    Step 5 · What happens when someone taps your banner? *
                   </label>
 
                   <p className="mb-3 text-xs text-muted-foreground">
-                    Choose where employees should go when they click this
-                    banner.
+                    Choose where employees are taken when they tap the banner.
                   </p>
 
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -1022,10 +1110,10 @@ export default function MerchantBannersPage() {
                       />
 
                       <div>
-                        <p className="text-sm font-medium">External Link</p>
+                        <p className="text-sm font-medium">Open a website</p>
 
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          Send users to an external website.
+                          e.g. your online shop, menu or a landing page.
                         </p>
                       </div>
                     </label>
@@ -1058,10 +1146,10 @@ export default function MerchantBannersPage() {
                       />
 
                       <div>
-                        <p className="text-sm font-medium">Merchant Offer</p>
+                        <p className="text-sm font-medium">Open one of your offers</p>
 
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          Send users directly to one of your offers.
+                          Takes employees straight to an offer they can redeem.
                         </p>
                       </div>
                     </label>
@@ -1075,7 +1163,7 @@ export default function MerchantBannersPage() {
                 {redirectType === "EXTERNAL" && (
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      Redirect URL *
+                      Website address *
                     </label>
 
                     <Input
@@ -1091,8 +1179,8 @@ export default function MerchantBannersPage() {
                     />
 
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Users will be redirected to this URL when they click the
-                      banner.
+                      Must start with https://. Employees open this page when
+                      they tap your banner.
                     </p>
                   </div>
                 )}
@@ -1104,7 +1192,7 @@ export default function MerchantBannersPage() {
                 {redirectType === "OFFER" && (
                   <div className="space-y-3">
                     <label className="block text-xs font-medium text-muted-foreground">
-                      Select Merchant Offer *
+                      Which offer should the banner open? *
                     </label>
 
                     {/* Selected-offer card */}
@@ -1199,7 +1287,7 @@ export default function MerchantBannersPage() {
                             value={offerSearch}
                             onChange={(e) => setOfferSearch(e.target.value)}
                             onFocus={() => setShowOfferResults(true)}
-                            placeholder="Search merchant offers..."
+                            placeholder="Search your offers by title…"
                             className="pl-8"
                             autoComplete="off"
                           />
@@ -1221,7 +1309,8 @@ export default function MerchantBannersPage() {
                                 </p>
                               ) : offerResults.length === 0 ? (
                                 <p className="px-3 py-2 text-sm text-muted-foreground">
-                                  No offers found.
+                                  No offers match your search. Check the
+                                  spelling or create the offer first.
                                 </p>
                               ) : (
                                 offerResults.map((offer) => (
@@ -1278,7 +1367,8 @@ export default function MerchantBannersPage() {
                           !selectedOffer &&
                           redirectType === "OFFER" && (
                             <p className="mt-1 text-xs text-muted-foreground">
-                              Type at least 2 characters to search.
+                              Type at least 2 letters of the offer title to
+                              search.
                             </p>
                           )}
                       </div>
@@ -1309,9 +1399,9 @@ export default function MerchantBannersPage() {
                       !isRedirectValid
                     }
                     loading={bookMutation.isPending}
-                    loadingText="Submitting…"
+                    loadingText="Sending request…"
                   >
-                    Submit Booking
+                    Send for Review
                   </LoadingButton>
                 </div>
               </form>
@@ -1339,8 +1429,8 @@ export default function MerchantBannersPage() {
                 setPage(1);
               }}
             >
-              <option value="">All Status</option>
-              <option value="PENDING">Pending</option>
+              <option value="">All bookings</option>
+              <option value="PENDING">Awaiting review</option>
               <option value="APPROVED">Approved</option>
               <option value="REJECTED">Rejected</option>
               <option value="CANCELLED">Cancelled</option>
@@ -1355,8 +1445,9 @@ export default function MerchantBannersPage() {
             </div>
           ) : bookings.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No banner bookings yet. Click &quot;Book a Banner&quot; to get
-              started.
+              {status
+                ? "No bookings with this status."
+                : "You haven't booked any banners yet. Click \"Book a Banner\" to promote your business to employees."}
             </p>
           ) : (
             <>
@@ -1394,6 +1485,15 @@ export default function MerchantBannersPage() {
                         />
                       )}
                     </div>
+                    {STATUS_LABELS[b.status] && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {b.status === "APPROVED" &&
+                        !b.paid &&
+                        new Date(b.endDate) >= new Date()
+                          ? "Approved – your banner goes live once payment is received."
+                          : STATUS_LABELS[b.status]?.hint}
+                      </p>
+                    )}
                     {b.status === "PENDING" && (
                       <div className="mt-2">
                         <Button
@@ -1401,7 +1501,7 @@ export default function MerchantBannersPage() {
                           variant="outline"
                           onClick={() => openEdit(b)}
                         >
-                          Edit
+                          Edit banner
                         </Button>
                       </div>
                     )}
@@ -1513,10 +1613,16 @@ export default function MerchantBannersPage() {
                 <span>
                   Status:{" "}
                   <span className="font-medium text-foreground">
-                    {editBooking.status}
+                    {STATUS_LABELS[editBooking.status]?.label ??
+                      editBooking.status}
                   </span>
                 </span>
               </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                You can change the image, description and link while the
+                booking is awaiting review. Dates and position can&apos;t be
+                changed here – submit a new booking if you need different dates.
+              </p>
             </div>
 
             {/* Form */}
@@ -1541,7 +1647,7 @@ export default function MerchantBannersPage() {
               {/* Alt text */}
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  Alt Text
+                  Image description (optional)
                 </label>
 
                 <Input
@@ -1559,7 +1665,7 @@ export default function MerchantBannersPage() {
               {/* Redirect URL */}
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  Redirect URL
+                  Website address
                 </label>
 
                 <Input

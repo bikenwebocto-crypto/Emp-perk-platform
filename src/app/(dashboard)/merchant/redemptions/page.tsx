@@ -28,6 +28,8 @@ import {
   type RedemptionStatus,
   type RedemptionMethod,
 } from "@/lib/redemption-status";
+import { useTableSort } from "@/hooks/use-table-sort";
+import { SortableTh } from "@/components/shared/sortable-th";
 
 interface RedemptionRow {
   id: string;
@@ -91,6 +93,8 @@ interface ApiResponse {
   }[];
   meta: { page: number; pageSize: number; total: number; totalPages: number };
 }
+
+const EMPTY_ROWS: RedemptionRow[] = [];
 
 async function fetchRedemptions(params: URLSearchParams): Promise<ApiResponse> {
   const res = await fetch(`/api/merchant/redemptions?${params.toString()}`);
@@ -258,6 +262,26 @@ export default function MerchantRedemptionsPage() {
     queryKey: ["merchant-redemptions", params.toString()],
     queryFn: () => fetchRedemptions(params),
   });
+
+  const num = (v: number | string | null | undefined) => (v == null ? null : Number(v));
+  const rowSort = useTableSort<RedemptionRow>(data?.data ?? EMPTY_ROWS, {
+    code: (r) => r.redemptionCode,
+    employee: (r) => `${r.employee?.firstName ?? ""} ${r.employee?.lastName ?? ""}`.trim(),
+    company: (r) => r.company?.name,
+    offer: (r) => r.offer?.title,
+    branch: (r) => r.branch?.name,
+    method: (r) => methodLabel(r),
+    // "Unlimited" (null) sorts as the largest value
+    limit: (r) => (r.offerLimit == null ? Number.MAX_SAFE_INTEGER : r.offerLimit),
+    redeemed: (r) => r.offerRedeemed,
+    remaining: (r) => (r.offerRemaining == null ? Number.MAX_SAFE_INTEGER : r.offerRemaining),
+    offerStatus: (r) => r.offerCapacityStatus,
+    status: (r) => r.status,
+    discount: (r) => num(r.discountAmount),
+    savings: (r) => num(r.savingsAmount),
+    date: (r) => new Date(r.redeemedAt).getTime(),
+  });
+  const sortProps = { activeKey: rowSort.sortKey, dir: rowSort.sortDir, onSort: rowSort.toggleSort };
 
   const updateStatus = useMutation({
     mutationFn: async ({
@@ -679,25 +703,25 @@ export default function MerchantRedemptionsPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-xs text-muted-foreground">
-                      <th className="p-2">Code</th>
-                      <th className="p-2">Employee</th>
-                      <th className="p-2">Company</th>
-                      <th className="p-2">Offer</th>
-                      <th className="p-2">Branch</th>
-                      <th className="p-2">Method</th>
-                      <th className="p-2 text-right">Limit</th>
-                      <th className="p-2 text-right">Redeemed</th>
-                      <th className="p-2 text-right">Remaining</th>
-                      <th className="p-2">Offer Status</th>
-                      <th className="p-2">Status</th>
-                      <th className="p-2 text-right">Discount</th>
-                      <th className="p-2 text-right">Savings</th>
-                      <th className="p-2">Date</th>
+                      <SortableTh label="Code" sortKey="code" {...sortProps} className="p-2" />
+                      <SortableTh label="Employee" sortKey="employee" {...sortProps} className="p-2" />
+                      <SortableTh label="Company" sortKey="company" {...sortProps} className="p-2" />
+                      <SortableTh label="Offer" sortKey="offer" {...sortProps} className="p-2" />
+                      <SortableTh label="Branch" sortKey="branch" {...sortProps} className="p-2" />
+                      <SortableTh label="Method" sortKey="method" {...sortProps} className="p-2" />
+                      <SortableTh label="Limit" sortKey="limit" {...sortProps} className="p-2 text-right" align="right" />
+                      <SortableTh label="Redeemed" sortKey="redeemed" {...sortProps} className="p-2 text-right" align="right" />
+                      <SortableTh label="Remaining" sortKey="remaining" {...sortProps} className="p-2 text-right" align="right" />
+                      <SortableTh label="Offer Status" sortKey="offerStatus" {...sortProps} className="p-2" />
+                      <SortableTh label="Status" sortKey="status" {...sortProps} className="p-2" />
+                      <SortableTh label="Discount" sortKey="discount" {...sortProps} className="p-2 text-right" align="right" />
+                      <SortableTh label="Savings" sortKey="savings" {...sortProps} className="p-2 text-right" align="right" />
+                      <SortableTh label="Date" sortKey="date" {...sortProps} className="p-2" />
                       <th className="p-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.data.map((r) => (
+                    {rowSort.sorted.map((r) => (
                       <tr key={r.id} className="border-b hover:bg-muted/30">
                         <td className="p-2 font-mono text-xs">
                           {r.redemptionCode}

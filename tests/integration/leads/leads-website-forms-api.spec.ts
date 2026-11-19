@@ -16,6 +16,9 @@ vi.mock('@/services/business-notification.service', () => ({
   channels: (...list: unknown[]) => list,
   publishBusinessToAdmins: vi.fn().mockResolvedValue(undefined),
 }))
+vi.mock('@/services/user-validation.service', () => ({
+  validateUserEmail: vi.fn().mockResolvedValue({ exists: false, role: null, userId: null }),
+}))
 
 import { prisma } from '@/lib/prisma'
 import { setRateLimiter, type RateLimiter } from '@/lib/rate-limit'
@@ -335,39 +338,23 @@ describe('website forms: spam and duplicates', () => {
     expect(db.$transaction).not.toHaveBeenCalled()
   })
 
-  it('two identical employer submissions keep one row and report the second as deduplicated', async () => {
-    db.lead.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'lead-existing', attribution: null })
+  it('two identical employer submissions keep one row and reject the second with 409', async () => {
+    db.lead.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'lead-existing' })
 
     const first = await send(jsonRequest(forms.employer_enquiry))
     expect(first.status).toBe(201)
-    expect(first.json.data).toEqual({ id: 'lead-1', deduplicated: false })
+    expect(first.json.data).toEqual({ id: 'lead-1' })
 
     const second = await send(jsonRequest(forms.employer_enquiry))
-    expect(second.status).toBe(201)
-    expect(second.json.data).toEqual({ id: 'lead-existing', deduplicated: true })
+    expect(second.status).toBe(409)
+    expect(second.json.error.code).toBe('LEAD_ALREADY_EXISTS')
 
     expect(db.lead.create).toHaveBeenCalledTimes(1)
-    expect(db.lead.update).toHaveBeenCalledTimes(1)
-    expect(db.lead.update.mock.calls[0][0].where).toEqual({ id: 'lead-existing' })
-  })
-
-  it('duplicate email + type updates the same row and merges attribution', async () => {
-    db.lead.findFirst.mockResolvedValue({ id: 'lead-existing', attribution: { utm_source: 'google', page_url: 'https://old' } })
-
-    const { status, json } = await send(jsonRequest({ ...forms.employer_enquiry, utm_campaign: 'oct', page_url: 'https://new' }))
-
-    expect(status).toBe(201)
-    expect(json.id).toBe('lead-existing')
-    expect(db.lead.create).not.toHaveBeenCalled()
-    const update = db.lead.update.mock.calls[0][0]
-    expect(update.where).toEqual({ id: 'lead-existing' })
-    expect(update.data).not.toHaveProperty('createdAt')
-    expect(update.data).not.toHaveProperty('status')
-    expect(update.data.attribution).toEqual({ utm_source: 'google', page_url: 'https://new', utm_campaign: 'oct' })
-    expect(db.lead.findFirst.mock.calls[0][0].where).toEqual({
+    expect(db.lead.update).not.toHaveBeenCalled()
+    expect(db.lead.findFirst.mock.calls[1][0].where).toEqual({
       email: 'grace@navylabs.cy',
       type: 'EMPLOYER',
-      status: { in: ['NEW', 'CONTACTED'] },
+      status: { in: ['NEW', 'CONTACTED', 'CONVERTED'] },
     })
   })
 
@@ -377,8 +364,6 @@ describe('website forms: spam and duplicates', () => {
 
     expect(first.status).toBe(201)
     expect(second.status).toBe(201)
-    expect(first.json.data.deduplicated).toBe(false)
-    expect(second.json.data.deduplicated).toBe(false)
     expect(db.lead.create).toHaveBeenCalledTimes(2)
     expect(db.lead.findFirst).not.toHaveBeenCalled()
     expect(db.lead.update).not.toHaveBeenCalled()

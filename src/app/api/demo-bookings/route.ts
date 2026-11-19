@@ -8,6 +8,7 @@ import { scheduleDemoBooking } from '@/lib/demo-bookings/scheduling.service';
 import { createAuditLog } from '@/services/audit-log.service';
 import { channels, publishBusinessToAdmins } from '@/services/business-notification.service';
 import { emailService } from '@/lib/email/email';
+import { validateUserEmail } from '@/services/user-validation.service';
 import { renderDemoBookingReceivedTemplate } from '@/emails/templates';
 
 const RATE_LIMIT = { limit: 5, windowMs: 10 * 60 * 1000 } as const;
@@ -76,6 +77,17 @@ export async function POST(request: NextRequest) {
     if (!parsed.ok) return validationError(origin, parsed.errors);
     const input = parsed.input;
 
+    const account = await validateUserEmail(input.email);
+    if (account.exists) {
+      return json(origin, {
+        success: false,
+        error: {
+          code: 'USER_ALREADY_EXISTS',
+          message: 'An account with this email already exists. Please log in instead.',
+        },
+      }, 409);
+    }
+
     const result = await scheduleDemoBooking({
       lead: input.lead,
       type: input.type,
@@ -86,8 +98,22 @@ export async function POST(request: NextRequest) {
       notes: input.booking.notes,
     });
 
-    // An already-held time is not an error for the visitor: the request is
-    // stored as PENDING and an admin reschedules it if it clashes.
+    if (!result.ok && result.kind === 'DUPLICATE') {
+      const { existing } = result;
+      const tz = existing.timezone || 'Asia/Nicosia';
+      return json(origin, {
+        success: false,
+        error: {
+          code: 'BOOKING_ALREADY_EXISTS',
+          message: `You already have a demo booked for ${formatInTimeZone(existing.startsAt, tz)} (reference ${existing.reference}).`,
+        },
+        reference: existing.reference,
+        status: existing.status,
+        startsAt: existing.startsAt.toISOString(),
+      }, 409);
+    }
+    // Policy violations (past date, outside hours…). An already-held time is not an
+    // error: the request is stored as PENDING and an admin reschedules it if it clashes.
     if (!result.ok) return validationError(origin, { [result.violation.field]: result.violation.message });
 
     const { booking, overlapCount } = result;

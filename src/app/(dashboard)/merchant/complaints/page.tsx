@@ -9,6 +9,11 @@ import { PageHeader } from '@/components/shared/page-header'
 import { useTablePagination } from '@/hooks/use-table-pagination'
 import { Plus, AlertTriangle } from 'lucide-react'
 import { PRIORITY_STYLES } from '@/features/complaints/constants'
+import { useTableSort } from '@/hooks/use-table-sort'
+import { SortableTh } from '@/components/shared/sortable-th'
+
+// Severity order so "Priority" sorts low → critical instead of alphabetically.
+const PRIORITY_RANK: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, URGENT: 4, CRITICAL: 4 }
 
 interface Complaint {
   id: string
@@ -78,6 +83,16 @@ export default function MerchantComplaintsPage() {
 
   const complaints = data?.data ?? []
   const meta = data?.meta
+  const complaintSort = useTableSort<Complaint>(complaints, {
+    employee: (c) => `${c.employee?.firstName ?? ''} ${c.employee?.lastName ?? ''}`.trim(),
+    offer: (c) => c.offer?.title,
+    type: (c) => c.complaintType,
+    category: (c) => (c.category ? CATEGORY_LABELS[c.category] ?? c.category : null),
+    status: (c) => c.status,
+    priority: (c) => PRIORITY_RANK[c.priority] ?? c.priority,
+    createdAt: (c) => new Date(c.createdAt).getTime(),
+  })
+  const sortProps = { activeKey: complaintSort.sortKey, dir: complaintSort.sortDir, onSort: complaintSort.toggleSort }
 
   return (
     <div className="space-y-6">
@@ -116,7 +131,14 @@ export default function MerchantComplaintsPage() {
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <AlertTriangle className="mb-2 h-8 w-8 text-muted-foreground/50" />
             <p className="text-sm font-medium">No complaints found</p>
-            <p className="mt-1 text-xs text-muted-foreground">No complaints have been filed against your offers yet.</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {statusFilter ? 'No complaints match this status. Try another filter.' : 'No complaints have been filed against your offers yet.'}
+            </p>
+            {statusFilter && (
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => { setStatusFilter(''); resetPage() }}>
+                Clear filter
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -125,18 +147,18 @@ export default function MerchantComplaintsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/30 text-left text-xs font-medium uppercase text-muted-foreground">
-                  <th className="px-4 py-3">Employee</th>
+                  <SortableTh label="Employee" sortKey="employee" {...sortProps} className="px-4 py-3" />
                   {/* <th className="px-4 py-3">Company</th> */}
-                  <th className="px-4 py-3">Offer</th>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Category</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Priority</th>
-                  <th className="px-4 py-3">Date</th>
+                  <SortableTh label="Offer" sortKey="offer" {...sortProps} className="px-4 py-3" />
+                  <SortableTh label="Type" sortKey="type" {...sortProps} className="px-4 py-3" />
+                  <SortableTh label="Category" sortKey="category" {...sortProps} className="px-4 py-3" />
+                  <SortableTh label="Status" sortKey="status" {...sortProps} className="px-4 py-3" />
+                  <SortableTh label="Priority" sortKey="priority" {...sortProps} className="px-4 py-3" />
+                  <SortableTh label="Date" sortKey="createdAt" {...sortProps} className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
-                {complaints.map((c) => (
+                {complaintSort.sorted.map((c) => (
                   <tr
                     key={c.id}
                     className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"

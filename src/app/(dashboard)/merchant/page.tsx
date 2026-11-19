@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { cn } from '@/utils/cn'
+import { useTableSort } from '@/hooks/use-table-sort'
+import { SortableTh } from '@/components/shared/sortable-th'
 import {
   ShoppingBag,
   Eye,
@@ -46,6 +48,8 @@ interface DashboardData {
     discount: string
     time: string
     status: 'verified' | 'pending' | 'rejected'
+    discountAmount: number
+    redeemedAt: number | null
   }[]
   activities: {
     type: 'redemption' | 'offer' | 'review' | 'alert'
@@ -108,6 +112,8 @@ async function fetchDashboard(): Promise<DashboardData> {
       employee: { name: employeeName, initials },
       discount: formatCurrency(r.discountAmount ?? 0),
       time: r.redeemedAt ? timeAgo(r.redeemedAt) : '',
+      discountAmount: Number(r.discountAmount ?? 0),
+      redeemedAt: r.redeemedAt ? new Date(r.redeemedAt).getTime() : null,
       status: (r.isVerified ? 'verified' : r.status === 'REJECTED' ? 'rejected' : 'pending') as 'verified' | 'pending' | 'rejected',
     }
   })
@@ -198,6 +204,14 @@ export default function MerchantDashboard() {
     activities: [],
   }
   const s = d.stats
+  const redemptionSort = useTableSort<DashboardData['redemptions'][number]>(d.redemptions, {
+    employee: (r) => r.employee.name,
+    code: (r) => r.code,
+    discount: (r) => r.discountAmount,
+    time: (r) => r.redeemedAt,
+    status: (r) => r.status,
+  })
+  const sortProps = { activeKey: redemptionSort.sortKey, dir: redemptionSort.sortDir, onSort: redemptionSort.toggleSort }
 
   return (
     <div className="space-y-8 pb-8">
@@ -393,15 +407,15 @@ export default function MerchantDashboard() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="pb-3 pr-3 font-medium">Employee</th>
-                    <th className="pb-3 pr-3 font-medium">Code</th>
-                    <th className="pb-3 pr-3 font-medium">Discount</th>
-                    <th className="pb-3 pr-3 font-medium">Time</th>
-                    <th className="pb-3 font-medium">Status</th>
+                    <SortableTh label="Employee" sortKey="employee" {...sortProps} className="pb-3 pr-3 font-medium" />
+                    <SortableTh label="Code" sortKey="code" {...sortProps} className="pb-3 pr-3 font-medium" />
+                    <SortableTh label="Discount" sortKey="discount" {...sortProps} className="pb-3 pr-3 font-medium" />
+                    <SortableTh label="Time" sortKey="time" {...sortProps} className="pb-3 pr-3 font-medium" />
+                    <SortableTh label="Status" sortKey="status" {...sortProps} className="pb-3 font-medium" />
                   </tr>
                 </thead>
                 <tbody>
-                  {d.redemptions.map((r, i) => {
+                  {redemptionSort.sorted.map((r, i) => {
                     const statusStyles: Record<string, string> = {
                       verified: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
                       pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',

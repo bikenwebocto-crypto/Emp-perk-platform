@@ -491,6 +491,8 @@ export interface ColumnDef<T> {
   align?: 'left' | 'center' | 'right';
   width?: string;
   render?: (item: T) => React.ReactNode;
+  /** Value used for client-side sorting when it differs from item[key] (nested/derived fields). */
+  sortValue?: (item: T) => string | number | null | undefined;
 }
 
 // ============================================================================

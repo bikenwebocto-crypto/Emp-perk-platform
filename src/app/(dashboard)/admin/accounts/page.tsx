@@ -186,7 +186,7 @@ export default function AccountsPage() {
         filters={[
           {
             key: 'role', label: 'All roles', value: role,
-            options: ADMIN_ROLES.map((r) => ({ label: ADMIN_ROLE_LABELS[r], value: r })),
+            options: ADMIN_ROLES.filter((r) => r !== 'FINANCE_ADMIN').map((r) => ({ label: ADMIN_ROLE_LABELS[r], value: r })),
             onChange: (v) => { setRole(v); setPage(1) },
           },
         ]}

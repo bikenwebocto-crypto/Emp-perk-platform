@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { getMerchantFromSession } from '@/lib/merchant-session'
 import {
   deriveStatus,
+  statusWhere,
   decodeMethod,
   type RedemptionStatus,
   type RedemptionMethod,
@@ -73,6 +74,7 @@ export async function GET(request: NextRequest) {
     const from = searchParams.get('from')
     const to = searchParams.get('to')
     const q = searchParams.get('q')?.trim() || undefined
+    const status = searchParams.get('status')?.trim() || undefined
 
     // Only run the 5 extra metric/aggregate queries when explicitly requested.
     const includeMetrics = searchParams.get('includeMetrics') === 'true'
@@ -161,6 +163,22 @@ export async function GET(request: NextRequest) {
           },
         },
         {
+          employee: {
+            lastName: {
+              contains: q,
+              mode: 'insensitive',
+            },
+          },
+        },
+        {
+          offer: {
+            title: {
+              contains: q,
+              mode: 'insensitive',
+            },
+          },
+        },
+        {
           company: {
             name: {
               contains: q,
@@ -169,6 +187,12 @@ export async function GET(request: NextRequest) {
           },
         },
       ]
+    }
+
+    // Status (derived field — translated to the equivalent note/verification conditions)
+    if (status) {
+      const sw = statusWhere(status)
+      if (sw) where.AND = [...(where.AND ?? []), sw]
     }
 
     // ─────────────────────────────────────────────

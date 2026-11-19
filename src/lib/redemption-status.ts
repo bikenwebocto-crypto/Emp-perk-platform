@@ -33,6 +33,28 @@ export function deriveStatus(redemption: {
   return 'PENDING'
 }
 
+/**
+ * Prisma `where` fragment that matches exactly the rows `deriveStatus` maps to `status`.
+ * Status is derived from notes/verification, so it can't be filtered on a column directly.
+ * Null-safe: `NOT startsWith` alone would drop rows whose notes are NULL.
+ */
+export function statusWhere(status: string): Record<string, unknown> | null {
+  const notCancelled = { OR: [{ employeeNotes: null }, { NOT: { employeeNotes: { startsWith: CANCELLED_PREFIX } } }] }
+  const notRejected = { OR: [{ merchantNotes: null }, { NOT: { merchantNotes: { startsWith: REJECTED_PREFIX } } }] }
+  switch (status) {
+    case 'CANCELLED':
+      return { employeeNotes: { startsWith: CANCELLED_PREFIX } }
+    case 'REJECTED':
+      return { AND: [notCancelled, { merchantNotes: { startsWith: REJECTED_PREFIX } }] }
+    case 'CONFIRMED':
+      return { AND: [notCancelled, notRejected, { isVerified: true }, { verifiedAt: { not: null } }] }
+    case 'PENDING':
+      return { AND: [notCancelled, notRejected, { OR: [{ isVerified: false }, { verifiedAt: null }] }] }
+    default:
+      return null
+  }
+}
+
 export function rejectedNote(reason: string): string {
   return `${REJECTED_PREFIX}${reason}`
 }

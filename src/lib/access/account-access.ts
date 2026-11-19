@@ -26,7 +26,9 @@ export const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'SUPPORT_ADMIN', 'FINANCE_AD
 export type AdminRoleValue = (typeof ADMIN_ROLES)[number]
 
 /** Roles that can be assigned to anyone today (CONTENT_ADMIN is deprecated). */
-export const ACTIVE_ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'SUPPORT_ADMIN', 'FINANCE_ADMIN'] as const
+// FINANCE_ADMIN is hidden for now (billing is not part of this model); the enum
+// value stays in ADMIN_ROLES so any existing rows keep working.
+export const ACTIVE_ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'SUPPORT_ADMIN'] as const
 
 /**
  * Normalise an AdminUser.role string. A missing or unknown role returns null and
@@ -80,8 +82,8 @@ export function canAccessAccounts(actor: { adminRole?: string | null; isActive?:
  * SUPER_ADMIN → all active roles; ADMIN → everything except SUPER_ADMIN.
  */
 export function assignableRoles(actor: { adminRole?: string | null }): AdminRoleValue[] {
-  if (actor.adminRole === 'SUPER_ADMIN') return ['SUPER_ADMIN', 'ADMIN', 'SUPPORT_ADMIN', 'FINANCE_ADMIN']
-  if (actor.adminRole === 'ADMIN') return ['ADMIN', 'SUPPORT_ADMIN', 'FINANCE_ADMIN']
+  if (actor.adminRole === 'SUPER_ADMIN') return ['SUPER_ADMIN', 'ADMIN', 'SUPPORT_ADMIN']
+  if (actor.adminRole === 'ADMIN') return ['ADMIN', 'SUPPORT_ADMIN']
   return []
 }
 

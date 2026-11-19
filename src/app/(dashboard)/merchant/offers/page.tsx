@@ -90,6 +90,10 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
     {
       key: 'discountValue',
       header: 'Value',
+      sortValue: (o: any) => {
+        const cfg = (o.pricing?.configuration as Record<string, any>) ?? {}
+        return Number(cfg.amount ?? cfg.percent ?? 0)
+      },
       render: (o: any) => {
         const cfg = (o.pricing?.configuration as Record<string, any>) ?? {}
         const amount = Number(cfg.amount ?? cfg.percent ?? 0)
@@ -115,6 +119,7 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
       key: 'currentRedemptions',
       header: 'Redemptions',
       align: 'center',
+      sortValue: (o: any) => o.capacity?.redeemedCount ?? 0,
       render: (o: any) => {
         const max = o.capacity?.maxRedemptions ?? '∞'
         return <span>{o.capacity?.redeemedCount ?? 0}/{max}</span>
@@ -123,11 +128,13 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
     {
       key: 'startDate',
       header: 'Start',
+      sortValue: (o: any) => (o.startDate ? new Date(o.startDate).getTime() : undefined),
       render: (o: any) => new Date(o.startDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
     },
     {
       key: 'endDate',
       header: 'End',
+      sortValue: (o: any) => (o.endDate ? new Date(o.endDate).getTime() : undefined),
       render: (o: any) => new Date(o.endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
     },
     {

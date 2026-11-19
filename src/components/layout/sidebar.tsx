@@ -15,7 +15,7 @@ import { Loader2 } from 'lucide-react'
 import {
   LayoutDashboard, Store, Users, FileText, BarChart3, Settings, CreditCard,
   ShoppingBag, MapPin, Gift, Building2, UserCircle, Bell, Upload, LogOut,
-  Zap, Bookmark, Palette, Trash2, Lightbulb, Inbox, KeyRound,
+  Zap, Bookmark, Palette, Trash2, Lightbulb, Inbox, UserCog,
   CalendarClock, ShieldAlert, ShieldCheck, UserCheck,
 } from 'lucide-react'
 import { canAdminAccessPath } from '@/lib/access/account-access'
@@ -61,7 +61,7 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Tickets', href: '/admin/complaints', icon: FileText },
     { label: 'Banners', href: '/admin/banners', icon: Palette },
     { label: 'Notifications', href: '/admin/notifications', icon: Bell },
-    { label: 'Accounts', href: '/admin/accounts', icon: KeyRound },
+    { label: 'Platform Team', href: '/admin/accounts', icon: UserCog },
     { label: 'MFA Recovery', href: '/admin/mfa-recovery', icon: ShieldAlert },
     { label: 'Recovery Approvals', href: '/admin/recovery-approvals', icon: ShieldCheck },
     { label: 'S-Admin Recovery', href: '/admin/security/recovery-approver', icon: UserCheck },
@@ -182,6 +182,8 @@ export function Sidebar({ userType, userName, userEmail, adminRole, companyName,
       '/admin/merchant-suggestions': counts?.merchantSuggestions,
       '/admin/demo-bookings': counts?.demoBookings,
       '/admin/complaints': counts?.tickets,
+      '/admin/companies': counts?.companies,
+      '/admin/accounts': counts?.platformTeam,
     }
     return (navConfig[userType] ?? [])
       // Admins only see the pages their admin role may open (same rule the

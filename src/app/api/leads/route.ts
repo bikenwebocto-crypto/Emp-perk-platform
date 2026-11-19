@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { validateUserEmail } from '@/services/user-validation.service';
 import { clientIpFromRequest, getRateLimiter } from '@/lib/rate-limit';
 import { corsHeaders, isOriginAllowed } from '@/lib/leads/cors';
 import { parseLeadSubmission, readLeadBody, type LeadInput } from '@/lib/leads/parse';
@@ -23,6 +23,16 @@ function isCompanyLead(type: LeadInput['type']) {
 
 function json(origin: string | null, body: unknown, status: number, headers: Record<string, string> = {}) {
   return NextResponse.json(body, { status, headers: { ...corsHeaders(origin), ...headers } });
+}
+
+function userAlreadyExists(origin: string | null) {
+  return json(origin, {
+    success: false,
+    error: {
+      code: 'USER_ALREADY_EXISTS',
+      message: 'An account with this email already exists. Please log in instead.',
+    },
+  }, 409);
 }
 
 function validationError(origin: string | null, errors: Record<string, string>) {
@@ -82,46 +92,29 @@ export async function POST(request: NextRequest) {
     if (!parsed.ok) return validationError(origin, parsed.errors);
     const input = parsed.input;
 
-    // Duplicate rule: an open lead (NEW or CONTACTED) with the same email + type is
-    // updated in place with the new values — createdAt and status are kept and
-    // attribution is merged (new keys win) — and its id is returned. Otherwise, including
-    // when the earlier lead is REJECTED or CONVERTED, a new lead is created.
-    // The check and write run under one advisory lock so two identical submissions
-    // cannot both create a row.
-    // A contact message is never deduplicated: every message is kept as its own lead.
+    // A contact message is never deduplicated: every message is kept as its own lead,
+    // even from someone who already has an account.
+    if (input.type !== 'CONTACT_MESSAGE') {
+      const account = await validateUserEmail(input.email);
+      if (account.exists) return userAlreadyExists(origin);
+    }
+
+    // Duplicate rule: an open lead (NEW, CONTACTED or CONVERTED) with the same email + type
+    // is not saved again — the visitor is told they are already registered. A REJECTED
+    // lead does not block a new submission. The check and write run under one advisory
+    // lock so two identical submissions cannot both create a row.
     const companyLead = isCompanyLead(input.type);
     const outcome = await prisma.$transaction(async (tx) => {
       if (input.type !== 'CONTACT_MESSAGE') {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lead_submit:${input.email}:${input.type}`}))`;
 
         const existing = await tx.lead.findFirst({
-          where: { email: input.email, type: input.type, status: { in: ['NEW', 'CONTACTED'] } },
+          where: { email: input.email, type: input.type, status: { in: ['NEW', 'CONTACTED', 'CONVERTED'] } },
           orderBy: { createdAt: 'desc' },
-          select: { id: true, attribution: true },
+          select: { id: true },
         });
 
-        if (existing) {
-          const previous = existing.attribution && typeof existing.attribution === 'object' && !Array.isArray(existing.attribution)
-            ? (existing.attribution as Record<string, unknown>)
-            : {};
-          const attribution = input.attribution ? { ...previous, ...input.attribution } : undefined;
-          const previousCities = Array.isArray(input.data.cities) ? input.data.cities : [];
-          const nextCities = companyLead
-            ? Array.from(new Set([...previousCities, 'Limassol']))
-            : undefined;
-
-          await tx.lead.update({
-            where: { id: existing.id },
-            data: {
-              ...input.data,
-              ...(companyLead
-                ? { cities: nextCities, hqCountry: input.data.hqCountry ?? 'Cyprus' }
-                : {}),
-              ...(attribution ? { attribution: attribution as Prisma.InputJsonObject } : {}),
-            },
-          });
-          return { kind: 'updated' as const, id: existing.id };
-        }
+        if (existing) return { kind: 'duplicate' as const, id: existing.id };
       }
 
       const lead = await tx.lead.create({
@@ -140,8 +133,18 @@ export async function POST(request: NextRequest) {
       return { kind: 'created' as const, id: lead.id };
     });
 
-    if (outcome.kind === 'created') {
-      // Notifications are best-effort: a failure must not lose the lead.
+    if (outcome.kind === 'duplicate') {
+      return json(origin, {
+        success: false,
+        error: {
+          code: 'LEAD_ALREADY_EXISTS',
+          message: 'You have already submitted this request with this email. Our team will be in touch soon.',
+        },
+      }, 409);
+    }
+
+    {
+      // New lead created. Notifications are best-effort: a failure must not lose the lead.
       try {
         const leadName = input.data.companyName ?? `${input.data.firstName} ${input.data.lastName}`.trim();
         await publishBusinessToAdmins({
@@ -162,7 +165,7 @@ export async function POST(request: NextRequest) {
     return json(origin, {
       success: true,
       id: outcome.id,
-      data: { id: outcome.id, deduplicated: outcome.kind === 'updated' },
+      data: { id: outcome.id },
       message: 'Thank you — we will be in touch.',
     }, 201);
   } catch (error) {

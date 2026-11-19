@@ -4,7 +4,7 @@ vi.mock('@/lib/prisma', () => {
   const prisma: any = {
     $executeRaw: vi.fn(),
     lead: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
-    demoBooking: { create: vi.fn(), findMany: vi.fn() },
+    demoBooking: { create: vi.fn(), findMany: vi.fn(), findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
     rateLimitCounter: { findUnique: vi.fn(), upsert: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
   }
@@ -18,8 +18,12 @@ vi.mock('@/services/business-notification.service', () => ({
 vi.mock('@/services/audit-log.service', () => ({
   createAuditLog: vi.fn().mockResolvedValue(undefined),
 }))
+vi.mock('@/services/user-validation.service', () => ({
+  validateUserEmail: vi.fn(),
+}))
 
 import { prisma } from '@/lib/prisma'
+import { validateUserEmail } from '@/services/user-validation.service'
 import { publishBusinessToAdmins } from '@/services/business-notification.service'
 import { createAuditLog } from '@/services/audit-log.service'
 import { setRateLimiter, type RateLimiter } from '@/lib/rate-limit'
@@ -108,6 +112,8 @@ beforeEach(() => {
   db.lead.create.mockResolvedValue({ id: 'lead-1' })
   db.lead.update.mockResolvedValue({ id: 'lead-existing' })
   db.demoBooking.findMany.mockResolvedValue([])
+  db.demoBooking.findFirst.mockResolvedValue(null)
+  vi.mocked(validateUserEmail).mockResolvedValue({ exists: false, role: null, userId: null })
   db.demoBooking.create.mockResolvedValue({
     id: 'booking-1',
     reference: REFERENCE,
@@ -197,6 +203,56 @@ describe('POST /api/demo-bookings persistence', () => {
       status: { in: ['NEW', 'CONTACTED'] },
     })
     expect(db.demoBooking.create.mock.calls[0][0].data.leadId).toBe('lead-existing')
+  })
+
+  it('does not blank out saved lead fields the visitor left empty', async () => {
+    db.lead.findFirst.mockResolvedValue({ id: 'lead-existing' })
+
+    await post(validBody({ phone: undefined, referralSource: undefined }))
+
+    const data = db.lead.update.mock.calls[0][0].data
+    expect(data.firstName).toBe('Eleni')
+    expect(data).not.toHaveProperty('phone')
+    expect(data).not.toHaveProperty('hearAbout')
+  })
+})
+
+describe('POST /api/demo-bookings duplicates', () => {
+  it('returns 409 USER_ALREADY_EXISTS when the email already has an account', async () => {
+    vi.mocked(validateUserEmail).mockResolvedValue({ exists: true, role: 'COMPANY_ADMIN', userId: 'ca-1' })
+
+    const { status, json } = await post(validBody())
+
+    expect(status).toBe(409)
+    expect(json.success).toBe(false)
+    expect(json.error.code).toBe('USER_ALREADY_EXISTS')
+    expect(db.$transaction).not.toHaveBeenCalled()
+    expect(db.demoBooking.create).not.toHaveBeenCalled()
+  })
+
+  it('returns 409 BOOKING_ALREADY_EXISTS with the existing reference and writes nothing', async () => {
+    db.demoBooking.findFirst.mockResolvedValue({
+      reference: 'DEMO-EXISTING01',
+      startsAt: new Date(FUTURE_START),
+      timezone: TZ,
+      status: 'PENDING',
+    })
+
+    const { status, json } = await post(validBody())
+
+    expect(status).toBe(409)
+    expect(json.error.code).toBe('BOOKING_ALREADY_EXISTS')
+    expect(json.error.message).toContain('DEMO-EXISTING01')
+    expect(json.reference).toBe('DEMO-EXISTING01')
+    expect(db.demoBooking.findFirst.mock.calls[0][0].where).toMatchObject({
+      status: { in: ['PENDING', 'CONFIRMED'] },
+      lead: { email: 'name@company.com', type: 'EMPLOYER' },
+    })
+    expect(db.lead.create).not.toHaveBeenCalled()
+    expect(db.lead.update).not.toHaveBeenCalled()
+    expect(db.demoBooking.create).not.toHaveBeenCalled()
+    expect(publishBusinessToAdmins).not.toHaveBeenCalled()
+    expect(createAuditLog).not.toHaveBeenCalled()
   })
 
   it('serialises the slot and lead check-and-write under advisory locks', async () => {
