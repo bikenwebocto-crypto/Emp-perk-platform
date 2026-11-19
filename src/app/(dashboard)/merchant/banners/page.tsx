@@ -741,24 +741,7 @@ export default function MerchantBannersPage() {
                   <>
                     {/* Slot information */}
 
-                    <div className="rounded-md bg-muted/30 p-3 text-sm text-muted-foreground">
-                      <p>
-                        <span className="font-medium text-foreground">
-                          €{Number(positionSlots.pricePerDay).toFixed(2)} per
-                          day
-                        </span>{" "}
-                        · {positionSlots.availableCount} of{" "}
-                        {positionSlots.slotCount} slot
-                        {positionSlots.slotCount !== 1 ? "s" : ""} free right
-                        now
-                      </p>
-
-                      <p className="mt-1 text-xs">
-                        You can book between {positionSlots.minDays} and{" "}
-                        {positionSlots.maxDays} days at a time. Each slot shows
-                        one merchant&apos;s banner at a time.
-                      </p>
-                    </div>
+                 
 
                     {/* Slot selection */}
 
