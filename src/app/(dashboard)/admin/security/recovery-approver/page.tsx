@@ -185,6 +185,17 @@ export default function RecoveryApproverSettingsPage() {
                   {save.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
                   {current ? 'Change approver' : 'Save approver'}
                 </Button>
+                {!canSubmit && !save.isPending && !config.isLoading && (
+                  <p className="text-xs text-muted-foreground">
+                    {candidates.length === 0
+                      ? 'You need at least one other active Admin or Super Admin before you can set an approver.'
+                      : !selected
+                        ? 'Select an approver from the list.'
+                        : current && !isChange
+                          ? 'This admin is already your approver. Pick a different one to change it.'
+                          : 'Enter the 6-digit code from your authenticator app.'}
+                  </p>
+                )}
               </form>
             </CardContent>
           </Card>

@@ -64,7 +64,8 @@ export async function POST(request: NextRequest) {
     })
 
     console.log('[COMPANY_ADMIN_EMAIL][ROUTE] Email updated, calling invitation service', { email: normalizedEmail, companyName: company.name, firstName: companyAdmin.firstName })
-    await sendCompanyAdminInvitation({
+    const invite = await sendCompanyAdminInvitation({
+      adminId: companyAdmin.id,
       email: normalizedEmail,
       firstName: companyAdmin.firstName,
       lastName: companyAdmin.lastName,
@@ -74,7 +75,13 @@ export async function POST(request: NextRequest) {
       actorId: companyAdmin.id,
     })
 
-    return NextResponse.json({ success: true, message: 'Email changed successfully' })
+    return NextResponse.json({
+      success: true,
+      emailSent: invite.success,
+      message: invite.success
+        ? 'Email changed successfully'
+        : 'Email changed, but the confirmation email to the new address could not be sent.',
+    })
   } catch (error) {
     return handleApiError(error)
   }

@@ -24,6 +24,59 @@ export async function requireAccountAccess(): Promise<
   return { ok: true, user }
 }
 
+type SuperAdminDb = Pick<typeof import('@/lib/prisma').prisma, 'adminUser' | 'account'>
+
+/**
+ * Number of active SUPER_ADMINs (active AdminUser + ACTIVE Account), optionally
+ * excluding one AdminUser.id. The system allows exactly one super admin.
+ */
+export async function countActiveSuperAdmins(db: SuperAdminDb, excludeAdminId?: string): Promise<number> {
+  const supers = await db.adminUser.findMany({
+    where: {
+      role: 'SUPER_ADMIN',
+      isActive: true,
+      accountId: { not: null },
+      ...(excludeAdminId && { id: { not: excludeAdminId } }),
+    },
+    select: { accountId: true },
+  })
+  if (supers.length === 0) return 0
+  return db.account.count({
+    where: { authUserId: { in: supers.map((a) => a.accountId!) }, status: 'ACTIVE' },
+  })
+}
+
+type TransferDb = Pick<typeof import('@/lib/prisma').prisma, 'adminUser' | 'loginSession'>
+
+/**
+ * Super admin transfer: there is exactly one super admin, so when another
+ * admin becomes SUPER_ADMIN every other super admin (normally the actor) is
+ * demoted to ADMIN and their login sessions are ended. Returns the demoted
+ * Account ids so the caller can sign them out of Supabase after commit.
+ */
+export async function demoteOtherSuperAdmins(db: TransferDb, keepAdminId: string): Promise<string[]> {
+  const others = await db.adminUser.findMany({
+    where: { role: 'SUPER_ADMIN', id: { not: keepAdminId } },
+    select: { id: true, accountId: true },
+  })
+  if (others.length === 0) return []
+  const ids = others.map((o) => o.id)
+  await db.adminUser.updateMany({ where: { id: { in: ids } }, data: { role: 'ADMIN' } })
+  await db.loginSession.updateMany({ where: { adminId: { in: ids }, isActive: true }, data: { isActive: false } })
+  return others.map((o) => o.accountId).filter((a): a is string => !!a)
+}
+
+/** End Supabase sessions (all devices) for these auth users; best effort. */
+export async function signOutAuthUsers(authUserIds: string[]) {
+  for (const id of authUserIds) {
+    try {
+      await getAdminClient().auth.admin.signOut(id)
+    } catch (e) {
+      console.error('[ADMIN_ACCOUNTS] signOut failed', id, e)
+    }
+  }
+}
+
 /**
  * Re-send the "set your password" email to an admin who never logged in. The
  * Supabase user already exists, so a fresh invite would fail; a recovery link

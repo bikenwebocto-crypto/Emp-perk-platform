@@ -295,7 +295,8 @@ export async function POST(request: NextRequest) {
 
     timer.section('Database Queries')
     timer.point('$transaction (company + account + companyAdmin + billing + audit)')
-    const result = await prisma.$transaction(async (tx) => {
+    let adminId: string | undefined;
+    const result =await prisma.$transaction(async (tx) => {
       // Validate the lead before any write so a rejected conversion leaves no partial state.
       if (rawLeadId) {
         if (!leadId) throw new InvalidLeadError();
@@ -321,6 +322,7 @@ export async function POST(request: NextRequest) {
       }
 
       const pkId = crypto.randomUUID();
+      adminId = pkId;
       await tx.account.create({
         data: { authUserId: pkId, email, role: 'COMPANY_ADMIN', profileType: 'COMPANY', status: 'ACTIVE' },
       });
@@ -371,8 +373,8 @@ export async function POST(request: NextRequest) {
     }
 
     timer.point('sendCompanyAdminInvitation')
-    await sendCompanyAdminInvitation({
-      email, firstName, lastName, companyName: name, companyId: result.id,
+    const invite = await sendCompanyAdminInvitation({
+      adminId: adminId!, email, firstName, lastName, companyName: name, companyId: result.id,
       actorType: user?.userType ?? 'PUBLIC',
       actorId: user?.profileId ?? null,
     })
@@ -381,7 +383,14 @@ export async function POST(request: NextRequest) {
     timer.point('NextResponse.json')
     timer.end()
     return NextResponse.json(
-      { success: true, data: result, message: 'Company created successfully. A welcome email has been sent to the Company Administrator.' },
+      {
+        success: true,
+        data: result,
+        emailSent: invite.success,
+        message: invite.success
+          ? 'Company created successfully. A welcome email has been sent to the Company Administrator.'
+          : 'Company created, but the welcome email to the Company Administrator could not be sent. Resend it from the company\'s Administrators section.',
+      },
       { status: 201 },
     );
   } catch (error: any) {

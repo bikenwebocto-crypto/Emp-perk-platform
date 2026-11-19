@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMerchantFromSession } from '@/lib/merchant-session'
 import { OfferStatus } from "@prisma/client";
@@ -21,13 +21,18 @@ import {
 } from '@/lib/offers/flat-discount';
 import {
   EVERGREEN_LIVE_MESSAGE,
+  EVERGREEN_REPLACE_CONFIRM_CODE,
+  EVERGREEN_REPLACE_CONFIRM_MESSAGE,
   EvergreenActivationError,
   assertEvergreenActivationAllowed,
+  findLiveEvergreen,
+  isEvergreenOffer,
   isEvergreenRange,
   isForeverOffer,
   shouldAutoActivateEvergreen,
   validateMerchantForeverOfferPolicy,
 } from '@/lib/offers/evergreen';
+import { notifyEvergreenLive } from '@/lib/offers/evergreen-notifications';
 import { ensureOfferQRCode } from '@/lib/offer-qr';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
@@ -211,29 +216,38 @@ async function firePostCreateSideEffects(params: {
   redemptionType: string | null;
   offerCodeValue: string | null;
   autoActivated: boolean;
+  replacedOfferId?: string | null;
+  replacedOfferTitle?: string | null;
 }) {
   const {
     saveAsDraft, qcPassed, qcErrors, offerId, title,
     merchantId, merchantBusinessName, replacesOfferId,
     replacementReason, redemptionType, offerCodeValue, autoActivated,
+    replacedOfferId = null, replacedOfferTitle = null,
   } = params;
 
   try {
-    // Evergreen auto-activation: no action-queue item, no admin approval
-    // notification — the offer is already LIVE.
+    // Evergreen auto-activation: no action-queue item, no admin approval —
+    // the offer is already LIVE. Notify the merchant and all users.
     if (autoActivated) {
       if (redemptionType === 'IN_STORE_QR') {
         ensureOfferQRCode(offerId).catch((err) =>
           console.error('[MERCHANT OFFERS POST] Evergreen QR generation failed:', err),
         );
       }
+      await notifyEvergreenLive({ offerId, title, merchantId, replacedOfferId, replacedOfferTitle });
       await createAuditLog({
         actorType: 'merchant',
         actorId: merchantId,
         action: "EVERGREEN_OFFER_AUTO_ACTIVATED",
         entityType: "MERCHANT_OFFER",
         entityId: offerId,
-        metadata: { title, redemptionType: redemptionType ?? null, offerCode: offerCodeValue ?? null },
+        metadata: {
+          title,
+          redemptionType: redemptionType ?? null,
+          offerCode: offerCodeValue ?? null,
+          replacedOfferId,
+        },
       });
       return;
     }
@@ -538,6 +552,7 @@ export async function POST(request: NextRequest) {
       replacesOfferId,
       replacementReason,
       saveAsDraft,
+      confirmReplaceEvergreen,
       redemptionType,
       bookingUrl,
       buyQuantity,
@@ -646,6 +661,7 @@ export async function POST(request: NextRequest) {
         },
         select: {
           id: true,
+          title: true,
           startDate: true,
           endDate: true,
           isFlash: true,
@@ -653,6 +669,31 @@ export async function POST(request: NextRequest) {
           replacesOfferId: true,
         },
       });
+
+      // One LIVE Evergreen per account. A new Evergreen while one is LIVE
+      // needs the merchant's explicit confirmation (popup); once confirmed,
+      // the current one is deactivated and the new one goes LIVE.
+      const upcomingIsEvergreen = isEvergreenOffer({
+        isForever: computedIsForever,
+        isFlash: !!isFlash,
+        startDate,
+        endDate,
+      });
+      const currentEvergreen =
+        upcomingIsEvergreen && !replacesOfferId ? findLiveEvergreen(liveOffers) : null;
+      if (currentEvergreen && !confirmReplaceEvergreen) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: EVERGREEN_REPLACE_CONFIRM_CODE,
+              message: EVERGREEN_REPLACE_CONFIRM_MESSAGE,
+              currentOffer: { id: currentEvergreen.id, title: currentEvergreen.title },
+            },
+          },
+          { status: 409 },
+        );
+      }
 
       const evergreenError = validateMerchantForeverOfferPolicy({
         liveOffers,
@@ -663,8 +704,8 @@ export async function POST(request: NextRequest) {
           isForever: computedIsForever,
           isFlash: !!isFlash,
         },
-        isReplacement: !!replacesOfferId,
-        replacementTargetId: replacesOfferId ?? null,
+        isReplacement: !!replacesOfferId || !!currentEvergreen,
+        replacementTargetId: replacesOfferId ?? currentEvergreen?.id ?? null,
       });
 
       if (evergreenError) {
@@ -722,11 +763,18 @@ export async function POST(request: NextRequest) {
 
     // ── Step 1: create the record. Nothing here is optional — if this
     // fails, the client correctly gets an error.
+    let replacedEvergreen: { replacedOfferId: string | null; replacedOfferTitle: string | null } = {
+      replacedOfferId: null,
+      replacedOfferTitle: null,
+    };
     const offer = await prisma.$transaction(async (tx) => {
       if (autoActivate) {
         // Locks the merchant row and re-checks against committed data, so two
-        // concurrent Evergreen submissions can't both go LIVE.
-        await assertEvergreenActivationAllowed(tx, merchant.id);
+        // concurrent Evergreen submissions can't both go LIVE. With the
+        // merchant's confirmation, the current LIVE Evergreen is set REPLACED.
+        replacedEvergreen = await assertEvergreenActivationAllowed(tx, merchant.id, null, {
+          confirmReplace: !!confirmReplaceEvergreen,
+        });
       }
       const created = await tx.merchantOffer.create({
         data: {
@@ -873,7 +921,8 @@ export async function POST(request: NextRequest) {
       }).catch((err) => console.error('[MERCHANT OFFERS POST] Offer code audit log failed:', err));
     }
 
-    void firePostCreateSideEffects({
+    // after() keeps the work alive past the response on serverless hosts.
+    after(() => firePostCreateSideEffects({
       saveAsDraft: !!saveAsDraft,
       qcPassed: qcResult.passed,
       qcErrors: qcResult.errors,
@@ -886,13 +935,18 @@ export async function POST(request: NextRequest) {
       redemptionType: redemptionType ?? null,
       offerCodeValue,
       autoActivated: autoActivate,
-    });
+      replacedOfferId: replacedEvergreen.replacedOfferId,
+      replacedOfferTitle: replacedEvergreen.replacedOfferTitle,
+    }));
 
     return response;
   } catch (error) {
     if (error instanceof EvergreenActivationError) {
       return NextResponse.json(
-        { success: false, error: { code: "EVERGREEN_CONFLICT", message: error.message } },
+        {
+          success: false,
+          error: { code: error.code, message: error.message, currentOffer: error.currentOffer },
+        },
         { status: 409 },
       );
     }

@@ -7,7 +7,7 @@ import {
   inviteAuthUser, inviteErrorStatus, rollbackAuthUser,
 } from '@/services/employee-invite.service'
 import { ACTIVE_ADMIN_ROLES,ADMIN_ROLES, assignableRoles, type AdminRoleValue } from '@/lib/access/account-access'
-import { apiError, requireAccountAccess } from './helpers'
+import { apiError, demoteOtherSuperAdmins, requireAccountAccess, signOutAuthUsers } from './helpers'
 
 // System admins: Account (role SUPER_ADMIN, profileType ADMIN) + AdminUser
 // (accountId = Account.authUserId). The real admin role lives on AdminUser.role.
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-const createSchema = z.object({
+const createSchema =z.object({
   firstName: z.string().trim().min(1, 'First name is required').max(100),
   lastName: z.string().trim().min(1, 'Last name is required').max(100),
   email: z.string().trim().toLowerCase().email('A valid email is required').max(255),
@@ -127,6 +127,7 @@ export async function POST(request: NextRequest) {
     if (!invite.ok) return apiError(inviteErrorStatus(invite.code), invite.code, invite.message)
     const authUserId = invite.authUserId
 
+    let demoted: string[] = []
     try {
       await prisma.$transaction(async (tx) => {
         // ACTIVE because login rejects any other status; "invite pending" is
@@ -137,25 +138,36 @@ export async function POST(request: NextRequest) {
         await tx.adminUser.create({
           data: { id: authUserId, accountId: authUserId, firstName, lastName, role: role as AdminRoleValue, isActive: true },
         })
+        // Only one super admin: hand the role over (current one becomes ADMIN).
+        if (role === 'SUPER_ADMIN') demoted = await demoteOtherSuperAdmins(tx, authUserId)
         await tx.auditLog.create({
           data: buildAuditData(fromCurrentUser(user, 'ADMIN_ACCOUNT_CREATED', 'account', authUserId, {
-            metadata: { email, role },
+            metadata: { email, role, ...(demoted.length && { superAdminTransferredFrom: demoted }) },
           })) as any,
         })
-      })
+      }, { isolationLevel: 'Serializable' })
     } catch (dbError) {
       await rollbackAuthUser(authUserId)
+      if ((dbError as { code?: string })?.code === 'P2034') {
+        return apiError(409, 'CONFLICT', 'Another change happened at the same time. Please try again.')
+      }
       if ((dbError as { code?: string })?.code === 'P2002') {
         return apiError(409, 'EMAIL_ALREADY_EXISTS', 'An account with this email already exists')
       }
       throw dbError
     }
 
+    await signOutAuthUsers(demoted)
+    const selfLoggedOut = demoted.includes(user.id)
+
     return NextResponse.json(
       {
         success: true,
         data: { id: authUserId, email, role, status: 'INVITE_PENDING' },
-        message: 'Admin created. An invitation to set a password has been sent.',
+        selfLoggedOut,
+        message: selfLoggedOut
+          ? 'Super admin transferred. An invitation has been sent and you are being logged out.'
+          : 'Admin created. An invitation to set a password has been sent.',
       },
       { status: 201 },
     )

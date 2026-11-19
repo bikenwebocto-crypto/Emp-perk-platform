@@ -8,7 +8,13 @@ import {
   assignableRoles,
   canManageTarget,
 } from "@/lib/access/account-access";
-import { apiError, requireAccountAccess } from "../helpers";
+import {
+  apiError,
+  countActiveSuperAdmins,
+  demoteOtherSuperAdmins,
+  requireAccountAccess,
+  signOutAuthUsers,
+} from "../helpers";
 import { getAdminClient } from "@/lib/supabase/admin";
 
 const patchSchema = z
@@ -92,26 +98,24 @@ export async function PATCH(
       admin.isActive &&
       (nextRole !== "SUPER_ADMIN" || !nextActive);
 
+    // Becomes an active super admin (promotion or re-activation).
+    const gainsSuper =
+      nextRole === "SUPER_ADMIN" &&
+      nextActive &&
+      !(admin.role === "SUPER_ADMIN" && admin.isActive);
+    const roleChanged = role !== undefined && role !== admin.role;
+    let demoted: string[] = [];
+
     await prisma.$transaction(
       async (tx) => {
         if (losesSuper) {
           // At least one other active SUPER_ADMIN (with an active Account) must remain.
-          const others = await tx.adminUser.findMany({
-            where: {
-              role: "SUPER_ADMIN",
-              isActive: true,
-              accountId: { not: null },
-              id: { not: admin.id },
-            },
-            select: { accountId: true },
-          });
-          const remaining = await tx.account.count({
-            where: {
-              authUserId: { in: others.map((a) => a.accountId!) },
-              status: "ACTIVE",
-            },
-          });
-          if (remaining === 0) throw new LastSuperAdminError();
+          if ((await countActiveSuperAdmins(tx, admin.id)) === 0)
+            throw new LastSuperAdminError();
+        }
+        if (gainsSuper) {
+          // Only one super admin: hand the role over (current one becomes ADMIN).
+          demoted = await demoteOtherSuperAdmins(tx, admin.id);
         }
 
         await tx.adminUser.update({
@@ -130,7 +134,7 @@ export async function PATCH(
             changedBy: user.id,
           },
         });
-        if (isActive === false) {
+        if (isActive === false || roleChanged) {
           await tx.loginSession.updateMany({
             where: { adminId: admin.id, isActive: true },
             data: { isActive: false },
@@ -163,14 +167,23 @@ export async function PATCH(
       },
       { isolationLevel: "Serializable" },
     );
-    if (isActive === false) {
+    // Force a fresh login so the new role / status takes effect immediately.
+    if (isActive === false || roleChanged) {
       try {
         await getAdminClient().auth.admin.signOut(id);
       } catch (e) {
         console.error("[PATCH /api/admin/accounts/[id]] signOut failed", e);
       }
     }
-    return NextResponse.json({ success: true, message: "Admin updated" });
+    await signOutAuthUsers(demoted);
+    const selfLoggedOut = demoted.includes(user.id);
+    return NextResponse.json({
+      success: true,
+      selfLoggedOut,
+      message: selfLoggedOut
+        ? "Super admin transferred. You are being logged out."
+        : "Admin updated",
+    });
   } catch (error) {
     if ((error as { code?: string })?.code === "P2034") {
       return apiError(

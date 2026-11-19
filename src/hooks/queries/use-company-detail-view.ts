@@ -160,6 +160,21 @@ export function usePromoteCompanyDetailEmployee(scope: CompanyDetailScope, compa
   });
 }
 
+/** Re-send the welcome / sign-up email to an admin who has not signed in yet. */
+export function useResendCompanyDetailAdminInvite(scope: CompanyDetailScope, companyId: string) {
+  const invalidate = useInvalidateCompanyDetail(scope, companyId);
+  return useMutation({
+    mutationFn: ({ adminId }: { adminId: string }) =>
+      request(
+        `${companyDetailEndpoints(scope, companyId).admins}/${adminId}/resend-invite`,
+        { method: 'POST' },
+        'Failed to resend invitation',
+      ),
+    // Refresh even on failure: a failed send is recorded and changes the badge.
+    onSettled: invalidate.detail,
+  });
+}
+
 /** Revert a deactivated admin (promoted from an employee) back to an employee. */
 export function useRevertCompanyDetailAdmin(scope: CompanyDetailScope, companyId: string) {
   const invalidate = useInvalidateCompanyDetail(scope, companyId);

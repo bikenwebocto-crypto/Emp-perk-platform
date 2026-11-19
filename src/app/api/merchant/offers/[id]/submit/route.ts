@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMerchantFromSession } from "@/lib/merchant-session";
 import { createAuditLog } from "@/services/audit-log.service";
@@ -13,12 +13,17 @@ import {
 } from "@/lib/offers/flat-discount";
 import {
   EVERGREEN_LIVE_MESSAGE,
+  EVERGREEN_REPLACE_CONFIRM_CODE,
+  EVERGREEN_REPLACE_CONFIRM_MESSAGE,
   EvergreenActivationError,
   assertEvergreenActivationAllowed,
+  findLiveEvergreen,
+  isEvergreenOffer,
   isEvergreenRange,
   shouldAutoActivateEvergreen,
   validateMerchantForeverOfferPolicy,
 } from "@/lib/offers/evergreen";
+import { notifyEvergreenLive } from "@/lib/offers/evergreen-notifications";
 import { ensureOfferQRCode } from "@/lib/offer-qr";
 import {
   BUSINESS_NOTIFICATION_TEMPLATES,
@@ -184,6 +189,8 @@ async function firePostSubmitSideEffects(params: {
   replacesOfferId: string | null;
   autoActivated: boolean;
   redemptionType: string | null;
+  replacedOfferId?: string | null;
+  replacedOfferTitle?: string | null;
 }) {
   const {
     qcPassed,
@@ -195,6 +202,8 @@ async function firePostSubmitSideEffects(params: {
     replacesOfferId,
     autoActivated,
     redemptionType,
+    replacedOfferId = null,
+    replacedOfferTitle = null,
   } = params;
 
   try {
@@ -220,13 +229,20 @@ async function firePostSubmitSideEffects(params: {
           data: { status: "SKIPPED", completedAt: new Date() },
         });
       }
+      await notifyEvergreenLive({
+        offerId: finalOfferId,
+        title: finalOfferTitle,
+        merchantId,
+        replacedOfferId,
+        replacedOfferTitle,
+      });
       await createAuditLog({
         actorType: "merchant",
         actorId: merchantId,
         action: "EVERGREEN_OFFER_AUTO_ACTIVATED",
         entityType: "MERCHANT_OFFER",
         entityId: finalOfferId,
-        metadata: { title: finalOfferTitle },
+        metadata: { title: finalOfferTitle, replacedOfferId },
       });
       return;
     }
@@ -507,6 +523,7 @@ export async function POST(
       },
       select: {
         id: true,
+        title: true,
         startDate: true,
         endDate: true,
         isFlash: true,
@@ -514,6 +531,33 @@ export async function POST(
         replacesOfferId: true,
       },
     });
+
+    // One LIVE Evergreen per account: submitting another Evergreen while one
+    // is LIVE needs explicit confirmation (popup); once confirmed, the current
+    // one becomes inactive and this one goes LIVE.
+    const upcomingIsEvergreen = isEvergreenOffer({
+      isForever: effectiveForeverValue,
+      isFlash: body.isFlash ?? offer.isFlash,
+      startDate: body.startDate ?? offer.startDate,
+      endDate: body.endDate ?? offer.endDate,
+    });
+    const currentEvergreen =
+      qcResult.passed && upcomingIsEvergreen && !offer.replacesOfferId
+        ? findLiveEvergreen(liveOffers, offer.id)
+        : null;
+    if (currentEvergreen && !body.confirmReplaceEvergreen) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: EVERGREEN_REPLACE_CONFIRM_CODE,
+            message: EVERGREEN_REPLACE_CONFIRM_MESSAGE,
+            currentOffer: { id: currentEvergreen.id, title: currentEvergreen.title },
+          },
+        },
+        { status: 409 },
+      );
+    }
 
     const evergreenError = validateMerchantForeverOfferPolicy({
       liveOffers,
@@ -524,8 +568,8 @@ export async function POST(
         isForever: effectiveForeverValue,
         isFlash: body.isFlash ?? offer.isFlash,
       },
-      isReplacement: !!offer.replacesOfferId,
-      replacementTargetId: offer.replacesOfferId ?? null,
+      isReplacement: !!offer.replacesOfferId || !!currentEvergreen,
+      replacementTargetId: offer.replacesOfferId ?? currentEvergreen?.id ?? null,
     });
 
     if (qcResult.passed && evergreenError) {
@@ -534,12 +578,19 @@ export async function POST(
 
     // ── Step 1: persist the record. Nothing here is optional — if this
     // fails, the client correctly gets an error.
+    let replacedEvergreen: { replacedOfferId: string | null; replacedOfferTitle: string | null } = {
+      replacedOfferId: null,
+      replacedOfferTitle: null,
+    };
     const offerId = await prisma.$transaction(
       async (tx) => {
         if (autoActivate) {
           // Lock merchant row + re-check so concurrent submits can't create
-          // two LIVE Evergreen offers.
-          await assertEvergreenActivationAllowed(tx, offer.merchant.id, id);
+          // two LIVE Evergreen offers. With confirmation, the current LIVE
+          // Evergreen is set REPLACED in the same transaction.
+          replacedEvergreen = await assertEvergreenActivationAllowed(tx, offer.merchant.id, id, {
+            confirmReplace: !!body.confirmReplaceEvergreen,
+          });
         }
         if (
           body.shortDescription !== undefined ||
@@ -808,7 +859,7 @@ export async function POST(
     // ── Step 4: fire notifications + audit log WITHOUT awaiting.
     // Intentionally not `await`ed — errors are caught internally and never
     // affect the response already built above.
-    void firePostSubmitSideEffects({
+    after(() => firePostSubmitSideEffects({
       qcPassed: qcResult.passed,
       qcErrors: qcResult.errors,
       finalOfferId: finalOffer.id,
@@ -820,12 +871,20 @@ export async function POST(
       autoActivated: autoActivate,
       redemptionType:
         body.redemptionType ?? offer.redemption?.redemptionType ?? null,
-    });
+      replacedOfferId: replacedEvergreen.replacedOfferId,
+      replacedOfferTitle: replacedEvergreen.replacedOfferTitle,
+    }));
 
     return response;
   } catch (error) {
     if (error instanceof EvergreenActivationError) {
-      return conflict(error.message);
+      return NextResponse.json(
+        {
+          success: false,
+          error: { code: error.code, message: error.message, currentOffer: error.currentOffer },
+        },
+        { status: 409 },
+      );
     }
     if (error instanceof Error && error.message === "CONCURRENT_SUBMIT") {
       return conflict(

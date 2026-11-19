@@ -125,11 +125,34 @@ export const EVERGREEN_LIVE_MESSAGE =
 export const EVERGREEN_ALREADY_LIVE_MESSAGE =
   "You already have a LIVE Evergreen offer. Only one LIVE Evergreen offer is allowed — use Replace on your current Evergreen offer instead.";
 
+export const EVERGREEN_REPLACE_CONFIRM_MESSAGE =
+  "You already have a LIVE Evergreen offer. Only one Evergreen offer can be live per account — if you continue, your current Evergreen offer will become inactive and this new offer will go LIVE.";
+
+export const EVERGREEN_REPLACE_CONFIRM_CODE = "EVERGREEN_REPLACE_CONFIRM_REQUIRED";
+
 export class EvergreenActivationError extends Error {
-  constructor(message: string) {
+  code: string;
+  currentOffer: { id: string; title: string } | null;
+  constructor(
+    message: string,
+    code = "EVERGREEN_ACTIVATION_BLOCKED",
+    currentOffer: { id: string; title: string } | null = null,
+  ) {
     super(message);
     this.name = "EvergreenActivationError";
+    this.code = code;
+    this.currentOffer = currentOffer;
   }
+}
+
+/** The merchant's currently LIVE Evergreen offer (non-flash forever), if any. */
+export function findLiveEvergreen<T extends LiveOfferForForeverPolicy>(
+  liveOffers: T[],
+  excludeOfferId?: string | null,
+): T | null {
+  return (
+    liveOffers.find((o) => o.id !== excludeOfferId && isEvergreenOffer(o)) ?? null
+  );
 }
 
 /**
@@ -176,7 +199,8 @@ export async function assertEvergreenActivationAllowed(
   tx: any,
   merchantId: string,
   excludeOfferId?: string | null,
-): Promise<void> {
+  options: { confirmReplace?: boolean } = {},
+): Promise<{ replacedOfferId: string | null; replacedOfferTitle: string | null }> {
   await tx.$queryRaw`SELECT id FROM "merchants" WHERE id = ${merchantId} FOR UPDATE`;
   const now = new Date();
   const live = await tx.merchantOffer.findMany({
@@ -187,14 +211,34 @@ export async function assertEvergreenActivationAllowed(
       endDate: { gt: now },
       ...(excludeOfferId ? { id: { not: excludeOfferId } } : {}),
     },
-    select: { id: true, isForever: true, isFlash: true, startDate: true, endDate: true },
+    select: { id: true, title: true, isForever: true, isFlash: true, startDate: true, endDate: true },
   });
-  if (live.some((o: LiveOfferForForeverPolicy) => isForeverOffer(o))) {
-    throw new EvergreenActivationError(EVERGREEN_ALREADY_LIVE_MESSAGE);
+
+  // One LIVE Evergreen per account: the new one takes over once the merchant
+  // has confirmed; the previous one is marked REPLACED (inactive).
+  const current = live.find((o: LiveOfferForForeverPolicy) => isForeverOffer(o)) as
+    | { id: string; title: string }
+    | undefined;
+  if (current && !options.confirmReplace) {
+    throw new EvergreenActivationError(
+      EVERGREEN_REPLACE_CONFIRM_MESSAGE,
+      EVERGREEN_REPLACE_CONFIRM_CODE,
+      { id: current.id, title: current.title },
+    );
   }
-  if (live.length >= 5) {
+
+  const remaining = current ? live.length - 1 : live.length;
+  if (remaining >= 5) {
     throw new EvergreenActivationError(
       "This merchant already has 5 live offers. A live offer must be replaced or removed first.",
     );
   }
+
+  if (current) {
+    await tx.merchantOffer.update({
+      where: { id: current.id },
+      data: { status: "REPLACED" },
+    });
+  }
+  return { replacedOfferId: current?.id ?? null, replacedOfferTitle: current?.title ?? null };
 }

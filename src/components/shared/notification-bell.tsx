@@ -122,12 +122,14 @@ export function NotificationBell({
               {unreadCount > 0 && (
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
+                  size="icon"
+                  className="h-7 w-7"
+                  title="Mark all as read"
+                  aria-label="Mark all as read"
                   onClick={() => markAll.mutate()}
                   disabled={markAll.isPending}
                 >
-                  <CheckCheck className="mr-1 h-3 w-3" /> Mark all read
+                  <CheckCheck className="h-4 w-4 text-green-600" />
                 </Button>
               )}
               <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setOpen(false)}>
@@ -157,14 +159,20 @@ export function NotificationBell({
                     )}
                     <p className="mt-0.5 text-[10px] text-muted-foreground">{timeAgo(n.createdAt)}</p>
                   </div>
-                  {!n.isRead && (
+                  {n.isRead ? (
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center" title="Read" aria-label="Read">
+                      <CheckCheck className="h-3.5 w-3.5 text-green-600" />
+                    </span>
+                  ) : (
                     <Button
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 shrink-0"
+                      title="Mark as read"
+                      aria-label="Mark as read"
                       onClick={() => markOne.mutate(n.id)}
                     >
-                      <CheckCheck className="h-3 w-3" />
+                      <CheckCheck className="h-3.5 w-3.5 text-foreground" />
                     </Button>
                   )}
                 </div>

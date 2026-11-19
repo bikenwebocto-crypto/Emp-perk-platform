@@ -66,6 +66,9 @@ export interface CompanyAdminSummary {
   createdAt: Date
   /** True when the admin was promoted from an employee and can be reverted. */
   hasEmployeeRecord?: boolean
+  /** Outcome of the latest invitation email; null when none was recorded. */
+  inviteStatus?: 'SENT' | 'FAILED' | null
+  inviteStatusAt?: Date | string | null
 }
 
 export interface CompanyWithAdmins extends CompanyContact {

@@ -37,6 +37,7 @@ import {
   useInvalidateCompanyDetail,
   usePromoteCompanyDetailEmployee,
   useRevertCompanyDetailAdmin,
+  useResendCompanyDetailAdminInvite,
   useUpdateCompanyDetailAdmin,
 } from "@/hooks/queries/use-company-detail-view";
 import { BulkEmployeeUpload } from "@/features/employees/components/bulk-employee-upload";
@@ -146,6 +147,7 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
   const addCompanyAdmin = useAddCompanyDetailAdmin(scope, companyIdProp);
   const updateCompanyAdmin = useUpdateCompanyDetailAdmin(scope, companyIdProp);
   const revertAdmin = useRevertCompanyDetailAdmin(scope, companyIdProp);
+  const resendInvite = useResendCompanyDetailAdminInvite(scope, companyIdProp);
   const [revertingAdmin, setRevertingAdmin] = useState<CompanyAdminSummary | null>(null);
   const promoteEmployee = usePromoteCompanyDetailEmployee(scope, companyIdProp);
   const [promotingEmployee, setPromotingEmployee] = useState<{
@@ -394,8 +396,12 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
           status: editingSelf ? undefined : adminForm.status,
         },
         {
-          onSuccess: () => {
-            showToast({ type: "success", title: "Admin updated" });
+          onSuccess: (res: any) => {
+            if (res?.emailSent === false) {
+              showToast({ type: "error", title: "Admin updated, but the invite email failed", description: res?.message });
+            } else {
+              showToast({ type: "success", title: "Admin updated" });
+            }
             closeAdminModal();
           },
           onError: (err: Error) =>
@@ -413,11 +419,19 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
         },
         {
           onSuccess: (res: any) => {
-            showToast({
-              type: "success",
-              title: "Admin created",
-              description: "Share the temporary password securely.",
-            });
+            if (res?.data?.emailSent === false) {
+              showToast({
+                type: "error",
+                title: "Admin created, but the invite email failed",
+                description: 'Use "Resend invite" in the Administrators list to try again.',
+              });
+            } else {
+              showToast({
+                type: "success",
+                title: "Admin created",
+                description: "Share the temporary password securely.",
+              });
+            }
             setNewPasswordForAdmin({
               email: adminForm.email.trim().toLowerCase(),
               password: res?.data?.tempPassword ?? "",
@@ -753,6 +767,18 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
         onDisable={attemptDisable}
         onReactivate={(admin) => setPendingConfirm({ kind: "reactivateAdmin", admin })}
         onRevertToEmployee={setRevertingAdmin}
+        onResendInvite={(admin) =>
+          resendInvite.mutate(
+            { adminId: admin.id },
+            {
+              onSuccess: (res: any) =>
+                showToast({ type: "success", title: "Invitation sent", description: res?.message }),
+              onError: (err: Error) =>
+                showToast({ type: "error", title: "Invitation not sent", description: err.message }),
+            },
+          )
+        }
+        resendingAdminId={resendInvite.isPending ? resendInvite.variables?.adminId ?? null : null}
       />
 
    

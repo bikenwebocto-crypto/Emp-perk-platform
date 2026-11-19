@@ -45,6 +45,26 @@ export function useMerchantOfferById(id: string) {
   })
 }
 
+/** Error carrying the API's error code/details (e.g. EVERGREEN_REPLACE_CONFIRM_REQUIRED). */
+export class OfferApiError extends Error {
+  code?: string
+  currentOffer: { id: string; title: string } | null
+  constructor(message: string, code?: string, currentOffer?: { id: string; title: string } | null) {
+    super(message)
+    this.name = 'OfferApiError'
+    this.code = code
+    this.currentOffer = currentOffer ?? null
+  }
+}
+
+function toApiError(json: any, fallback: string): OfferApiError {
+  return new OfferApiError(
+    json?.error?.message ?? fallback,
+    json?.error?.code,
+    json?.error?.currentOffer ?? null,
+  )
+}
+
 export function useCreateMerchantOffer() {
   const queryClient = useQueryClient()
 
@@ -63,7 +83,7 @@ export function useCreateMerchantOffer() {
         body: JSON.stringify(data),
       })
       const json = await res.json()
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to create offer')
+      if (!res.ok) throw toApiError(json, 'Failed to create offer')
       return json
     },
     onSuccess: () => {
@@ -184,7 +204,7 @@ export function useSubmitMerchantOffer() {
         body: JSON.stringify(data),
       })
       const json = await res.json()
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to submit offer')
+      if (!res.ok) throw toApiError(json, 'Failed to submit offer')
       return json
     },
     onSuccess: () => {

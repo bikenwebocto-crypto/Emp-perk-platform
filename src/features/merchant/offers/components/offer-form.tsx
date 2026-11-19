@@ -22,6 +22,8 @@ import { OfferImageGallery } from "@/components/merchant/offers/OfferImageGaller
 import { OfferMobilePreview } from "@/components/merchant/offers/OfferMobilePreview";
 import { OfferBannerInfo } from "@/components/merchant/offers/OfferBannerInfo";
 import { showToast } from "@/hooks/use-toast";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { EVERGREEN_REPLACE_CONFIRM_CODE } from "@/lib/offers/evergreen";
 import { uploadImage, OFFER_IMAGE_OPTIONS } from "@/lib/upload/image";
 import { deleteOfferImage } from "@/lib/upload-offer-image";
 import { FieldLabel, InfoTip } from "@/components/ui/info-tip";
@@ -266,6 +268,8 @@ export function OfferForm({
   const [errors, setErrors] = useState<FormErrors>({});
   const [showStrength, setShowStrength] = useState(false);
   const [pendingAction, setPendingAction] = useState<"draft" | "submit" | null>(null);
+  // Set when the server says an Evergreen is already LIVE and needs confirmation.
+  const [evergreenConfirm, setEvergreenConfirm] = useState<{ title: string } | null>(null);
   // Synchronous lock: state updates are async, so a fast double-click can slip
   // past `disabled`. Stays set after success until the page navigates away.
   const submittingRef = useRef(false);
@@ -835,12 +839,39 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     }
   };
 
+  const handleConfirmReplaceEvergreen = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setPendingAction("submit");
+    let succeeded = false;
+    try {
+      succeeded = await doSubmit(true);
+    } finally {
+      setEvergreenConfirm(null);
+      if (!succeeded) {
+        submittingRef.current = false;
+        setPendingAction(null);
+      }
+    }
+  };
+
+  /** Opens the replace-Evergreen popup if the server asked for confirmation. */
+  const needsEvergreenConfirm = (err: any): boolean => {
+    if (err?.code !== EVERGREEN_REPLACE_CONFIRM_CODE) return false;
+    setEvergreenConfirm({ title: err.currentOffer?.title ?? "" });
+    return true;
+  };
+
   /** Returns true once the offer is saved and we're navigating away. */
-  const doSubmit = async (): Promise<boolean> => {
+  const doSubmit = async (confirmReplaceEvergreen = false): Promise<boolean> => {
     const allUrls = await resolveAllImageUrls();
     if (allUrls === null) return false;
 
-    const body = withMerchant({ ...buildBody(false), imageUrls: allUrls });
+    const body = withMerchant({
+      ...buildBody(false),
+      imageUrls: allUrls,
+      ...(confirmReplaceEvergreen ? { confirmReplaceEvergreen: true } : {}),
+    });
 
     if (isEdit) {
       try {
@@ -866,6 +897,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         }
         return true;
       } catch (err: any) {
+        if (needsEvergreenConfirm(err)) return false;
         showToast({
           type: "error",
           title: "Submission failed",
@@ -903,6 +935,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         // Offer exists server-side either way; keep locked to avoid a duplicate.
         return true;
       } catch (err: any) {
+        if (needsEvergreenConfirm(err)) return false;
         showToast({
           type: "error",
           title: "Failed to submit",
@@ -2097,7 +2130,8 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     )}
                   </div>
 
-                  <div>
+                  {/* Evergreen end date is auto-set from the start date, so the field is hidden. */}
+                  <div className={form.isForever ? "hidden" : undefined}>
                     <FieldLabel
                       htmlFor="endDate"
                       required
@@ -2400,6 +2434,19 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!evergreenConfirm}
+        title="Replace your live Evergreen offer?"
+        message={`Only one Evergreen offer can be live per account. Your current Evergreen offer${
+          evergreenConfirm?.title ? ` "${evergreenConfirm.title}"` : ""
+        } will become inactive and this new offer will go LIVE immediately.`}
+        confirmLabel="Yes, make this live"
+        variant="default"
+        loading={pendingAction === "submit"}
+        onCancel={() => setEvergreenConfirm(null)}
+        onConfirm={handleConfirmReplaceEvergreen}
+      />
     </div>
   );
 }

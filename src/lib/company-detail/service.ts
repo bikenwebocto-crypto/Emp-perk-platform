@@ -13,7 +13,7 @@ import {
 import { buildPreview, parseCsvBody, validateRows } from '@/lib/company-activation/employee-csv'
 import { buildAuditData, createAuditLog, fromCurrentUser } from '@/services/audit-log.service'
 import { validateUserEmail } from '@/services/user-validation.service'
-import { sendCompanyAdminInvitation } from '@/services/company-admin-invitation.service'
+import { getLatestInviteStatuses, sendCompanyAdminInvitation } from '@/services/company-admin-invitation.service'
 import { inviteAuthUser, normalizeEmail, rollbackAuthUser } from '@/services/employee-invite.service'
 import { emailService } from '@/lib/email/email'
 
@@ -85,13 +85,17 @@ export async function getCompanyDetail(companyId: string, scope: CompanyDetailSc
     : []
   const accountIdsWithEmployee = new Set(employeeAccounts.map((e) => e.accountId))
   const accountIdByAdminId = new Map(company.companyAdmins.map((a) => [a.id, a.accountId]))
+  const inviteStatuses = await getLatestInviteStatuses(company.companyAdmins.map((a) => a.id))
 
   const admins = summarizeAdmins(company.companyAdmins).map((a) => {
     const accountId = accountIdByAdminId.get(a.id)
+    const invite = inviteStatuses.get(a.id)
     return {
       ...a,
       email: a.email || emailByAdminId.get(a.id) || '',
       hasEmployeeRecord: !!accountId && accountIdsWithEmployee.has(accountId),
+      inviteStatus: invite?.status ?? null,
+      inviteStatusAt: invite?.at ?? null,
     }
   })
 
@@ -226,22 +230,31 @@ export async function createCompanyAdmin(user: User, companyId: string, body: Ad
       return { admin: refreshed, email: refreshedAcct?.email ?? '' }
     })
 
-    await sendCompanyAdminInvitation({
-      email,
-      firstName,
-      lastName,
-      companyName: company.name ?? '',
-      companyId,
-      actorType: user.userType,
-      actorId: user.profileId,
-    })
+    const invite = result.admin
+      ? await sendCompanyAdminInvitation({
+          adminId: result.admin.id,
+          email,
+          firstName,
+          lastName,
+          companyName: company.name ?? '',
+          companyId,
+          actorType: user.userType,
+          actorId: user.profileId,
+        })
+      : { success: false }
 
     return NextResponse.json(
       {
         success: true,
-        data: { admin: result.admin ? toAdminSummary(result.admin, result.email) : null },
-        message:
-          'Company admin created successfully. A welcome email has been sent to the provided email address.',
+        data: {
+          admin: result.admin
+            ? { ...toAdminSummary(result.admin, result.email), inviteStatus: invite.success ? 'SENT' : 'FAILED' }
+            : null,
+          emailSent: invite.success,
+        },
+        message: invite.success
+          ? 'Company admin created successfully. A welcome email has been sent to the provided email address.'
+          : 'Company admin created, but the welcome email could not be sent. Use "Resend invite" to try again.',
       },
       { status: 201 },
     )
@@ -398,8 +411,10 @@ export async function updateCompanyAdmin(
       return { admin: refreshed, email: refreshedAcct?.email ?? '' }
     })
 
+    let emailSent: boolean | undefined
     if (nextEmail && nextEmail !== currentEmail) {
-      await sendCompanyAdminInvitation({
+      const invite = await sendCompanyAdminInvitation({
+        adminId,
         email: nextEmail,
         firstName: existing.firstName,
         lastName: existing.lastName,
@@ -408,12 +423,17 @@ export async function updateCompanyAdmin(
         actorType: user.userType,
         actorId: user.profileId,
       })
+      emailSent = invite.success
     }
 
     return NextResponse.json({
       success: true,
       data: result && result.admin ? toAdminSummary(result.admin, result.email) : null,
-      message: 'Admin updated successfully',
+      emailSent,
+      message:
+        emailSent === false
+          ? 'Admin updated, but the invitation email to the new address could not be sent. Use "Resend invite" to try again.'
+          : 'Admin updated successfully',
     })
   } catch (error) {
     if (error instanceof PrimaryAdminGuardError) return apiError(409, error.code, error.message)
@@ -421,6 +441,58 @@ export async function updateCompanyAdmin(
       return apiError(409, 'CONFLICT', 'A company admin with this email already exists')
     }
     console.error('Company admin update error:', error)
+    return apiError(500, 'INTERNAL', 'Internal server error')
+  }
+}
+
+const RESEND_INVITE_COOLDOWN_MS = 60 * 1000
+
+/**
+ * Re-send the welcome / sign-up email to a company admin who has not signed
+ * in yet. Used after a failed send, or when the admin lost the email.
+ */
+export async function resendCompanyAdminInvite(user: User, companyId: string, adminId: string) {
+  try {
+    const admin = await prisma.companyAdmin.findUnique({
+      where: { id: adminId },
+      include: {
+        account: { select: { email: true } },
+        company: { select: { name: true, deletedAt: true } },
+      },
+    })
+    if (!admin || admin.companyId !== companyId || admin.company.deletedAt) {
+      return apiError(404, 'NOT_FOUND', 'Company admin not found in this company')
+    }
+    if (admin.lastLoginAt) {
+      return apiError(409, 'ALREADY_SIGNED_IN', 'This admin has already signed in; no invitation is needed')
+    }
+    if (!admin.isActive) {
+      return apiError(409, 'INACTIVE', 'Reactivate this admin before resending the invitation')
+    }
+    const email = admin.account?.email
+    if (!email) return apiError(409, 'NO_EMAIL', 'This admin has no email address on file')
+
+    const last = (await getLatestInviteStatuses([adminId])).get(adminId)
+    if (last?.status === 'SENT' && Date.now() - last.at.getTime() < RESEND_INVITE_COOLDOWN_MS) {
+      return apiError(429, 'RESEND_COOLDOWN', 'An invitation was just sent. Please wait a minute before resending.')
+    }
+
+    const invite = await sendCompanyAdminInvitation({
+      adminId,
+      email,
+      firstName: admin.firstName,
+      lastName: admin.lastName,
+      companyName: admin.company.name ?? '',
+      companyId,
+      actorType: user.userType,
+      actorId: user.profileId,
+    })
+    if (!invite.success) {
+      return apiError(502, 'EMAIL_FAILED', 'The invitation email could not be sent. Please try again later.')
+    }
+    return NextResponse.json({ success: true, message: `Invitation sent to ${email}` })
+  } catch (error) {
+    console.error('Resend company admin invite error:', error)
     return apiError(500, 'INTERNAL', 'Internal server error')
   }
 }

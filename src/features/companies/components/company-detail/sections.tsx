@@ -253,6 +253,9 @@ interface AdministratorsCardProps {
   onReactivate: (admin: CompanyAdminSummary) => void;
   /** Revert an inactive admin that was promoted from an employee. */
   onRevertToEmployee: (admin: CompanyAdminSummary) => void;
+  /** Re-send the sign-up email to an admin who has never signed in. */
+  onResendInvite: (admin: CompanyAdminSummary) => void;
+  resendingAdminId: string | null;
 }
 
 export function AdministratorsCard({
@@ -266,6 +269,8 @@ export function AdministratorsCard({
   onDisable,
   onReactivate,
   onRevertToEmployee,
+  onResendInvite,
+  resendingAdminId,
 }: AdministratorsCardProps) {
   return (
     <Card>
@@ -340,6 +345,24 @@ export function AdministratorsCard({
                           <Mail className="h-3.5 w-3.5 text-muted-foreground" />
                           <span>{a.email}</span>
                         </div>
+                        {!a.lastLoginAt && a.inviteStatus === "FAILED" && (
+                          <span
+                            title={
+                              a.inviteStatusAt
+                                ? `Last attempt failed at ${new Date(a.inviteStatusAt).toLocaleString()}`
+                                : undefined
+                            }
+                            className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-800 dark:bg-red-900/40 dark:text-red-200"
+                          >
+                            <AlertCircle className="h-3 w-3" /> Invite email failed
+                          </span>
+                        )}
+                        {!a.lastLoginAt && a.inviteStatus === "SENT" && (
+                          <span className="mt-1 block text-[11px] text-muted-foreground">
+                            Invite sent
+                            {a.inviteStatusAt ? ` ${new Date(a.inviteStatusAt).toLocaleString()}` : ""}
+                          </span>
+                        )}
                       </td>
                       <td className="py-2 pr-3">
                         <Badge variant={a.role === "OWNER" ? "default" : "secondary"}>
@@ -356,6 +379,21 @@ export function AdministratorsCard({
                       </td>
                       <td className="py-2 pr-3 text-right">
                         <div className="inline-flex flex-wrap items-center justify-end gap-1">
+                          {!a.lastLoginAt && a.isActive && !isSelf && (
+                            <TableActionButton
+                              onClick={() => onResendInvite(a)}
+                              disabled={resendingAdminId !== null}
+                              title="Send the sign-up email again"
+                              className={
+                                a.inviteStatus === "FAILED"
+                                  ? "text-destructive hover:text-destructive"
+                                  : undefined
+                              }
+                            >
+                              <Mail className="mr-1 h-3 w-3" />
+                              {resendingAdminId === a.id ? "Sending…" : "Resend invite"}
+                            </TableActionButton>
+                          )}
                           {permissions.transferPrimary && !isPrimary && a.isActive && (
                             <TableActionButton
                               onClick={() => onMakePrimary(a)}

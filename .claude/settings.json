@@ -11,7 +11,9 @@
       "PowerShell($o = npx tsc --noEmit -p . 2>&1; \"TOTAL: \" + \\($o | Select-String \"error TS\"\\).Count; $o | Select-String \"error TS\" | Select-Object -First 10)",
       "Bash(npx tsc *)",
       "PowerShell(Get-ChildItem prisma -Name | Select-Object -First 20; Get-ChildItem prisma\\\\migrations -Name -ErrorAction SilentlyContinue | Select-Object -Last 3; Select-String -Path prisma\\\\schema.prisma -Pattern 'isForever|liveAt|^model MerchantOffer|provider' | % { $_.Line })",
-      "Bash(curl -s -m 60 -w \"\\\\nHTTP %{http_code}\\\\n\" http://localhost:3000/api/admin/overview)"
+      "Bash(curl -s -m 60 -w \"\\\\nHTTP %{http_code}\\\\n\" http://localhost:3000/api/admin/overview)",
+      "PowerShell($o = npx tsc --noEmit -p . 2>&1; \"errors: \" + \\($o | Select-String \"error TS\"\\).Count)",
+      "PowerShell(npx tsc --noEmit -p . 2>&1)"
     ]
   }
 }

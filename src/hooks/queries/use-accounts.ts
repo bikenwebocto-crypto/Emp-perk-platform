@@ -1,6 +1,8 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabase/client';
+import { clearClientSession } from '@/lib/auth/clear-client-session';
 import type { AdminRoleValue } from '@/lib/access/account-access';
 
 /** Row shape returned by GET /api/admin/accounts. */
@@ -57,15 +59,42 @@ export function useAccounts(filters: AccountsFilters = {}) {
   });
 }
 
+type MutationResult = { success: boolean; message: string; selfLoggedOut?: boolean };
+
+/**
+ * After a super admin transfer the server has already demoted the actor and
+ * revoked their sessions; end the local session, wipe cached data and go to
+ * login so the new super admin can sign in.
+ */
+async function handleAfterMutation(qc: QueryClient, res: MutationResult) {
+  if (!res.selfLoggedOut) {
+    await qc.invalidateQueries({ queryKey: accountKeys.all });
+    return;
+  }
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    // Server already revoked the session; continue clearing locally.
+  }
+  clearClientSession(qc);
+  try {
+    localStorage.clear();
+    sessionStorage.clear();
+  } catch {
+    // Storage may be unavailable.
+  }
+  window.location.replace('/login');
+}
+
 export function useCreateAccount() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: { firstName: string; lastName: string; email: string; role: AdminRoleValue }) =>
-      api<{ success: boolean; message: string }>('/api/admin/accounts', {
+      api<MutationResult>('/api/admin/accounts', {
         method: 'POST',
         body: JSON.stringify(body),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: accountKeys.all }),
+    onSuccess: (res) => handleAfterMutation(qc, res),
   });
 }
 
@@ -73,11 +102,11 @@ export function useUpdateAccount() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...body }: { id: string; role?: AdminRoleValue; isActive?: boolean }) =>
-      api<{ success: boolean; message: string }>(`/api/admin/accounts/${id}`, {
+      api<MutationResult>(`/api/admin/accounts/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: accountKeys.all }),
+    onSuccess: (res) => handleAfterMutation(qc, res),
   });
 }
 

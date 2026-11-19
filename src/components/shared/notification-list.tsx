@@ -59,7 +59,8 @@ export function NotificationList({
   const { data, isLoading } = useQuery({
     queryKey: [queryKey, filter],
     queryFn: async () => {
-      const url = filter === 'unread' ? `${fetchUrl}?unread=true` : fetchUrl
+      const sep = fetchUrl.includes('?') ? '&' : '?'
+      const url = filter === 'unread' ? `${fetchUrl}${sep}unread=true&unreadOnly=true` : fetchUrl
       const res = await fetch(url)
       const json = await res.json()
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to load')
@@ -123,8 +124,15 @@ export function NotificationList({
           </div>
         </div>
         {unreadCount > 0 && (
-          <Button variant="outline" size="sm" onClick={() => markAll.mutate()} disabled={markAll.isPending}>
-            <CheckCheck className="mr-1 h-4 w-4" /> Mark all read
+          <Button
+            variant="outline"
+            size="icon"
+            title="Mark all as read"
+            aria-label="Mark all as read"
+            onClick={() => markAll.mutate()}
+            disabled={markAll.isPending}
+          >
+            <CheckCheck className="h-4 w-4 text-green-600" />
           </Button>
         )}
       </div>
@@ -167,14 +175,21 @@ export function NotificationList({
                   )}
                   <p className="mt-1 text-xs text-muted-foreground">{timeAgo(n.createdAt)}</p>
                 </div>
-                {!n.isRead && (
+                {n.isRead ? (
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center" title="Read" aria-label="Read">
+                    <CheckCheck className="h-4 w-4 text-green-600" />
+                  </span>
+                ) : (
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="ghost"
+                    className="h-8 w-8 shrink-0"
+                    title="Mark as read"
+                    aria-label="Mark as read"
                     onClick={() => markOne.mutate(n.id)}
                     disabled={markOne.isPending}
                   >
-                    Read
+                    <CheckCheck className="h-4 w-4 text-foreground" />
                   </Button>
                 )}
               </div>
