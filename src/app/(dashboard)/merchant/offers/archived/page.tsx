@@ -8,7 +8,10 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/shared/page-header'
-import { Search, ExternalLink, Archive, History } from 'lucide-react'
+import { Search, ExternalLink, History, Info } from 'lucide-react'
+
+const ARCHIVED_INFO =
+  'An offer is archived when you revoke a live offer, or when an approved replacement goes live and takes its place. Expired and replaced evergreen offers are listed under the History tab instead.'
 
 interface ArchivedRow {
   id: string
@@ -57,7 +60,7 @@ export default function ArchivedOffersPage() {
     <div className="space-y-6">
       <PageHeader
         title="Archived Offers"
-        description="Offers that have been replaced, expired, or manually archived"
+        description="Offers you revoked, or offers taken down when an approved replacement went live"
         actions={
           <Link href="/merchant/offers">
             <Button variant="outline">
@@ -69,7 +72,12 @@ export default function ArchivedOffersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Archive</CardTitle>
+          <CardTitle className="flex items-center gap-1.5 text-base">
+            Archive
+            <span title={ARCHIVED_INFO} aria-label={ARCHIVED_INFO} className="inline-flex cursor-help text-muted-foreground">
+              <Info className="h-4 w-4" />
+            </span>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="mb-4 flex items-center gap-2">
@@ -94,7 +102,7 @@ export default function ArchivedOffersPage() {
               <Skeleton className="h-16 w-full" />
             </div>
           ) : !data?.data || data.data.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No archived offers.</p>
+            <p className="text-sm text-muted-foreground">No archived offers. {ARCHIVED_INFO}</p>
           ) : (
             <>
               <ul className="space-y-2">
@@ -115,7 +123,7 @@ export default function ArchivedOffersPage() {
                         {o.replacesOffer && (
                           <p className="mt-1 text-xs">
                             <span className="rounded-full bg-muted px-2 py-0.5">
-                              Replaced: {o.replacesOffer.title}
+                              Replaced earlier offer: {o.replacesOffer.title}
                             </span>
                           </p>
                         )}

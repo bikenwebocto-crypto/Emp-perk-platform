@@ -18,8 +18,6 @@ import {
   Gift,
   Plus,
   MapPin,
-  ArrowUpRight,
-  ArrowDownRight,
   Clock,
   ExternalLink,
   Banknote,
@@ -143,13 +141,11 @@ interface DashboardStat {
   title: string
   value: string | number
   href: string
-  trend?: { value: number; isUp: boolean }
-  description?: string
   icon: React.ElementType
   accentClass: string
 }
 
-function DashboardStatCard({ title, value, href, trend, description, icon: Icon, accentClass }: DashboardStat) {
+function DashboardStatCard({ title, value, href, icon: Icon, accentClass }: DashboardStat) {
   return (
     <Link href={href} className="block">
       <Card className="group cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
@@ -158,20 +154,6 @@ function DashboardStatCard({ title, value, href, trend, description, icon: Icon,
             <div className="space-y-1.5">
               <p className="text-sm font-medium text-muted-foreground">{title}</p>
               <p className="text-3xl font-bold tracking-tight">{value}</p>
-              {trend && (
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className={cn(
-                      'inline-flex items-center gap-0.5 text-xs font-medium',
-                      trend.isUp ? 'text-emerald-600' : 'text-red-600',
-                    )}
-                  >
-                    {trend.isUp ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                    {Math.abs(trend.value)}%
-                  </span>
-                  {description && <span className="text-xs text-muted-foreground">vs {description}</span>}
-                </div>
-              )}
             </div>
             <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl', accentClass)}>
               <Icon className="h-5 w-5 text-white" />
@@ -268,8 +250,6 @@ export default function MerchantDashboard() {
               title="Live Offers"
               value={s.liveOffers.value}
               href="/merchant/offers"
-              trend={{ value: s.liveOffers.change, isUp: s.liveOffers.trend === 'up' }}
-              description="last week"
               icon={Gift}
               accentClass="bg-blue-600"
             />
@@ -277,8 +257,6 @@ export default function MerchantDashboard() {
               title="Offer Views"
               value={s.activeViews.value.toLocaleString()}
               href="/merchant/analytics"
-              trend={{ value: s.activeViews.change, isUp: s.activeViews.trend === 'up' }}
-              description="last week"
               icon={Eye}
               accentClass="bg-purple-600"
             />
@@ -286,8 +264,6 @@ export default function MerchantDashboard() {
               title="Redemptions"
               value={s.redemptionCount.value}
               href="/merchant/redemptions"
-              trend={{ value: s.redemptionCount.change, isUp: s.redemptionCount.trend === 'up' }}
-              description="last month"
               icon={ShoppingBag}
               accentClass="bg-emerald-600"
             />
@@ -295,8 +271,6 @@ export default function MerchantDashboard() {
               title="Campaign Expenditure"
               value={s.monthlySavings.value}
               href="/merchant/analytics"
-              trend={{ value: s.monthlySavings.change, isUp: s.monthlySavings.trend === 'up' }}
-              description="last month"
               icon={Banknote}
               accentClass="bg-amber-500"
             />

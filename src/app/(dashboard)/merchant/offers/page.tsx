@@ -9,8 +9,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { showToast } from '@/hooks/use-toast'
 import { FeaturedLiveCarousel } from '@/components/merchant/FeaturedLiveCarousel'
-import { Plus, Pencil, ExternalLink, Gift, RefreshCw, Clock, History, Trash2, BadgeCheck, AlertCircle, Ban, Zap } from 'lucide-react'
+import { Plus, Pencil, ExternalLink, Gift, RefreshCw, Clock, History, Trash2, BadgeCheck, AlertCircle, Ban, Zap, Info } from 'lucide-react'
+
+const ARCHIVED_INFO =
+  'Offers you revoked, or offers taken down when an approved replacement went live.'
+
+const DRAFTS_INFO =
+  'Offers appear here when you click "Save as Draft" while creating an offer, or when a submitted offer fails automatic validation. Open a draft to finish editing and submit it for approval.'
 import { Alert } from '@/components/ui/alert'
+import { offerStatusRank } from '@/lib/offers/status-order'
 import type { ColumnDef } from '@/types'
 
 const statusLabels: Record<string, string> = {
@@ -104,6 +111,7 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
     {
       key: 'status',
       header: 'Status',
+      sortValue: (o: any) => offerStatusRank(o.status),
       render: (o: any) => (
         <div className="flex flex-col gap-1">
           <StatusBadge status={o.status}  />
@@ -296,13 +304,26 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
           >
             <t.icon className="h-4 w-4" />
             {t.label}
+            {t.key === 'drafts' && (
+              <span
+                title={DRAFTS_INFO}
+                aria-label={DRAFTS_INFO}
+                className="inline-flex cursor-help text-muted-foreground"
+              >
+                <Info className="h-3.5 w-3.5" />
+              </span>
+            )}
           </button>
         ))}
         <Link
           href="/merchant/offers/archived"
           className="ml-auto inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
-          <History className="h-4 w-4" /> Archived &rarr;
+          <History className="h-4 w-4" /> Archived
+          <span title={ARCHIVED_INFO} aria-label={ARCHIVED_INFO} className="inline-flex cursor-help">
+            <Info className="h-3.5 w-3.5" />
+          </span>
+          &rarr;
         </Link>
       </div>
 
@@ -332,7 +353,7 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
         selectedIds={selectedIds}
         onSelectChange={setSelectedIds}
         emptyMessage={
-          tab === 'drafts' ? 'No drafts'
+          tab === 'drafts' ? `No drafts. ${DRAFTS_INFO}`
             : tab === 'history' ? 'No offer history'
             : tab === 'flash' ? 'No flash offers yet'
             : search ? 'No offers found'

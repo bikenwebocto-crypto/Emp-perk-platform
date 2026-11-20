@@ -36,6 +36,7 @@ import { notifyEvergreenLive } from '@/lib/offers/evergreen-notifications';
 import { ensureOfferQRCode } from '@/lib/offer-qr';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
+import { offerStatusRank } from '@/lib/offers/status-order'
 
 const MIN_TITLE_LENGTH = 5;
 const MAX_TITLE_LENGTH = 255;
@@ -422,8 +423,10 @@ export async function GET(request: NextRequest) {
           isFlash: true,
           startDate: true,
           endDate: true,
+          updatedAt: true,
           _count: { select: { redemptions: true } },
           replacesOffer: { select: { id: true, title: true } },
+          analytics: { select: { viewCount: true, saveCount: true } },
           pricing: { select: { configuration: true } },
           capacity: { select: { redeemedCount: true, maxRedemptions: true } },
           content: { select: { imageUrls: true } },
@@ -456,14 +459,15 @@ export async function GET(request: NextRequest) {
     // Only an Evergreen that is LIVE and inside its validity window qualifies.
     const hasLiveForever = liveForPolicy.some(isForeverOffer);
 
-    // Evergreen > flash > normal. Array.sort is stable, so the
-    // createdAt desc order is preserved inside each group.
-    const rank = (o: { evergreen: boolean; isFlash: boolean }) =>
+    // Status lifecycle first (Live → in review → needs action → ended), then
+    // Evergreen > flash > normal. Array.sort is stable, so the createdAt desc
+    // order is preserved inside each group.
+    const typeRank = (o: { evergreen: boolean; isFlash: boolean }) =>
       o.evergreen ? 0 : o.isFlash ? 1 : 2;
 
     const offers = allOffers
       .map((o) => ({ ...o, evergreen: isEvergreenRange(o.startDate, o.endDate) }))
-      .sort((a, b) => rank(a) - rank(b))
+      .sort((a, b) => offerStatusRank(a.status) - offerStatusRank(b.status) || typeRank(a) - typeRank(b))
       .slice((page - 1) * pageSize, (page - 1) * pageSize + take);
 
     const pendingReplacement = currentLive
