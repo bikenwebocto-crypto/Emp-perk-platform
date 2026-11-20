@@ -543,7 +543,6 @@ const toggleMutation = useMutation({
                         }
                       >
                         <option value="TOP">Top</option>
-                        <option value="BOTTOM">Bottom</option>
                       </select>
                     </div>
                     <div>
@@ -1192,7 +1191,6 @@ const toggleMutation = useMutation({
                           }
                         >
                           <option value="TOP">Top</option>
-                          <option value="BOTTOM">Bottom</option>
                         </select>
                         {!editBookingBanner && (
                           <p className="mt-1 text-xs text-destructive">

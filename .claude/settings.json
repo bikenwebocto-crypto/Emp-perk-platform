@@ -15,7 +15,8 @@
       "PowerShell($o = npx tsc --noEmit -p . 2>&1; \"errors: \" + \\($o | Select-String \"error TS\"\\).Count)",
       "PowerShell(npx tsc --noEmit -p . 2>&1)",
       "PowerShell(foreach \\($f in \"src/app/\\(dashboard\\)/employee/profile/page.tsx\",\"src/app/\\(dashboard\\)/employee/settings/page.tsx\",\"src/app/\\(dashboard\\)/merchant/settings/page.tsx\",\"src/app/\\(dashboard\\)/admin/accounts/page.tsx\"\\) { \"== $f : \" + \\(Select-String -LiteralPath $f -Pattern \"password\" -SimpleMatch | Measure-Object\\).Count }; Get-ChildItem \"src/app/\\(dashboard\\)/admin\" -Directory | Select-Object -Expand Name; Select-String -Path src/schemas/index.ts,src/lib/access/account-access.ts -Pattern \"SUPER_ADMIN|_ADMIN'\" | Select-Object -First 6)",
-      "PowerShell(Get-ChildItem -Recurse -File \"src/app/api/merchant/banners\" | % FullName; Get-Content \"src/app/\\(dashboard\\)/merchant/banners/page.tsx\" | Select -Index \\(743..750\\))"
+      "PowerShell(Get-ChildItem -Recurse -File \"src/app/api/merchant/banners\" | % FullName; Get-Content \"src/app/\\(dashboard\\)/merchant/banners/page.tsx\" | Select -Index \\(743..750\\))",
+      "Bash(echo \"exit:$?\")"
     ]
   }
 }

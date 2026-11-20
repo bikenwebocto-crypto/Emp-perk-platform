@@ -96,6 +96,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // The bottom banner position has been retired; only TOP can be created.
+    if (position !== 'TOP') {
+      return NextResponse.json(
+        { success: false, error: { code: 'VALIDATION', message: 'Only the TOP banner position is supported' } },
+        { status: 400 }
+      )
+    }
+
     // Campaign window. Both are optional; null means "no bound".
     const parsedStartDate = startDate ? new Date(startDate) : null
     const parsedExpiresAt = expiresAt ? new Date(expiresAt) : null

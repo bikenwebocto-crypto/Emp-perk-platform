@@ -319,37 +319,6 @@ export default function MerchantBannersPage() {
 
   const positionSlots = slotsData?.data;
 
-  // Positions the admin currently has active (isActive + inside date window).
-  const { data: bookablePositionsData } = useQuery({
-    queryKey: ["bookable-banner-positions"],
-    queryFn: async () => {
-      const res = await fetch("/api/banners/positions");
-      const json = await res.json();
-      if (!res.ok)
-        throw new Error(json.error?.message ?? "Failed to load positions");
-      return json as { success: boolean; data: { position: string }[] };
-    },
-    enabled: showBook,
-  });
-  const bookablePositions = bookablePositionsData
-    ? new Set(bookablePositionsData.data.map((p) => p.position))
-    : null;
-
-  // If the selected position isn't bookable, switch to one that is.
-  useEffect(() => {
-    if (!bookablePositions || bookablePositions.has(selectedPosition)) return;
-    const first = (["TOP", "BOTTOM"] as const).find((p) =>
-      bookablePositions.has(p),
-    );
-    if (first) {
-      setSelectedPosition(first);
-      setSelectedSlotNumber(null);
-      setPickedStart("");
-      setPickedEnd("");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookablePositionsData, selectedPosition]);
-
   useEffect(() => {
     const t = setTimeout(
       () => setDebouncedOfferSearch(offerSearch.trim()),
@@ -757,17 +726,7 @@ export default function MerchantBannersPage() {
                       setPickedEnd("");
                     }}
                   >
-                    {(["TOP", "BOTTOM"] as const).map((pos) => {
-                      const unavailable =
-                        bookablePositions !== null &&
-                        !bookablePositions.has(pos);
-                      return (
-                        <option key={pos} value={pos} disabled={unavailable}>
-                          {pos === "TOP" ? "Top banner" : "Bottom banner"}
-                          {unavailable ? " (unavailable)" : ""}
-                        </option>
-                      );
-                    })}
+                    <option value="TOP">Top banner</option>
                   </select>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {POSITION_HINTS[selectedPosition]}

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { recordOfferView } from "@/lib/offers/record-offer-view";
 import {
   getEmployeeFromSession,
   unauthorized,
@@ -48,38 +48,10 @@ export async function POST(request: NextRequest) {
       return badRequest("offerId is required");
     }
 
-    // Verify the offer exists and is currently visible to this
-    // employee. We don't 404 specifically on a non-existent offer
-    // (analytics is best-effort) but we DO want to avoid crediting
-    // a view to a deleted/hidden offer.
-    const offer = await prisma.merchantOffer.findFirst({
-      where: { id: offerId, deletedAt: null },
-      select: { id: true, status: true, deletedAt: true },
-    });
-    if (!offer || offer.deletedAt) {
-      return notFound("Offer not found");
-    }
-
-    // Atomic "insert-or-skip + conditional increment" via a single
-    // SQL statement. Two benefits:
-    //   1. One round-trip, one transaction (Prisma sends as a single
-    //      batch).
-    //   2. The UPDATE is only joined to rows that were *just*
-    //      inserted, so a repeat view never increments viewCount.
-    // Record a unique (offerId, employeeId) view; repeat opens are skipped.
-    const inserted = await prisma.offerView.createMany({
-      data: [{ offerId, employeeId: employee.id }],
-      skipDuplicates: true,
-    });
-
-    // Only bump the all-time unique counter when this was a first view.
-    if (inserted.count > 0) {
-      await prisma.offerAnalytics.upsert({
-        where: { offerId },
-        create: { offerId, viewCount: 1 },
-        update: { viewCount: { increment: 1 } },
-      });
-    }
+    // Legacy web route: employees are mobile-only now. Kept so the old
+    // web RedeemModal doesn't break; shares the mobile logic.
+    const result = await recordOfferView(offerId, employee.id);
+    if (!result.recorded) return notFound(result.reason);
     return NextResponse.json({ success: true });
   } catch (error) {
     return internalError(error);

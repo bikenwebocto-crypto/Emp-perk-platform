@@ -6,6 +6,7 @@ import { effectiveOfferStatus, isOfferVisibleToEmployees } from '@/lib/offer-vis
 import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 import { isEvergreenRange } from '@/lib/offers/evergreen'
+import { recordOfferView } from '@/lib/offers/record-offer-view'
 
 // GET /api/mobile/offers/[id]
 //
@@ -52,6 +53,21 @@ export async function GET(
     if (!offer) return notFound('Offer not found')
 
     const visibility = await isOfferVisibleToEmployees(id)
+
+    // Opening the offer counts as a view (unique per employee). Awaited
+    // before reading analytics so the caller sees its own first view.
+    // Never fails the detail response.
+    if (visibility.visible) {
+      try {
+        const view = await recordOfferView(id, auth.employee.id, { skipVisibilityCheck: true })
+        if (view.recorded && view.firstView && offer.analytics) {
+          offer.analytics.viewCount += 1
+        }
+      } catch (err) {
+        console.error('recordOfferView failed', err)
+      }
+    }
+
     const [saved, redemption] = await Promise.all([
       prisma.notificationEvent.findFirst({
         where: {
@@ -88,7 +104,6 @@ export async function GET(
     const remainingSeconds = redeemState.nextRedeemAt
     ? Math.max(0, Math.ceil((redeemState.nextRedeemAt.getTime() - now.getTime()) / 1000))
     : null
-    console.log('$$$ Offer Data:', { pricingConfig, redemptionConfig })
 
     return NextResponse.json({
       success: true,
