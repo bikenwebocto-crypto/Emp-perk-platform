@@ -56,6 +56,8 @@ export function SplitCardLayout({
   compact,
 }: SplitCardLayoutProps) {
   const colors = extractColors(branding);
+  // Card heading/description: branding Text Color, else the brand purple.
+  const cardTextColor = branding.textColor || "#693192";
   const {
     backgroundImageUrl,
     appName,
@@ -161,17 +163,17 @@ export function SplitCardLayout({
           <div className="flex h-full items-center">
             <div>
               {tagline && (
-                <span className="block text-sm tracking-[4px] text-white/60">
+                <span className="block text-sm tracking-[4px]" style={{ color: `${cardTextColor}99` }}>
                   * {tagline.toUpperCase()} *
                 </span>
               )}
               {branding.showHeading !== false && (
-                <h1 className="mt-2 text-3xl md:text-4xl font-bold text-white">
+                <h1 className="mt-2 text-3xl md:text-4xl font-bold" style={{ color: cardTextColor }}>
                   {branding.heading || ""}
                 </h1>
               )}
               {branding.showDescription !== false && (
-                <p className="mt-3 max-w-md text-sm md:text-base text-white/70">
+                <p className="mt-3 max-w-md text-sm md:text-base" style={{ color: `${cardTextColor}b3` }}>
                   {branding.description || "Sign in to continue to your dashboard."}
                 </p>
               )}
@@ -194,16 +196,18 @@ export function SplitCardLayout({
           {appName ? `${appName.toUpperCase()} ACCESS` : "PLATFORM ACCESS"}
         </span> */}
         <h1
-          className={`mt-3 font-bold text-gray-900 ${
+          className={`mt-3 font-bold ${
             compact ? "text-2xl" : "text-2xl md:text-4xl"
           }`}
+          style={{ color: cardTextColor }}
         >
           {branding.heading || "Welcome Back"}
         </h1>
         <p
-          className={`mt-2 text-slate-500 ${
+          className={`mt-2 ${
             compact ? "mb-4 text-xs" : "mb-4 md:mb-8 text-sm md:text-base"
           }`}
+          style={{ color: `${cardTextColor}b3` }}
         >
           {branding.description || "Sign in to continue"}
         </p>
@@ -217,17 +221,17 @@ export function SplitCardLayout({
           {compact && (
             <div className="relative z-10 px-6 pb-6">
               {tagline && (
-                <span className="block text-sm tracking-[4px] text-white/60">
+                <span className="block text-sm tracking-[4px]" style={{ color: `${cardTextColor}99` }}>
                   * {tagline.toUpperCase()} *
                 </span>
               )}
               {branding.showHeading !== false && (
-                <h1 className="mt-2 text-2xl font-bold text-white">
+                <h1 className="mt-2 text-2xl font-bold" style={{ color: cardTextColor }}>
                   {branding.heading || "Welcome Back"}
                 </h1>
               )}
               {branding.showDescription !== false && (
-                <p className="mt-2 max-w-md text-sm text-white/70">
+                <p className="mt-2 max-w-md text-sm" style={{ color: `${cardTextColor}b3` }}>
                   {branding.description ||
                     "Sign in to continue to your dashboard."}
                 </p>

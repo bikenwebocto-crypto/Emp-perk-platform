@@ -1,6 +1,4 @@
 "use client";
-import { Auth } from "@supabase/auth-ui-react";
-import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { supabase } from "@/lib/supabase/client";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -26,6 +24,13 @@ export function LoginClient({ branding }: LoginClientProps) {
   // Invite links (bulk employee upload) must set a password before the
   // account is synced and redirected.
   const inviteRef = useRef(false);
+  // Password-reset links sign the user in at AAL1. They must not be synced /
+  // redirected until the new password is saved (which needs AAL2 if MFA is on).
+  const recoveryRef = useRef(
+    typeof window !== "undefined" && window.location.hash.includes("type=recovery"),
+  );
+  const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
   const searchParams = useSearchParams();
   const [view, setView] = useState<'sign_in' | 'sign_up' | 'update_password'>(
     () => (searchParams.get("mode") === "signup" ? "sign_up" : "sign_in"),
@@ -102,6 +107,84 @@ export function LoginClient({ branding }: LoginClientProps) {
     setPassword("");
     setConfirmPassword("");
     setView(next);
+  };
+
+  const handleUpdatePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    const passwordError = getPasswordError(password);
+    if (passwordError) {
+      setError(passwordError);
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // With MFA enrolled, Supabase only allows a password change from an AAL2 session.
+      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (aal?.nextLevel === "aal2" && aal.currentLevel !== "aal2") {
+        let factorId = mfaFactorId;
+        if (!factorId) {
+          const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors();
+          if (factorsError) throw factorsError;
+          factorId = factors?.totp?.[0]?.id ?? null;
+          if (!factorId) throw new Error("No verified MFA factor found. Contact an administrator.");
+          setMfaFactorId(factorId);
+          // Ask for the code before going further.
+          if (!mfaCode) {
+            setNotice("Enter the 6-digit code from your authenticator app to confirm the password change.");
+            return;
+          }
+        }
+        if (!/^\d{6}$/.test(mfaCode)) throw new Error("Enter the 6-digit code from your authenticator app.");
+        const { error: verifyError } = await supabase.auth.mfa.challengeAndVerify({
+          factorId,
+          code: mfaCode,
+        });
+        if (verifyError) throw verifyError;
+      }
+
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+      if (updateError) throw updateError;
+
+      setPassword("");
+      setConfirmPassword("");
+      setMfaCode("");
+      setMfaFactorId(null);
+      setNotice("Your password has been updated.");
+      window.history.replaceState(null, "", window.location.pathname);
+      if (inviteRef.current) {
+        // Invited users sign in themselves with the password they just set.
+        inviteRef.current = false;
+        await supabase.auth.signOut();
+        clearClientSession(queryClient);
+        setView("sign_in");
+        setNotice("Your password has been set. Please sign in to continue.");
+      } else if (recoveryRef.current) {
+        recoveryRef.current = false;
+        onAuth();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update password.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Leave the invite / reset flow: drop its temporary session and show sign-in.
+  const handleBackToSignIn = async () => {
+    inviteRef.current = false;
+    recoveryRef.current = false;
+    await supabase.auth.signOut();
+    clearClientSession(queryClient);
+    window.history.replaceState(null, "", window.location.pathname);
+    setMfaFactorId(null);
+    setMfaCode("");
+    switchView("sign_in");
   };
 
   const handleForgotPassword = async () => {
@@ -210,14 +293,13 @@ export function LoginClient({ branding }: LoginClientProps) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") setView("update_password");
-      if (event === "SIGNED_IN") {
-        if (inviteRef.current) setView("update_password");
-        else onAuth();
+      if (event === "PASSWORD_RECOVERY") {
+        recoveryRef.current = true;
+        setView("update_password");
       }
-      if (event === "USER_UPDATED" && inviteRef.current) {
-        inviteRef.current = false;
-        onAuth();
+      if (event === "SIGNED_IN") {
+        if (inviteRef.current || recoveryRef.current) setView("update_password");
+        else onAuth();
       }
     });
     return () => subscription.unsubscribe();
@@ -261,13 +343,70 @@ export function LoginClient({ branding }: LoginClientProps) {
       )}
       <div className="w-full max-w-sm">
         {mounted && view === "update_password" && (
-          <Auth
-            supabaseClient={supabase}
-            appearance={{ theme: ThemeSupa }}
-            providers={[]}
-            redirectTo="/login"
-            view={view}
-          />
+          <form onSubmit={handleUpdatePassword} className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="new-password" className="text-sm font-medium">
+                New password
+              </label>
+              <Input
+                id="new-password"
+                type="password"
+                autoComplete="new-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <PasswordRules password={password} />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="new-password-confirm" className="text-sm font-medium">
+                Confirm new password
+              </label>
+              <Input
+                id="new-password-confirm"
+                type="password"
+                autoComplete="new-password"
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+            {mfaFactorId && (
+              <div className="space-y-1.5">
+                <label htmlFor="reset-mfa-code" className="text-sm font-medium">
+                  Authenticator code
+                </label>
+                <Input
+                  id="reset-mfa-code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  required
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ""))}
+                />
+              </div>
+            )}
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={submitting || !!getPasswordError(password) || password !== confirmPassword}
+            >
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {mfaFactorId ? "Verify & update password" : "Update password"}
+            </Button>
+            <p className="text-center text-sm text-gray-600">
+              Remembered your password?{" "}
+              <button
+                type="button"
+                className="font-medium text-blue-600 hover:underline"
+                disabled={submitting}
+                onClick={handleBackToSignIn}
+              >
+                Back to sign in
+              </button>
+            </p>
+          </form>
         )}
         {mounted && view === "sign_in" && (
           <form onSubmit={handleSignIn} className="space-y-4">
