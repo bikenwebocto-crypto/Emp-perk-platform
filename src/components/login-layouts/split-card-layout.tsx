@@ -56,7 +56,7 @@ export function SplitCardLayout({
   compact,
 }: SplitCardLayoutProps) {
   const colors = extractColors(branding);
-  // Card heading/description: branding Text Color, else the brand purple.
+  // Left-side hero text (tagline/heading/description): branding Text Color, else brand purple.
   const cardTextColor = branding.textColor || "#693192";
   const {
     backgroundImageUrl,
@@ -196,18 +196,16 @@ export function SplitCardLayout({
           {appName ? `${appName.toUpperCase()} ACCESS` : "PLATFORM ACCESS"}
         </span> */}
         <h1
-          className={`mt-3 font-bold ${
+          className={`mt-3 font-bold text-gray-900 ${
             compact ? "text-2xl" : "text-2xl md:text-4xl"
           }`}
-          style={{ color: cardTextColor }}
         >
           {branding.heading || "Welcome Back"}
         </h1>
         <p
-          className={`mt-2 ${
+          className={`mt-2 text-slate-500 ${
             compact ? "mb-4 text-xs" : "mb-4 md:mb-8 text-sm md:text-base"
           }`}
-          style={{ color: `${cardTextColor}b3` }}
         >
           {branding.description || "Sign in to continue"}
         </p>

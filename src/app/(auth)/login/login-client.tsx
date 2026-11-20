@@ -26,8 +26,11 @@ export function LoginClient({ branding }: LoginClientProps) {
   const inviteRef = useRef(false);
   // Password-reset links sign the user in at AAL1. They must not be synced /
   // redirected until the new password is saved (which needs AAL2 if MFA is on).
+  // Set either by the legacy hash link or by /auth/confirm (?flow=recovery).
   const recoveryRef = useRef(
-    typeof window !== "undefined" && window.location.hash.includes("type=recovery"),
+    typeof window !== "undefined" &&
+      (window.location.hash.includes("type=recovery") ||
+        new URLSearchParams(window.location.search).get("flow") === "recovery"),
   );
   const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
@@ -208,7 +211,31 @@ export function LoginClient({ branding }: LoginClientProps) {
   }, [searchParams]);
 
   useEffect(() => {
+    if (searchParams.get("error") === "link_invalid") {
+      setError("This link is invalid, expired or already used. Please request a new one.");
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     setMounted(true);
+
+    // Old PKCE email links (?code=) land here. Let the server route exchange
+    // the code and redirect back with a clear result.
+    const query = new URLSearchParams(window.location.search)
+    const code = query.get('code')
+    if (code) {
+      window.location.replace(`/auth/confirm?${query.toString()}`)
+      return
+    }
+
+    // /auth/confirm already verified the link and set the session cookie.
+    if (query.get('mode') === 'update_password') {
+      const flow = query.get('flow')
+      inviteRef.current = flow === 'invite'
+      recoveryRef.current = flow === 'recovery'
+      setView('update_password')
+      return
+    }
 
     const hash = window.location.hash
     inviteRef.current = hash.includes('type=invite')
@@ -230,8 +257,6 @@ export function LoginClient({ branding }: LoginClientProps) {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    console.log('supabase register list:', supabase.auth.mfa.listFactors());
-    
     if (!session?.access_token) return;
     // console.log("User signed in, syncing with backend...", session.access_token);
     syncedRef.current = true;
