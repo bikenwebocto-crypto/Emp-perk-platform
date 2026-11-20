@@ -11,8 +11,20 @@ import { createClient } from '@/lib/supabase/server'
 const SET_PASSWORD_TYPES: EmailOtpType[] = ['recovery', 'invite']
 const VALID_TYPES: EmailOtpType[] = ['signup', 'invite', 'magiclink', 'recovery', 'email_change', 'email']
 
+// Behind the load balancer / reverse proxy, request.nextUrl.origin is the
+// internal host (e.g. ip-172-31-…ec2.internal:3000). Use the configured public
+// URL first, then the proxy's forwarded headers.
+function publicOrigin(request: NextRequest): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim()
+  if (configured) return configured.replace(/\/+$/, '')
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host')
+  const proto = request.headers.get('x-forwarded-proto') ?? 'https'
+  return host ? `${proto}://${host}` : request.nextUrl.origin
+}
+
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = request.nextUrl
+  const { searchParams } = request.nextUrl
+  const origin = publicOrigin(request)
   const tokenHash = searchParams.get('token_hash')
   const type = searchParams.get('type') as EmailOtpType | null
   const code = searchParams.get('code')
