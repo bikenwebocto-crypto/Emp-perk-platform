@@ -179,16 +179,6 @@ export function buildMerchantAnalyticsConfig(
         iconColor: 'text-emerald-600',
       },
       {
-        key: 'conversion',
-        label: 'Conversion',
-        value: formatPercent(summary.conversionRate),
-        sublabel: summary.conversionRate !== null ? 'redemptions / views' : 'no views yet',
-        icon: TrendingUp,
-        color: 'from-amber-500 to-orange-600',
-        bg: 'bg-amber-100 dark:bg-amber-950/40',
-        iconColor: 'text-amber-600',
-      },
-      {
         key: 'avgDiscount',
         label: 'Avg Discount',
         value: `€${summary.averageDiscount.toFixed(2)}`,

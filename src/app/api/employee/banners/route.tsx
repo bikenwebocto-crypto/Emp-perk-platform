@@ -23,6 +23,8 @@ export async function GET(_request: NextRequest) {
             paid: true,
             startDate: { lte: new Date() },
             endDate: { gte: new Date() },
+            // Admin deactivating a position takes its banners down immediately.
+            banner: { isActive: true },
           },
           include: {
             content: true,

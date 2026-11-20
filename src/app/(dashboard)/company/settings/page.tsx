@@ -14,6 +14,7 @@ import {
   useCompanyProfile,
 } from '@/hooks/queries/use-company-settings'
 import { showToast } from '@/hooks/use-toast'
+import { PASSWORD_RULES, getPasswordError } from '@/lib/validation/credentials'
 import { AlertTriangle, Pencil, Camera, Globe, ExternalLink, Eye, EyeOff, Check, Circle } from 'lucide-react'
 import { ImageUploader } from '@/components/shared/ImageUploader'
 import type { DeferredFile } from '@/components/shared/ImageUploader'
@@ -407,15 +408,17 @@ function ChangePasswordCard() {
   const [error, setError] = useState<string | null>(null)
 
   const rules = {
-    length: pwd.next.length >= 8,
+    strong: getPasswordError(pwd.next) === null,
     different: pwd.next.length > 0 && pwd.next !== pwd.current,
     match: pwd.confirm.length > 0 && pwd.next === pwd.confirm,
   }
-  const canSubmit = pwd.current.length > 0 && rules.length && rules.different && rules.match
+  const canSubmit = pwd.current.length > 0 && rules.strong && rules.different && rules.match
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    const strengthError = getPasswordError(pwd.next)
+    if (strengthError) return setError(strengthError)
     if (!canSubmit) return
     try {
       await changePwd.mutateAsync({ currentPassword: pwd.current, newPassword: pwd.next })
@@ -468,7 +471,9 @@ function ChangePasswordCard() {
 
           {pwd.next.length > 0 && (
             <ul className="space-y-1">
-              <Rule ok={rules.length} text="At least 8 characters" />
+              {PASSWORD_RULES.map((r) => (
+                <Rule key={r.id} ok={r.test(pwd.next)} text={r.label} />
+              ))}
               <Rule ok={rules.different} text="Different from current password" />
               <Rule ok={rules.match} text="Passwords match" />
             </ul>

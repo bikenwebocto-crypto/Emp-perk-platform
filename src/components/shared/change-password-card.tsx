@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { showToast } from '@/hooks/use-toast'
+import { PASSWORD_RULES, getPasswordError } from '@/lib/validation/credentials'
 import { Check, Circle, Eye, EyeOff, Lock, Pencil } from 'lucide-react'
 
 const DEFAULT_ENDPOINT = '/api/merchant/settings/change-password'
@@ -64,11 +65,11 @@ export function ChangePasswordCard({ endpoint = DEFAULT_ENDPOINT, className }: C
   const [pwdError, setPwdError] = useState<string | null>(null)
 
   const rules = {
-    length: pwd.next.length >= 8,
+    strong: getPasswordError(pwd.next) === null,
     different: pwd.next.length > 0 && pwd.next !== pwd.current,
     match: pwd.confirm.length > 0 && pwd.next === pwd.confirm,
   }
-  const canSubmit = pwd.current.length > 0 && rules.length && rules.different && rules.match
+  const canSubmit = pwd.current.length > 0 && rules.strong && rules.different && rules.match
 
   const reset = () => {
     setPwd({ current: '', next: '', confirm: '' })
@@ -97,6 +98,8 @@ export function ChangePasswordCard({ endpoint = DEFAULT_ENDPOINT, className }: C
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setPwdError(null)
+    const strengthError = getPasswordError(pwd.next)
+    if (strengthError) return setPwdError(strengthError)
     if (!canSubmit) return
     changePwd.mutate({ currentPassword: pwd.current, newPassword: pwd.next })
   }
@@ -166,7 +169,9 @@ export function ChangePasswordCard({ endpoint = DEFAULT_ENDPOINT, className }: C
 
             {pwd.next.length > 0 && (
               <ul className="space-y-1">
-                <Rule ok={rules.length} text="At least 8 characters" />
+                {PASSWORD_RULES.map((r) => (
+                  <Rule key={r.id} ok={r.test(pwd.next)} text={r.label} />
+                ))}
                 <Rule ok={rules.different} text="Different from current password" />
                 <Rule ok={rules.match} text="Passwords match" />
               </ul>

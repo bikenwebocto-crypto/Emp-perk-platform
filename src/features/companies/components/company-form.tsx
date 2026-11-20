@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PhoneInput } from '@/components/ui/phone-input'
 import { isValidPhone, toE164 } from '@/lib/phone'
+import { getEmailError } from '@/lib/validation/credentials'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { ArrowLeft, Save, Upload } from 'lucide-react'
@@ -94,8 +95,8 @@ export function CompanyForm() {
   const validate = (): boolean => {
     const errs: FormErrors = {}
     if (!form.name.trim()) errs.name = 'Company name is required'
-    if (!form.email.trim()) errs.email = 'Email is required'
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errs.email = 'Invalid email address'
+    const emailErr = getEmailError(form.email)
+    if (emailErr) errs.email = emailErr
     // if (!form.password) errs.password = 'Password is required'
     // else if (form.password.length < 8) errs.password = 'Password must be at least 8 characters'
     if (!form.firstName.trim()) errs.firstName = 'First name is required'

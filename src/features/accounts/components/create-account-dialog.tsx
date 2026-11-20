@@ -16,6 +16,7 @@ import { showToast } from '@/hooks/use-toast'
 import { useCreateAccount } from '@/hooks/queries/use-accounts'
 import { useCurrentUser } from '@/hooks/queries/use-current-user'
 import { ADMIN_ROLE_LABELS, assignableRoles, type AdminRoleValue } from '@/lib/access/account-access'
+import { getEmailError } from '@/lib/validation/credentials'
 
 
 interface CreateAccountDialogProps {
@@ -37,7 +38,8 @@ export function CreateAccountDialog({ open, onOpenChange }: CreateAccountDialogP
 
   const roles = assignableRoles({ adminRole: me?.adminRole })
   const busy = create.isPending
-  const complete = !!firstName.trim() && !!lastName.trim() && !!email.trim() && !!role
+  const emailError = email ? getEmailError(email) : null
+  const complete = !!firstName.trim() && !!lastName.trim() && !!email && !emailError && !!role
 
   const reset = () => {
     setFirstName('')
@@ -56,7 +58,7 @@ export function CreateAccountDialog({ open, onOpenChange }: CreateAccountDialogP
     e.preventDefault()
     if (!complete || !role) return
     create.mutate(
-      { firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim().toLowerCase(), role },
+      { firstName: firstName.trim(), lastName: lastName.trim(), email: email.toLowerCase(), role },
       {
         onSuccess: (res) => {
           showToast({ type: 'success', title: 'Invite sent', description: res.message })
@@ -111,6 +113,7 @@ export function CreateAccountDialog({ open, onOpenChange }: CreateAccountDialogP
               disabled={busy}
               onChange={(e) => setEmail(e.target.value)}
             />
+            {emailError && <p className="text-xs text-destructive">{emailError}</p>}
           </div>
           <div className="space-y-1.5">
             <label htmlFor="admin-role" className="text-sm font-medium">Role</label>

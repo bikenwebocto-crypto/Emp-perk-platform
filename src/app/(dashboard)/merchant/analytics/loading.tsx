@@ -12,9 +12,9 @@ export default function MerchantAnalyticsLoading() {
       {/* Date filter */}
       <Card><CardContent className="p-4"><Skeleton className="h-9 w-full" /></CardContent></Card>
 
-      {/* 5 KPI Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {Array.from({ length: 5 }).map((_, i) => (
+      {/* 4 KPI Cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
           <Card key={i}><CardContent className="p-5"><div className="space-y-3"><Skeleton className="h-3 w-20" /><Skeleton className="h-7 w-16" /></div></CardContent></Card>
         ))}
       </div>

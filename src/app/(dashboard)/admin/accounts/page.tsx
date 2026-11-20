@@ -15,6 +15,7 @@ import {
   useAccounts, useResendInvite, useUpdateAccount, type AccountRow,
 } from '@/hooks/queries/use-accounts'
 import {  CreateAccountDialog } from '@/features/accounts/components/create-account-dialog'
+import { ChangeOwnPasswordDialog } from '@/features/accounts/components/change-own-password-dialog'
 import {
   ADMIN_ROLES,ADMIN_ROLE_LABELS, assignableRoles, canAccessAccounts, canManageTarget, type AdminRoleValue,
 } from '@/lib/access/account-access'
@@ -41,6 +42,7 @@ export default function AccountsPage() {
   const [role, setRole] = useState(ALL)
   const [createOpen, setCreateOpen] = useState(false)
   const [pending, setPending] = useState<Pending | null>(null)
+  const [passwordOpen, setPasswordOpen] = useState(false)
   const { page, setPage, pageSize } = useTablePagination({ defaultPageSize: 20 })
   const { data: me } = useCurrentUser()
 
@@ -132,7 +134,13 @@ export default function AccountsPage() {
       sortable: false,
       render: (a) =>
         isSelf(a) ? (
-          <span className="text-xs text-muted-foreground">You</span>
+          // Only the signed-in admin's own row gets the reset button.
+          <div className="flex items-center justify-end gap-2">
+            <span className="text-xs text-muted-foreground">You</span>
+            <Button size="sm" variant="outline" onClick={() => setPasswordOpen(true)}>
+              <KeyRound className="mr-1 h-3.5 w-3.5" /> Reset password
+            </Button>
+          </div>
         ) : !canManage(a) ? null : (
           <div className="flex justify-end gap-2">
             {a.status === 'INVITE_PENDING' && (
@@ -213,6 +221,7 @@ export default function AccountsPage() {
         />
       )}
       <CreateAccountDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <ChangeOwnPasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
       <ConfirmDialog
         open={!!dialog}
         title={dialog?.title ?? ''}

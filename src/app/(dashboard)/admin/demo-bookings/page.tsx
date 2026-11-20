@@ -11,6 +11,8 @@ import { DialogOverlay, DialogPortal, DialogTitle, DialogDescription } from '@/c
 import { PageHeader } from '@/components/shared/page-header'
 import { FilterBar } from '@/components/shared/filter-bar'
 import { useTablePagination } from '@/hooks/use-table-pagination'
+import { SortableTh } from '@/components/shared/sortable-th'
+import type { SortDir } from '@/hooks/use-table-sort'
 import { showToast } from '@/hooks/use-toast'
 import { cn } from '@/utils/cn'
 import {
@@ -224,7 +226,23 @@ function slotTime(iso: string) {
 }
 
 export default function AdminDemoBookingsPage() {
-  const { page, setPage, pageSize, resetPage } = useTablePagination({ defaultPageSize: 20 })
+  const { page, setPage, resetPage } = useTablePagination()
+  const [pageSize, setPageSize] = useState(20)
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+
+  // asc -> desc -> off (default schedule order), handled server-side so it spans all pages.
+  function toggleSort(key: string) {
+    if (sortKey !== key) {
+      setSortKey(key)
+      setSortDir('asc')
+    } else if (sortDir === 'asc') {
+      setSortDir('desc')
+    } else {
+      setSortKey(null)
+    }
+    resetPage()
+  }
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<DemoStatus | 'ALL'>('ALL')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -243,8 +261,12 @@ export default function AdminDemoBookingsPage() {
     p.set('pageSize', String(pageSize))
     if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim())
     if (statusFilter !== 'ALL') p.set('status', statusFilter)
+    if (sortKey) {
+      p.set('sort', sortKey)
+      p.set('dir', sortDir)
+    }
     return p
-  }, [page, pageSize, debouncedSearch, statusFilter])
+  }, [page, pageSize, debouncedSearch, statusFilter, sortKey, sortDir])
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['admin-demo-bookings', params.toString()],
@@ -315,16 +337,16 @@ export default function AdminDemoBookingsPage() {
           </CardContent>
         </Card>
       ) : (
-        <>
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/30 text-left text-xs font-medium uppercase text-muted-foreground">
-                  <th className="px-4 py-3">When (Nicosia)</th>
-                  <th className="px-4 py-3">Requester</th>
+        <div className="overflow-hidden rounded-lg border">
+          <div className="max-h-[60vh] overflow-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="sticky top-0 z-10 bg-muted shadow-[inset_0_-1px_0_hsl(var(--border))]">
+                <tr className="text-left text-xs font-medium uppercase text-muted-foreground">
+                  <SortableTh label="When (Nicosia)" sortKey="startsAt" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="px-4 py-3" />
+                  <SortableTh label="Requester" sortKey="requester" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="px-4 py-3" />
                   <th className="px-4 py-3">Contact</th>
-                  <th className="px-4 py-3">Reference</th>
-                  <th className="px-4 py-3">Status</th>
+                  <SortableTh label="Reference" sortKey="reference" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="px-4 py-3" />
+                  <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
@@ -344,8 +366,8 @@ export default function AdminDemoBookingsPage() {
                       </div>
                       <div className="text-xs text-muted-foreground">{b.lead.companyName}</div>
                     </td>
-                    <td className="px-4 py-3">
-                      <div>{b.lead.email}</div>
+                    <td className="max-w-[260px] px-4 py-3">
+                      <div className="truncate" title={b.lead.email}>{b.lead.email}</div>
                       {b.lead.phone && <div className="text-xs text-muted-foreground">{b.lead.phone}</div>}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">{b.reference}</td>
@@ -358,31 +380,107 @@ export default function AdminDemoBookingsPage() {
             </table>
           </div>
 
-          {meta && meta.totalPages > 1 && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-xs text-muted-foreground">
-                Page {page} of {meta.totalPages} ({meta.total} total)
-              </span>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page >= meta.totalPages}
-                  onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
+          {meta && (
+            <TableFooter
+              page={page}
+              pageSize={pageSize}
+              total={meta.total}
+              totalPages={Math.max(1, meta.totalPages)}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size)
+                resetPage()
+              }}
+            />
           )}
-        </>
+        </div>
       )}
 
       <BookingDrawer id={selectedId} onClose={() => setSelectedId(null)} />
       <DayCalendar date={calendarDate} setDate={setCalendarDate} onSelect={setSelectedId} />
+    </div>
+  )
+}
+
+const PAGE_SIZES = [10, 20, 50, 100]
+
+/** Compact page list: 1 … 4 5 6 … 20 */
+function pageList(current: number, total: number): Array<number | '…'> {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  const pages: Array<number | '…'> = [1]
+  const start = Math.max(2, current - 1)
+  const end = Math.min(total - 1, current + 1)
+  if (start > 2) pages.push('…')
+  for (let p = start; p <= end; p++) pages.push(p)
+  if (end < total - 1) pages.push('…')
+  pages.push(total)
+  return pages
+}
+
+function TableFooter({
+  page,
+  pageSize,
+  total,
+  totalPages,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+  onPageChange: (p: number) => void
+  onPageSizeChange: (size: number) => void
+}) {
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const to = Math.min(page * pageSize, total)
+  return (
+    <div className="flex flex-col gap-3 border-t bg-muted/20 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <span>
+          Showing <span className="font-medium text-foreground">{from}–{to}</span> of{' '}
+          <span className="font-medium text-foreground">{total}</span>
+        </span>
+        <label className="flex items-center gap-1.5">
+          Rows
+          <select
+            value={pageSize}
+            onChange={(e) => onPageSizeChange(Number(e.target.value))}
+            className="rounded-md border bg-background px-2 py-1 text-xs text-foreground"
+          >
+            {PAGE_SIZES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+          Previous
+        </Button>
+        {pageList(page, totalPages).map((p, i) =>
+          p === '…' ? (
+            <span key={`gap-${i}`} className="px-1 text-muted-foreground">
+              …
+            </span>
+          ) : (
+            <Button
+              key={p}
+              size="sm"
+              variant={p === page ? 'default' : 'outline'}
+              className="min-w-8 px-2"
+              onClick={() => onPageChange(p)}
+            >
+              {p}
+            </Button>
+          ),
+        )}
+        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>
+          Next
+        </Button>
+      </div>
     </div>
   )
 }

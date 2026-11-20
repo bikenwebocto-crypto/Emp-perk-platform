@@ -10,6 +10,7 @@ import { BulkEmployeeUpload } from '@/features/employees/components/bulk-employe
 import { useCreateEmployee } from '@/hooks/queries/use-employees'
 import { useCompanies } from '@/hooks/queries/use-companies'
 import { showToast } from '@/hooks/use-toast'
+import { getEmailError } from '@/lib/validation/credentials'
 
 interface FormData {
   firstName: string
@@ -57,8 +58,8 @@ export function EmployeeForm() {
     const errs: FormErrors = {}
     if (!form.firstName.trim()) errs.firstName = 'First name is required'
     if (!form.lastName.trim()) errs.lastName = 'Last name is required'
-    if (!form.email.trim()) errs.email = 'Email is required'
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errs.email = 'Invalid email address'
+    const emailErr = getEmailError(form.email)
+    if (emailErr) errs.email = emailErr
     if (!form.department.trim()) errs.department = 'Department is required'
     if (!form.companyId) errs.companyId = 'Company is required'
     setErrors(errs)

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { getMerchantFromSession } from '@/lib/merchant-session'
+import { statusWhere } from '@/lib/redemption-status'
 
 function unauthorized() {
   return NextResponse.json(
@@ -31,6 +32,7 @@ function badRequest(message: string) {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const MAX_RANGE_DAYS = 366
 
 function startOfDayUTC(d: Date) {
   const x = new Date(d)
@@ -62,10 +64,16 @@ export async function GET(request: NextRequest) {
     const dateTo = to ? parseDayUTC(to, true) : new Date()
     if (!dateFrom || !dateTo) return badRequest('Invalid date. Use YYYY-MM-DD.')
     if (dateFrom > dateTo) return badRequest('"From" date must be before "To" date.')
+    if (dateTo.getTime() - dateFrom.getTime() > MAX_RANGE_DAYS * DAY_MS) {
+      return badRequest(`Date range cannot exceed ${MAX_RANGE_DAYS} days.`)
+    }
 
+    // Only count valid redemptions: exclude cancelled and rejected ones.
     const where = {
       merchantId: merchant.id,
       redeemedAt: { gte: dateFrom, lte: dateTo },
+      rejectionReason: null,
+      OR: [statusWhere('CONFIRMED')!, statusWhere('PENDING')!],
     }
 
     const [redemptionAgg, offers, branchList, branchRedemptionCounts, offerRedemptionCounts, redemptionDates, dailyViews] =
@@ -77,7 +85,7 @@ export async function GET(request: NextRequest) {
         }),
         prisma.merchantOffer.findMany({
           where: { merchantId: merchant.id },
-          select: { id: true, title: true, status: true },
+          select: { id: true, title: true, status: true, deletedAt: true },
         }),
         prisma.merchantBranch.findMany({
           where: { merchantId: merchant.id, deletedAt: null },
@@ -86,18 +94,19 @@ export async function GET(request: NextRequest) {
         prisma.redemption.groupBy({ by: ['branchId'], where, _count: { _all: true } }),
         prisma.redemption.groupBy({ by: ['offerId'], where, _count: { _all: true } }),
         prisma.redemption.findMany({ where, select: { redeemedAt: true } }),
-        prisma.dailyOfferAnalytics.groupBy({
+        // Unique employee views (OfferView) first seen within the period.
+        prisma.offerView.groupBy({
           by: ['offerId'],
           where: {
             offer: { merchantId: merchant.id },
-            date: { gte: startOfDayUTC(dateFrom), lte: dateTo },
+            viewedAt: { gte: dateFrom, lte: dateTo },
           },
-          _sum: { views: true },
+          _count: { _all: true },
         }),
       ])
 
     // Views & redemptions per offer, both scoped to the selected period
-    const viewMap = new Map(dailyViews.map((d) => [d.offerId, d._sum.views ?? 0]))
+    const viewMap = new Map(dailyViews.map((d) => [d.offerId, d._count._all]))
     const redemptionMap = new Map(offerRedemptionCounts.map((r) => [r.offerId, r._count._all]))
 
     const allOfferStats = offers.map((o) => {
@@ -109,15 +118,17 @@ export async function GET(request: NextRequest) {
         status: o.status,
         views,
         redemptions,
-        conversionRate: views > 0 ? Number(((redemptions / views) * 100).toFixed(2)) : 0,
       }
     })
 
+    // Deleted offers keep their historical views/redemptions above,
+    // but must not count toward current offer state.
+    const activeOfferList = offers.filter((o) => o.deletedAt === null)
     const totalViews = allOfferStats.reduce((s, o) => s + o.views, 0)
-    const liveOffers = offers.filter((o) => o.status === 'LIVE').length
+    const liveOffers = activeOfferList.filter((o) => o.status === 'LIVE').length
 
     const statusCounts: Record<string, number> = {}
-    for (const o of offers) statusCounts[o.status] = (statusCounts[o.status] ?? 0) + 1
+    for (const o of activeOfferList) statusCounts[o.status] = (statusCounts[o.status] ?? 0) + 1
     const statusDistribution = Object.entries(statusCounts).map(([status, count]) => ({ status, count }))
 
     const topOffers = allOfferStats
@@ -135,6 +146,14 @@ export async function GET(request: NextRequest) {
     const onlineCount = branchCountMap.get('online') ?? 0
     if (onlineCount > 0) {
       branchPerformance.push({ id: 'online', name: 'Online / No branch', type: 'Online', redemptions: onlineCount })
+    }
+    // Redemptions at branches that were since deleted, so branch totals match the overall total.
+    const knownBranchIds = new Set(branchList.map((b) => b.id))
+    const removedCount = branchRedemptionCounts
+      .filter((b) => b.branchId !== null && !knownBranchIds.has(b.branchId))
+      .reduce((s, b) => s + b._count._all, 0)
+    if (removedCount > 0) {
+      branchPerformance.push({ id: 'removed', name: 'Other / removed branch', type: 'Removed', redemptions: removedCount })
     }
     branchPerformance.sort((a, b) => b.redemptions - a.redemptions)
 
@@ -165,6 +184,7 @@ export async function GET(request: NextRequest) {
         topOffers,
         statusDistribution,
         branchPerformance,
+        branchCount: branchList.length,
         redemptionTrend: trend,
       },
     })

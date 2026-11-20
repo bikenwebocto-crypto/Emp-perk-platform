@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { Input } from '@/components/ui/input'
 import { showToast } from '@/hooks/use-toast'
+import { getEmailError } from '@/lib/validation/credentials'
 import { uploadImage, EMPLOYEE_AVATAR_OPTIONS } from '@/lib/upload/image'
 import { X, Save, Upload, Loader2, User } from 'lucide-react'
 
@@ -142,6 +143,10 @@ export function EmployeeEditModal({
       showToast({ type: 'error', title: 'Last name is required' })
       return
     }
+    if (isAdmin && form.email && getEmailError(form.email)) {
+      showToast({ type: 'error', title: getEmailError(form.email)! })
+      return
+    }
 
     const payload: Partial<EmployeeEditFormData> = {
       firstName: form.firstName.trim(),
@@ -169,7 +174,7 @@ export function EmployeeEditModal({
     }
 
     if (isAdmin) {
-      if (form.email?.trim()) payload.email = form.email.trim()
+      if (form.email) payload.email = form.email
       if (form.status) payload.status = form.status
     }
 
@@ -318,6 +323,9 @@ export function EmployeeEditModal({
                 onChange={update('email')}
                 disabled={saving}
               />
+              {form.email && getEmailError(form.email) && (
+                <p className="mt-1 text-xs text-destructive">{getEmailError(form.email)}</p>
+              )}
             </div>
           )}
 

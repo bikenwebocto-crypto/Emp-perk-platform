@@ -6,14 +6,11 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/shared/page-header'
-import { useTablePagination } from '@/hooks/use-table-pagination'
 import { Plus, AlertTriangle } from 'lucide-react'
 import { PRIORITY_STYLES } from '@/features/complaints/constants'
-import { useTableSort } from '@/hooks/use-table-sort'
+import type { SortDir } from '@/hooks/use-table-sort'
 import { SortableTh } from '@/components/shared/sortable-th'
-
-// Severity order so "Priority" sorts low → critical instead of alphabetically.
-const PRIORITY_RANK: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, URGENT: 4, CRITICAL: 4 }
+import { TablePagination } from '@/components/shared/table-pagination'
 
 interface Complaint {
   id: string
@@ -60,16 +57,29 @@ const CATEGORY_LABELS: Record<string, string> = {
 }
 
 export default function MerchantComplaintsPage() {
-  const { page, setPage, pageSize, resetPage } = useTablePagination({ defaultPageSize: 10 })
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const resetPage = () => setPage(1)
   const [statusFilter, setStatusFilter] = useState('')
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
+  // Click cycles asc -> desc -> off (default: newest first)
+  const toggleSort = (key: string) => {
+    if (sortKey !== key) { setSortKey(key); setSortDir('asc') }
+    else if (sortDir === 'asc') setSortDir('desc')
+    else setSortKey(null)
+    resetPage()
+  }
 
   const params = useMemo(() => {
     const p = new URLSearchParams()
     p.set('page', String(page))
     p.set('pageSize', String(pageSize))
     if (statusFilter) p.set('status', statusFilter)
+    if (sortKey) { p.set('sortBy', sortKey); p.set('sortDir', sortDir) }
     return p
-  }, [page, pageSize, statusFilter])
+  }, [page, pageSize, statusFilter, sortKey, sortDir])
 
   const { data, isLoading } = useQuery({
     queryKey: ['merchant-complaints', params.toString()],
@@ -83,16 +93,7 @@ export default function MerchantComplaintsPage() {
 
   const complaints = data?.data ?? []
   const meta = data?.meta
-  const complaintSort = useTableSort<Complaint>(complaints, {
-    employee: (c) => `${c.employee?.firstName ?? ''} ${c.employee?.lastName ?? ''}`.trim(),
-    offer: (c) => c.offer?.title,
-    type: (c) => c.complaintType,
-    category: (c) => (c.category ? CATEGORY_LABELS[c.category] ?? c.category : null),
-    status: (c) => c.status,
-    priority: (c) => PRIORITY_RANK[c.priority] ?? c.priority,
-    createdAt: (c) => new Date(c.createdAt).getTime(),
-  })
-  const sortProps = { activeKey: complaintSort.sortKey, dir: complaintSort.sortDir, onSort: complaintSort.toggleSort }
+  const sortProps = { activeKey: sortKey, dir: sortDir, onSort: toggleSort }
 
   return (
     <div className="space-y-6">
@@ -158,7 +159,7 @@ export default function MerchantComplaintsPage() {
                 </tr>
               </thead>
               <tbody>
-                {complaintSort.sorted.map((c) => (
+                {complaints.map((c) => (
                   <tr
                     key={c.id}
                     className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
@@ -186,20 +187,15 @@ export default function MerchantComplaintsPage() {
             </table>
           </div>
 
-          {meta && meta.totalPages > 1 && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-xs text-muted-foreground">
-                Page {page} of {meta.totalPages} ({meta.total} total)
-              </span>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-                  Previous
-                </Button>
-                <Button variant="outline" size="sm" disabled={page >= meta.totalPages} onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))}>
-                  Next
-                </Button>
-              </div>
-            </div>
+          {meta && (
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              total={meta.total}
+              totalPages={meta.totalPages}
+              onPageChange={setPage}
+              onPageSizeChange={(n) => { setPageSize(n); resetPage() }}
+            />
           )}
         </>
       )}

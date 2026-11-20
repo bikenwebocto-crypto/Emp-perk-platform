@@ -13,7 +13,9 @@
       "PowerShell(Get-ChildItem prisma -Name | Select-Object -First 20; Get-ChildItem prisma\\\\migrations -Name -ErrorAction SilentlyContinue | Select-Object -Last 3; Select-String -Path prisma\\\\schema.prisma -Pattern 'isForever|liveAt|^model MerchantOffer|provider' | % { $_.Line })",
       "Bash(curl -s -m 60 -w \"\\\\nHTTP %{http_code}\\\\n\" http://localhost:3000/api/admin/overview)",
       "PowerShell($o = npx tsc --noEmit -p . 2>&1; \"errors: \" + \\($o | Select-String \"error TS\"\\).Count)",
-      "PowerShell(npx tsc --noEmit -p . 2>&1)"
+      "PowerShell(npx tsc --noEmit -p . 2>&1)",
+      "PowerShell(foreach \\($f in \"src/app/\\(dashboard\\)/employee/profile/page.tsx\",\"src/app/\\(dashboard\\)/employee/settings/page.tsx\",\"src/app/\\(dashboard\\)/merchant/settings/page.tsx\",\"src/app/\\(dashboard\\)/admin/accounts/page.tsx\"\\) { \"== $f : \" + \\(Select-String -LiteralPath $f -Pattern \"password\" -SimpleMatch | Measure-Object\\).Count }; Get-ChildItem \"src/app/\\(dashboard\\)/admin\" -Directory | Select-Object -Expand Name; Select-String -Path src/schemas/index.ts,src/lib/access/account-access.ts -Pattern \"SUPER_ADMIN|_ADMIN'\" | Select-Object -First 6)",
+      "PowerShell(Get-ChildItem -Recurse -File \"src/app/api/merchant/banners\" | % FullName; Get-Content \"src/app/\\(dashboard\\)/merchant/banners/page.tsx\" | Select -Index \\(743..750\\))"
     ]
   }
 }

@@ -18,6 +18,7 @@ import {
 } from '@/lib/branch-helpers'
 import type { BranchStatus, BranchType } from '@/types'
 import { showToast } from '@/hooks/use-toast'
+import { getEmailError } from '@/lib/validation/credentials'
 import { Building2, Globe, Save, MapPin, Clock, Accessibility, ImageIcon, Info, ExternalLink, Loader2 } from 'lucide-react'
 export interface BranchFormValues {
   name: string
@@ -123,6 +124,11 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    // Email is optional for a branch, but must be valid when entered.
+    if (values.email && getEmailError(values.email)) {
+      showToast({ type: 'error', title: getEmailError(values.email)! })
+      return
+    }
     onSubmit(values)
   }
 
@@ -400,6 +406,9 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
                 onChange={(e) => setField('email', e.target.value)}
                 placeholder="branch@example.com"
               />
+              {values.email && getEmailError(values.email) && (
+                <p className="mt-1 text-xs text-destructive">{getEmailError(values.email)}</p>
+              )}
             </div>
           </div>
         </CardContent>

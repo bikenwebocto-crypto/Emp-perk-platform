@@ -166,20 +166,6 @@ export function MerchantAnalyticsCard({ merchant }: MerchantAnalyticsCardProps) 
               value={formatNumber(statistics.totalRedemptions)}
               color="text-emerald-600"
             />
-            <MiniStat
-              icon={TrendingUp}
-              label="Conv %"
-              value={formatPercent(statistics.conversionRate)}
-              color={
-                statistics.conversionRate === null
-                  ? 'text-muted-foreground'
-                  : statistics.conversionRate >= 10
-                    ? 'text-emerald-600'
-                    : statistics.conversionRate >= 3
-                      ? 'text-foreground'
-                      : 'text-muted-foreground'
-              }
-            />
           </div>
 
           {/* Footer hint */}

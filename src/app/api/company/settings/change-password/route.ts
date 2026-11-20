@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAuditLog } from '@/services/audit-log.service'
 import { createClient } from '@/lib/supabase/server'
 import { getCompanyAdmin, handleApiError } from '../../helpers'
+import { getPasswordError } from '@/lib/validation/credentials'
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,9 +17,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (newPassword.length < 8) {
+    const strengthError = getPasswordError(String(newPassword))
+    if (strengthError) {
       return NextResponse.json(
-        { success: false, error: { code: 'VALIDATION', message: 'New password must be at least 8 characters' } },
+        { success: false, error: { code: 'VALIDATION', message: strengthError } },
         { status: 400 },
       )
     }

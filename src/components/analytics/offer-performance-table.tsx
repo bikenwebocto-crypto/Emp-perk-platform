@@ -198,13 +198,6 @@ export function OfferPerformanceTable({
                 onSort={handleSort}
                 align="right"
               />
-              <SortHeader
-                label="Conv %"
-                sortKey="conversionRate"
-                current={sort}
-                onSort={handleSort}
-                align="right"
-              />
             </tr>
           </thead>
           <tbody>
@@ -240,29 +233,11 @@ export function OfferPerformanceTable({
                   <td className="px-3 py-2 text-right text-xs font-semibold tabular-nums">
                     {formatNumber(o.redemptions)}
                   </td>
-                  <td className="px-3 py-2 text-right">
-                    {o.conversionRate === null ? (
-                      <span className="text-muted-foreground/40">--</span>
-                    ) : (
-                      <span
-                        className={cn(
-                          'text-xs font-semibold tabular-nums',
-                          o.conversionRate >= 10
-                            ? 'text-emerald-600'
-                            : o.conversionRate >= 3
-                              ? 'text-foreground'
-                              : 'text-muted-foreground',
-                        )}
-                      >
-                        {formatPercent(o.conversionRate)}
-                      </span>
-                    )}
-                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={7} className="p-0">
+                <td colSpan={6} className="p-0">
                   <EmptyState
                     icon={Package}
                     title="No offers yet"

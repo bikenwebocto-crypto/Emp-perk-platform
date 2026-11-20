@@ -25,6 +25,20 @@ function internalError(error: unknown) {
   )
 }
 
+// Whitelisted sort fields for merchant banner bookings.
+function bookingOrderBy(sortBy: string | null, sortDir: string | null): any {
+  const dir = sortDir === 'asc' ? 'asc' : 'desc'
+  switch (sortBy) {
+    case 'startDate': return { startDate: dir }
+    case 'endDate': return { endDate: dir }
+    case 'totalPrice': return { totalPrice: dir }
+    case 'status': return { status: dir }
+    case 'name': return { banner: { name: dir } }
+    case 'createdAt': return { createdAt: dir }
+    default: return { createdAt: 'desc' }
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser()
@@ -43,7 +57,7 @@ export async function GET(request: NextRequest) {
     const [bookings, total] = await Promise.all([
       prisma.bannerBooking.findMany({
         where: where as any,
-        orderBy: { createdAt: 'desc' },
+        orderBy: bookingOrderBy(searchParams.get('sortBy'), searchParams.get('sortDir')),
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {

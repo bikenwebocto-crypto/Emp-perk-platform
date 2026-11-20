@@ -11,7 +11,8 @@ import { AnalyticsKPICard } from '@/components/analytics/analytics-kpi-card'
 import { AnalyticsBarChart } from '@/components/analytics/analytics-bar-chart'
 import { AnalyticsPieChart } from '@/components/analytics/analytics-pie-chart'
 import { PIE_COLORS } from '@/components/analytics/analytics-charts'
-import { Eye, ShoppingBag, TrendingUp, Gift, Banknote, Award } from 'lucide-react'
+import Link from 'next/link'
+import { Eye, ShoppingBag, TrendingUp, Gift, Banknote, Award, MapPin } from 'lucide-react'
 
 interface AnalyticsResponse {
   data: {
@@ -31,10 +32,10 @@ interface AnalyticsResponse {
       status: string
       views: number
       redemptions: number
-      conversionRate: number
     }[]
     statusDistribution: { status: string; count: number }[]
     branchPerformance: { id: string; name: string; type: string; redemptions: number }[]
+    branchCount: number
     redemptionTrend: { date: string; total: number }[]
   }
 }
@@ -44,12 +45,33 @@ function formatCurrency(n: number) {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  LIVE: 'Live', DRAFT: 'Draft', AWAITING_APPROVAL: 'Pending', EXPIRED: 'Expired', REJECTED: 'Rejected',
+  LIVE: 'Live',
+  DRAFT: 'Draft',
+  AWAITING_APPROVAL: 'Pending',
+  PENDING_APPROVAL: 'Pending',
+  VALIDATION_IN_PROGRESS: 'Validating',
+  VALIDATION_FAILED: 'Validation Failed',
+  EXPIRED: 'Expired',
+  REJECTED: 'Rejected',
+  REPLACED: 'Replaced',
+  ARCHIVED: 'Archived',
 }
+
+const MAX_RANGE_DAYS = 366
 
 export default function MerchantAnalyticsPage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+
+  // Validate the range before querying so half-typed / inverted ranges don't fire failing requests.
+  const rangeError = useMemo(() => {
+    if (from && to) {
+      if (from > to) return '"From" date must be before "To" date.'
+      const days = (new Date(to).getTime() - new Date(from).getTime()) / 86_400_000
+      if (days > MAX_RANGE_DAYS) return `Date range cannot exceed ${MAX_RANGE_DAYS} days.`
+    }
+    return null
+  }, [from, to])
 
   const params = new URLSearchParams()
   if (from) params.set('from', from)
@@ -57,6 +79,8 @@ export default function MerchantAnalyticsPage() {
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['merchant-analytics', params.toString()],
+    enabled: !rangeError,
+    placeholderData: (prev) => prev,
     queryFn: async () => {
       const res = await fetch(`/api/merchant/analytics/summary?${params.toString()}`)
       const json = await res.json()
@@ -87,8 +111,6 @@ export default function MerchantAnalyticsPage() {
   )
 
   const totalViews = summary?.totalViews ?? 0
-  const totalRedemptions = summary?.totalRedemptions ?? 0
-  const conversionRate = totalViews > 0 ? ((totalRedemptions / totalViews) * 100).toFixed(1) : '0.0'
 
   const loading = isLoading
 
@@ -112,6 +134,7 @@ export default function MerchantAnalyticsPage() {
           <Button variant="outline" onClick={() => { setFrom(''); setTo('') }} className="h-9">
             Reset
           </Button>
+          {rangeError && <p className="w-full text-sm text-destructive">{rangeError}</p>}
         </CardContent>
       </Card>
 
@@ -124,10 +147,9 @@ export default function MerchantAnalyticsPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <AnalyticsKPICard label="Total Views" value={totalViews.toLocaleString()} icon={Eye} iconBg="bg-blue-100 text-blue-600" accentColor="from-blue-500 to-indigo-600" loading={loading} />
         <AnalyticsKPICard label="Total Redemptions" value={summary?.totalRedemptions ?? 0} icon={ShoppingBag} iconBg="bg-emerald-100 text-emerald-600" accentColor="from-emerald-500 to-teal-600" loading={loading} />
-        <AnalyticsKPICard label="Conversion Rate" value={`${conversionRate}%`} icon={TrendingUp} iconBg="bg-purple-100 text-purple-600" accentColor="from-purple-500 to-pink-600" loading={loading} />
         <AnalyticsKPICard label="Campaign Expenditure" value={formatCurrency(summary?.totalSavings ?? 0)} icon={Banknote} iconBg="bg-amber-100 text-amber-600" accentColor="from-amber-500 to-orange-600" loading={loading} />
         <AnalyticsKPICard label="Active Offers" value={summary?.liveOffers ?? 0} icon={Gift} iconBg="bg-rose-100 text-rose-600" accentColor="from-rose-500 to-red-600" loading={loading} />
       </div>
@@ -212,7 +234,6 @@ export default function MerchantAnalyticsPage() {
                     <div className="mt-1 flex gap-4 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1"><Eye className="h-3 w-3" /> {o.views} views</span>
                       <span className="inline-flex items-center gap-1"><ShoppingBag className="h-3 w-3" /> {o.redemptions} redemptions</span>
-                      <span>{o.conversionRate}% conv.</span>
                     </div>
                   </li>
                 ))}
@@ -230,10 +251,25 @@ export default function MerchantAnalyticsPage() {
           <CardContent>
             {loading ? (
               <Skeleton className="h-32 w-full" />
-            ) : branches.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No branches yet.</p>
-            ) : (
-              <ul className="space-y-2">
+            ) : (data?.data.branchCount ?? 0) === 0 ? (
+              <div className="flex flex-col items-center gap-3 rounded-md border border-dashed p-6 text-center">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                  <MapPin className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">No branches added yet</p>
+                  <p className="text-xs text-muted-foreground">
+                    Add your store locations to see how each branch performs.
+                    {branches.length > 0 && ' Redemptions without a branch are listed below.'}
+                  </p>
+                </div>
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/merchant/branches">Add a branch</Link>
+                </Button>
+              </div>
+            ) : null}
+            {!loading && branches.length > 0 && (
+              <ul className="mt-3 space-y-2">
                 {branches.map((b) => (
                   <li key={b.id} className="flex items-center justify-between rounded-md border p-2 text-sm">
                     <div>

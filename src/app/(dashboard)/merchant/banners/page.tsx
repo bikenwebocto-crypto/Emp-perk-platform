@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/shared/page-header";
+import { TablePagination } from "@/components/shared/table-pagination";
 import { ImageUpload, uploadDeferredImage } from "@/components/ui/image-upload";
 import type { DeferredFile } from "@/components/shared/ImageUploader";
 import { BANNER_IMAGE_OPTIONS } from "@/lib/upload/image";
@@ -237,6 +238,8 @@ export default function MerchantBannersPage() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
+  const [pageSize, setPageSize] = useState(10);
+  const [sort, setSort] = useState("createdAt:desc");
   const [showBook, setShowBook] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [pendingBannerFile, setPendingBannerFile] =
@@ -281,8 +284,13 @@ export default function MerchantBannersPage() {
 
   const params = new URLSearchParams();
   params.set("page", String(page));
-  params.set("pageSize", "20");
+  params.set("pageSize", String(pageSize));
   if (status) params.set("status", status);
+  {
+    const [sortBy, sortDir] = sort.split(":");
+    params.set("sortBy", sortBy ?? "createdAt");
+    params.set("sortDir", sortDir ?? "desc");
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ["merchant-banners", params.toString()],
@@ -310,6 +318,37 @@ export default function MerchantBannersPage() {
   });
 
   const positionSlots = slotsData?.data;
+
+  // Positions the admin currently has active (isActive + inside date window).
+  const { data: bookablePositionsData } = useQuery({
+    queryKey: ["bookable-banner-positions"],
+    queryFn: async () => {
+      const res = await fetch("/api/banners/positions");
+      const json = await res.json();
+      if (!res.ok)
+        throw new Error(json.error?.message ?? "Failed to load positions");
+      return json as { success: boolean; data: { position: string }[] };
+    },
+    enabled: showBook,
+  });
+  const bookablePositions = bookablePositionsData
+    ? new Set(bookablePositionsData.data.map((p) => p.position))
+    : null;
+
+  // If the selected position isn't bookable, switch to one that is.
+  useEffect(() => {
+    if (!bookablePositions || bookablePositions.has(selectedPosition)) return;
+    const first = (["TOP", "BOTTOM"] as const).find((p) =>
+      bookablePositions.has(p),
+    );
+    if (first) {
+      setSelectedPosition(first);
+      setSelectedSlotNumber(null);
+      setPickedStart("");
+      setPickedEnd("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookablePositionsData, selectedPosition]);
 
   useEffect(() => {
     const t = setTimeout(
@@ -718,8 +757,17 @@ export default function MerchantBannersPage() {
                       setPickedEnd("");
                     }}
                   >
-                    <option value="TOP">Top banner</option>
-                    <option value="BOTTOM">Bottom banner</option>
+                    {(["TOP", "BOTTOM"] as const).map((pos) => {
+                      const unavailable =
+                        bookablePositions !== null &&
+                        !bookablePositions.has(pos);
+                      return (
+                        <option key={pos} value={pos} disabled={unavailable}>
+                          {pos === "TOP" ? "Top banner" : "Bottom banner"}
+                          {unavailable ? " (unavailable)" : ""}
+                        </option>
+                      );
+                    })}
                   </select>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {POSITION_HINTS[selectedPosition]}
@@ -1403,7 +1451,7 @@ export default function MerchantBannersPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="mb-4">
+          <div className="mb-4 flex flex-wrap items-center gap-2">
             <select
               className="rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={status}
@@ -1417,6 +1465,27 @@ export default function MerchantBannersPage() {
               <option value="APPROVED">Approved</option>
               <option value="REJECTED">Rejected</option>
               <option value="CANCELLED">Cancelled</option>
+            </select>
+            <select
+              className="rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={sort}
+              onChange={(e) => {
+                setSort(e.target.value);
+                setPage(1);
+              }}
+              aria-label="Sort bookings"
+            >
+              <option value="createdAt:desc">Newest booked</option>
+              <option value="createdAt:asc">Oldest booked</option>
+              <option value="startDate:desc">Start date (latest)</option>
+              <option value="startDate:asc">Start date (earliest)</option>
+              <option value="endDate:desc">End date (latest)</option>
+              <option value="endDate:asc">End date (earliest)</option>
+              <option value="totalPrice:desc">Price (high → low)</option>
+              <option value="totalPrice:asc">Price (low → high)</option>
+              <option value="name:asc">Banner name (A → Z)</option>
+              <option value="name:desc">Banner name (Z → A)</option>
+              <option value="status:asc">Status</option>
             </select>
           </div>
 
@@ -1492,31 +1561,19 @@ export default function MerchantBannersPage() {
                 ))}
               </ul>
 
-              {meta && meta.totalPages > 1 && (
-                <div className="mt-3 flex items-center justify-between text-sm">
-                  <span className="text-xs text-muted-foreground">
-                    Page {page} of {meta.totalPages}
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page <= 1}
-                    >
-                      Previous
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        setPage((p) => Math.min(meta.totalPages, p + 1))
-                      }
-                      disabled={page >= meta.totalPages}
-                    >
-                      Next
-                    </Button>
-                  </div>
+              {meta && (
+                <div className="mt-3">
+                  <TablePagination
+                    page={page}
+                    pageSize={pageSize}
+                    total={meta.total}
+                    totalPages={meta.totalPages}
+                    onPageChange={setPage}
+                    onPageSizeChange={(n) => {
+                      setPageSize(n);
+                      setPage(1);
+                    }}
+                  />
                 </div>
               )}
             </>

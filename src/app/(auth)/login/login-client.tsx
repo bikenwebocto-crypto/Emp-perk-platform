@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input";
 import { LoginLayoutRenderer } from "@/components/login-layouts";
 import { requiresMfaForRole } from "@/lib/auth/mfa";
 import type { PublicBranding } from "@/features/admin/settings/login-branding/services/login-branding.service";
+import { getEmailError, getPasswordError } from "@/lib/validation/credentials";
+import { PasswordRules } from "@/components/shared/password-rules";
 
 interface LoginClientProps {
   branding: PublicBranding;
@@ -39,15 +41,20 @@ export function LoginClient({ branding }: LoginClientProps) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [emailTouched, setEmailTouched] = useState(false);
+  const emailError = getEmailError(email);
+  const showEmailError = emailTouched && emailError;
 
   const handleSignIn = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     setNotice(null);
+    setEmailTouched(true);
+    if (emailError) return;
     setSubmitting(true);
     // On success, onAuthStateChange(SIGNED_IN) runs the sync + redirect.
     const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
+      email,
       password,
     });
     setSubmitting(false);
@@ -58,8 +65,11 @@ export function LoginClient({ branding }: LoginClientProps) {
     e.preventDefault();
     setError(null);
     setNotice(null);
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+    setEmailTouched(true);
+    if (emailError) return;
+    const passwordError = getPasswordError(password);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
     if (password !== confirmPassword) {
@@ -71,7 +81,7 @@ export function LoginClient({ branding }: LoginClientProps) {
     // onAuthStateChange(SIGNED_IN) runs the sync + redirect. Otherwise the
     // confirmation link brings the user back to /login signed in.
     const { data, error: signUpError } = await supabase.auth.signUp({
-      email: email.trim(),
+      email,
       password,
       options: { emailRedirectTo: `${window.location.origin}/login` },
     });
@@ -97,12 +107,10 @@ export function LoginClient({ branding }: LoginClientProps) {
   const handleForgotPassword = async () => {
     setError(null);
     setNotice(null);
-    if (!email.trim()) {
-      setError("Enter your email address first.");
-      return;
-    }
+    setEmailTouched(true);
+    if (emailError) return;
     setSubmitting(true);
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/login`,
     });
     setSubmitting(false);
@@ -269,12 +277,15 @@ export function LoginClient({ branding }: LoginClientProps) {
               </label>
               <Input
                 id="login-email"
-                type="email"
+                type="text"
+                inputMode="email"
                 autoComplete="email"
-                required
+                aria-invalid={!!showEmailError}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                onBlur={() => setEmailTouched(true)}
               />
+              {showEmailError && <p className="text-xs text-red-600">{emailError}</p>}
             </div>
             <div className="space-y-1.5">
               <label htmlFor="login-password" className="text-sm font-medium">
@@ -322,12 +333,15 @@ export function LoginClient({ branding }: LoginClientProps) {
               </label>
               <Input
                 id="signup-email"
-                type="email"
+                type="text"
+                inputMode="email"
                 autoComplete="email"
-                required
+                aria-invalid={!!showEmailError}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                onBlur={() => setEmailTouched(true)}
               />
+              {showEmailError && <p className="text-xs text-red-600">{emailError}</p>}
             </div>
             <div className="space-y-1.5">
               <label htmlFor="signup-password" className="text-sm font-medium">
@@ -338,10 +352,10 @@ export function LoginClient({ branding }: LoginClientProps) {
                 type="password"
                 autoComplete="new-password"
                 required
-                minLength={8}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
+              <PasswordRules password={password} />
             </div>
             <div className="space-y-1.5">
               <label htmlFor="signup-confirm" className="text-sm font-medium">
@@ -356,7 +370,11 @@ export function LoginClient({ branding }: LoginClientProps) {
                 onChange={(e) => setConfirmPassword(e.target.value)}
               />
             </div>
-            <Button type="submit" className="w-full" disabled={submitting}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={submitting || !!getPasswordError(password) || password !== confirmPassword}
+            >
               {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create account
             </Button>

@@ -23,6 +23,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { DataTable } from "@/components/shared/data-table";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { showToast } from "@/hooks/use-toast";
+import { getEmailError } from "@/lib/validation/credentials";
 import { useTablePagination } from "@/hooks/use-table-pagination";
 import { useUpdateCompanyDetail } from "@/hooks/queries/use-companies";
 import {
@@ -376,9 +377,8 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
     const errs: Partial<Record<keyof AdminFormState, string>> = {};
     if (!adminForm.firstName.trim()) errs.firstName = "First name is required";
     if (!adminForm.lastName.trim()) errs.lastName = "Last name is required";
-    if (!adminForm.email.trim()) errs.email = "Email is required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminForm.email))
-      errs.email = "Invalid email address";
+    const emailErr = getEmailError(adminForm.email);
+    if (emailErr) errs.email = emailErr;
     setAdminFormErrors(errs);
     return Object.keys(errs).length === 0;
   }, [adminForm]);

@@ -66,19 +66,20 @@ export async function POST(request: NextRequest) {
     //      batch).
     //   2. The UPDATE is only joined to rows that were *just*
     //      inserted, so a repeat view never increments viewCount.
-    await prisma.offerAnalytics.upsert({
-      where: {
-        offerId,
-      },
-      create: {
-        offerId,
-        viewCount: 1,
-      },
-      update: {
-        viewCount: { increment: 1 },
-      },
+    // Record a unique (offerId, employeeId) view; repeat opens are skipped.
+    const inserted = await prisma.offerView.createMany({
+      data: [{ offerId, employeeId: employee.id }],
+      skipDuplicates: true,
     });
-    console.log(`Recorded view for offer ${offerId} by employee ${employee.id}`);
+
+    // Only bump the all-time unique counter when this was a first view.
+    if (inserted.count > 0) {
+      await prisma.offerAnalytics.upsert({
+        where: { offerId },
+        create: { offerId, viewCount: 1 },
+        update: { viewCount: { increment: 1 } },
+      });
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     return internalError(error);

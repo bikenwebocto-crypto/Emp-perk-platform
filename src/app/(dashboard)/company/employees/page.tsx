@@ -11,6 +11,7 @@ import { useCurrentUser } from '@/hooks/queries/use-current-user'
 import { useCompanyEmployees, useCreateCompanyEmployee, useDeactivateCompanyEmployee, useReactivateCompanyEmployee, useUpdateCompanyEmployee, useEmployeeExport, usePromoteCompanyEmployee } from '@/hooks/queries/use-company-employees'
 import type { EmployeeListItem } from '@/hooks/queries/use-company-employees'
 import { showToast } from '@/hooks/use-toast'
+import { getEmailError } from '@/lib/validation/credentials'
 import { EmployeeEditModal } from '@/components/shared/employee-edit-modal'
 import { BulkEmployeeUpload } from '@/features/employees/components/bulk-employee-upload'
 import {
@@ -43,6 +44,7 @@ export default function CompanyEmployeesPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (getEmailError(form.email)) return
     try {
       await createEmployee.mutateAsync(form)
       showToast({ type: 'success', title: 'Employee created' })
@@ -111,7 +113,12 @@ export default function CompanyEmployeesPage() {
             <form onSubmit={handleCreate} className="grid gap-4 sm:grid-cols-2">
               <Input placeholder="First Name" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} required />
               <Input placeholder="Last Name" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} required />
-              <Input type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required className="sm:col-span-2" />
+              <div className="sm:col-span-2">
+                <Input type="text" inputMode="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+                {form.email && getEmailError(form.email) && (
+                  <p className="mt-1 text-xs text-destructive">{getEmailError(form.email)}</p>
+                )}
+              </div>
               <Input placeholder="Department" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} />
               <Input placeholder="Job Title" value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} />
               <div className="sm:col-span-2 flex gap-2">

@@ -50,10 +50,21 @@ export async function GET(request: NextRequest) {
 
     const where: Prisma.DemoBookingWhereInput = status ? { ...searchWhere, status } : searchWhere
 
+    const dir: Prisma.SortOrder = searchParams.get('dir') === 'desc' ? 'desc' : 'asc'
+    const sortKey = searchParams.get('sort')
+    const SORTS: Record<string, Prisma.DemoBookingOrderByWithRelationInput[]> = {
+      startsAt: [{ startsAt: dir }],
+      status: [{ status: dir }, { startsAt: 'asc' }],
+      reference: [{ reference: dir }],
+      requester: [{ lead: { firstName: dir } }, { lead: { lastName: dir } }, { startsAt: 'asc' }],
+      createdAt: [{ createdAt: dir }],
+    }
+    const orderBy = (sortKey && SORTS[sortKey]) || [{ startsAt: 'asc' as const }]
+
     const [rows, total, grouped] = await Promise.all([
       prisma.demoBooking.findMany({
         where,
-        orderBy: { startsAt: 'asc' },
+        orderBy: [...orderBy, { id: 'asc' }],
         skip,
         take: pageSize,
         select: {

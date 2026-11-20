@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { createClient, getCurrentUser } from '@/lib/supabase/server'
 import { getMerchantFromSession } from '@/lib/merchant-session'
 import { createAuditLog } from '@/services/audit-log.service'
+import { getPasswordError } from '@/lib/validation/credentials'
 
 function unauthorized() {
   return NextResponse.json(
@@ -43,9 +44,8 @@ export async function POST(request: NextRequest) {
     if (!currentPassword || !newPassword) {
       return badRequest('Current password and new password are required')
     }
-    if (newPassword.length < 8) {
-      return badRequest('New password must be at least 8 characters')
-    }
+    const strengthError = getPasswordError(String(newPassword))
+    if (strengthError) return badRequest(strengthError)
 
     const supabase = await createClient()
     const { error } = await supabase.auth.updateUser({ password: newPassword })

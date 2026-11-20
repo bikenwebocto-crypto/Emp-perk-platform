@@ -119,6 +119,21 @@ export async function GET(request: NextRequest) {
     timer.point(`getCurrentUser: ${(performance.now() - tUser).toFixed(1)}ms`)
     if (!user) return unauthorized();
 
+    // Whitelisted server-side sort so ordering applies across all pages, not just the current one.
+    function complaintOrderBy(sortBy: string | null, sortDir: string | null): any {
+      const dir = sortDir === "asc" ? "asc" : "desc";
+      switch (sortBy) {
+        case "employee": return [{ employee: { firstName: dir } }, { employee: { lastName: dir } }];
+        case "offer": return { offer: { title: dir } };
+        case "type": return { complaintType: dir };
+        case "category": return { category: dir };
+        case "status": return { status: dir };
+        case "priority": return { priority: dir };
+        case "createdAt": return { createdAt: dir };
+        default: return { createdAt: "desc" };
+      }
+    }
+
     const tParams = performance.now()
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, Number(searchParams.get("page") ?? "1"));
@@ -162,7 +177,7 @@ export async function GET(request: NextRequest) {
     timer.section('Database Queries')
     const tQuery = performance.now()
     const [data, total] = await Promise.all([
-      prisma.complaint.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * pageSize, take: pageSize, include }),
+      prisma.complaint.findMany({ where, orderBy: complaintOrderBy(searchParams.get("sortBy"), searchParams.get("sortDir")), skip: (page - 1) * pageSize, take: pageSize, include }),
       prisma.complaint.count({ where }),
     ]);
     timer.point(`complaint.findMany + count: ${(performance.now() - tQuery).toFixed(1)}ms`)
