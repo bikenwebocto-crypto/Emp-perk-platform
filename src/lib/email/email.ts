@@ -104,7 +104,11 @@ async function sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
   try {
     const transporter = createTransporter();
 
-    const from = options.from || process.env.SMTP_FROM || 'hello@perksandmore.com';
+    const fromAddress = options.from || process.env.SMTP_FROM || 'hello@perksandmore.com';
+    // Without a display name, inboxes show the address's local part ("no-reply").
+    // SMTP_FROM may already be in "Name <address>" form; then it is used as is.
+    const fromName = process.env.SMTP_FROM_NAME?.trim() || 'Perks & More';
+    const from = fromAddress.includes('<') ? fromAddress : { name: fromName, address: fromAddress };
     const replyTo = options.replyTo || process.env.SMTP_REPLY_TO || 'hello@perksandmore.com';
 
     if (!from) {

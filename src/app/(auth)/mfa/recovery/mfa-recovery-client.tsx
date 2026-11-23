@@ -102,6 +102,14 @@ export function MfaRecoveryClient() {
   };
 
   const showForm = !request || CLOSED.includes(request.status);
+  // Emergency requests should leave PENDING immediately (code sent on creation).
+  // Still PENDING means that send failed, so let the requester send it.
+  const emergencyPending = request?.recoveryType === 'SUPER_ADMIN_EMERGENCY' && request.status === 'PENDING';
+  const statusCopy = emergencyPending
+    ? 'Your request was submitted, but we could not email your verification code. Send it below.'
+    : request
+      ? STATUS_COPY[request.status]
+      : undefined;
 
   return (
     <div className="mx-auto flex min-h-screen max-w-xl items-center justify-center px-4 py-12">
@@ -123,9 +131,9 @@ export function MfaRecoveryClient() {
           <div className="mt-6 text-sm text-slate-500">Loading…</div>
         ) : (
           <div className="mt-6 space-y-4">
-            {request && STATUS_COPY[request.status] && request.status !== 'OTP_SENT' && (
+            {request && statusCopy && request.status !== 'OTP_SENT' && (
               <div className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                {STATUS_COPY[request.status]}
+                {statusCopy}
                 {request.status === 'REJECTED' && request.rejectionReason && (
                   <span className="mt-1 block">Reason: {request.rejectionReason}</span>
                 )}
@@ -164,6 +172,17 @@ export function MfaRecoveryClient() {
                   Send a new code
                 </button>
               </form>
+            )}
+
+            {emergencyPending && (
+              <button
+                type="button"
+                onClick={() => void run(() => call('/api/mfa/recovery/resend-otp', { method: 'POST' }), 'A code was sent to your email.')}
+                disabled={isSubmitting}
+                className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              >
+                {isSubmitting ? 'Sending…' : 'Send verification code'}
+              </button>
             )}
 
             {request?.status === 'AWAITING_NEW_MFA' && (

@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/supabase/server';
 
-const LEAD_TYPES = ['MERCHANT', 'EMPLOYER', 'EMPLOYEE_ACCESS', 'INDIVIDUAL_WAITLIST', 'CONTACT_MESSAGE'] as const;
+const LEAD_TYPES = ['MERCHANT', 'EMPLOYER','INDIVIDUAL_WAITLIST', 'CONTACT_MESSAGE'] as const;
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'REJECTED', 'CONVERTED'] as const;
 
 function unauthorized() {

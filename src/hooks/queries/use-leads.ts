@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-export type LeadType = 'MERCHANT' | 'EMPLOYER' | 'EMPLOYEE_ACCESS' | 'INDIVIDUAL_WAITLIST' | 'CONTACT_MESSAGE';
+export type LeadType = 'MERCHANT' | 'EMPLOYER' | 'INDIVIDUAL_WAITLIST' | 'CONTACT_MESSAGE';
 export type LeadStatus = 'NEW' | 'CONTACTED' | 'REJECTED' | 'CONVERTED';
 
 export interface Lead {

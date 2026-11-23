@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
+import { InfoTip } from "@/components/ui/info-tip";
 import { PageHeader } from "@/components/shared/page-header";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { showToast } from "@/hooks/use-toast";
@@ -23,6 +24,7 @@ import {
   Receipt,
 } from "lucide-react";
 import Link from "next/link";
+import { useMerchantBranches } from "@/hooks/queries/use-merchant-branches";
 import {
   METHOD_LABELS,
   type RedemptionStatus,
@@ -67,6 +69,8 @@ interface Metrics {
   today: number;
   thisWeek: number;
   thisMonth: number;
+  lastRedeemedAt: string | null;
+  periodStarts: { today: string; thisWeek: string; thisMonth: string };
   topOffer: { offerId: string; title: string; redemptions: number } | null;
   topBranch: {
     branchId: string | null;
@@ -154,6 +158,11 @@ function formatExpiryDate(iso: string | null) {
     month: "short",
     year: "numeric",
   }).format(new Date(iso));
+}
+
+function zeroReason(period: string, lastRedeemedAt: string | null) {
+  if (!lastRedeemedAt) return "No offers have been redeemed yet.";
+  return `No redemptions ${period}. Last one was on ${formatExpiryDate(lastRedeemedAt)}.`;
 }
 
 function mapErrorCode(code: string) {
@@ -253,6 +262,7 @@ export default function MerchantRedemptionsPage() {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("pageSize", "25");
+  params.set("includeMetrics", "true");
   if (search) params.set("q", search);
   if (status) params.set("status", status);
   if (from) params.set("from", from);
@@ -262,6 +272,14 @@ export default function MerchantRedemptionsPage() {
     queryKey: ["merchant-redemptions", params.toString()],
     queryFn: () => fetchRedemptions(params),
   });
+
+  // Branch widgets only make sense once in-store redemptions are tied to a branch.
+  const hasBranchData = (data?.topBranches?.length ?? 0) > 0;
+
+  // Warn the merchant when they have no active branch to redeem at.
+  const { data: activeBranches } = useMerchantBranches({ status: "active" });
+  const noActiveBranch =
+    Array.isArray(activeBranches?.data) && activeBranches.data.length === 0;
 
   const num = (v: number | string | null | undefined) => (v == null ? null : Number(v));
   const rowSort = useTableSort<RedemptionRow>(data?.data ?? EMPTY_ROWS, {
@@ -389,58 +407,77 @@ export default function MerchantRedemptionsPage() {
         description="Track who redeemed your offers, where, and when"
       />
 
+      {noActiveBranch && (
+        <Alert variant="warning" title="No active branch">
+          <p className="mt-1 text-sm">
+            Your branch is not active. You need at least one active branch for
+            redemptions.{" "}
+            <Link href="/merchant/branches" className="font-medium underline">
+              Manage branches
+            </Link>
+          </p>
+        </Alert>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <ShoppingBag className="h-8 w-8 text-blue-600" />
-            <div>
-              <p className="text-xs text-muted-foreground">Today</p>
-              <p className="text-2xl font-bold">{data?.metrics?.today ?? 0}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <TrendingUp className="h-8 w-8 text-green-600" />
-            <div>
-              <p className="text-xs text-muted-foreground">This Week</p>
-              <p className="text-2xl font-bold">
-                {data?.metrics?.thisWeek ?? 0}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <Award className="h-8 w-8 text-amber-600" />
-            <div>
-              <p className="text-xs text-muted-foreground">This Month</p>
-              <p className="text-2xl font-bold">
-                {data?.metrics?.thisMonth ?? 0}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <MapPin className="h-8 w-8 text-purple-600" />
-            <div>
-              <p className="text-xs text-muted-foreground">Top Branch</p>
-              <p className="truncate text-sm font-semibold">
-                {data?.metrics?.topBranch?.name ?? "—"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {data?.metrics?.topBranch?.redemptions ?? 0} redemptions
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        {(
+          [
+            { key: "today", label: "Today", period: "today", Icon: ShoppingBag, color: "text-blue-600" },
+            { key: "thisWeek", label: "This Week", period: "in the last 7 days", Icon: TrendingUp, color: "text-green-600" },
+            { key: "thisMonth", label: "This Month", period: "this month", Icon: Award, color: "text-amber-600" },
+          ] as const
+        ).map(({ key, label, period, Icon, color }) => {
+          const value = data?.metrics?.[key] ?? 0;
+          return (
+            <Card key={key}>
+              <CardContent className="flex items-center gap-3 p-4">
+                <Icon className={`h-8 w-8 shrink-0 ${color}`} />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                  <p className="text-2xl font-bold">{value}</p>
+                  {data?.metrics && value === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {zeroReason(period, data.metrics.lastRedeemedAt)}
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+        {hasBranchData && (
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <MapPin className="h-8 w-8 text-purple-600" />
+              <div>
+                <p className="text-xs text-muted-foreground">Top Branch</p>
+                <p className="truncate text-sm font-semibold">
+                  {data?.metrics?.topBranch?.name}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {data?.metrics?.topBranch?.redemptions ?? 0} redemptions
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
-      <div className="grid gap-2 lg:grid-cols-3">
+      <div className={`grid gap-2 ${hasBranchData ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Voucher Verification</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">
+              Voucher Verification
+              <InfoTip label="How to use Voucher Verification">
+                <p className="mb-1 font-semibold">Use this at checkout to redeem an employee&apos;s voucher.</p>
+                <ol className="list-decimal space-y-0.5 pl-4">
+                  <li>Ask the employee for their redemption code.</li>
+                  <li>Enter it and click <strong>Verify Code</strong>. This checks that the code is yours, valid, not expired, not already used and within its limit.</li>
+                  <li>If it&apos;s valid, check the offer details, give the discount, then click <strong>Mark Redeemed</strong>.</li>
+                </ol>
+                <p className="mt-1">Marking it redeemed records the redemption, sends confirmation emails and stops the code from being used again.</p>
+              </InfoTip>
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -566,14 +603,14 @@ export default function MerchantRedemptionsPage() {
             )}
           </CardContent>
         </Card>
+        {hasBranchData && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Top Branches</CardTitle>
           </CardHeader>
           <CardContent>
-            {data?.topBranches && data.topBranches.length > 0 ? (
               <ul className="space-y-2">
-                {data.topBranches.map((b, i) => (
+                {data!.topBranches.map((b, i) => (
                   <li
                     key={b.branchId ?? "online"}
                     className="flex items-center justify-between rounded-md border p-2 text-sm"
@@ -588,13 +625,9 @@ export default function MerchantRedemptionsPage() {
                   </li>
                 ))}
               </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No branch data yet.
-              </p>
-            )}
           </CardContent>
         </Card>
+        )}
       </div>
 
       <Card>

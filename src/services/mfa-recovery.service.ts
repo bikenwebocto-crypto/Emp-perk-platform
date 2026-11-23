@@ -394,7 +394,10 @@ async function issueOtp(r: MfaRecoveryRequest, actor: RecoveryActor, account?: R
 export async function resendOtpForUser(actor: RecoveryActor) {
   const r = await findOpenRequest(actor.accountId)
   if (!r) throw new MfaRecoveryError(404, 'NO_OPEN_REQUEST', 'You have no open recovery request.')
-  if (r.status !== 'OTP_SENT') {
+  // Emergency requests send their first code on creation; if that send failed the
+  // request is still PENDING, so the requester may trigger the first code here.
+  const emergencyFirstCode = r.recoveryType === 'SUPER_ADMIN_EMERGENCY' && r.status === 'PENDING'
+  if (r.status !== 'OTP_SENT' && !emergencyFirstCode) {
     throw new MfaRecoveryError(409, 'INVALID_STATE', 'A new code can only be requested after the first code was sent.')
   }
   return toUserView(await issueOtp(r, actor))

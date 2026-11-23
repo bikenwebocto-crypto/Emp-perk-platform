@@ -1,7 +1,7 @@
 'use client'
 import { useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Mail, Store, Building2, User, Users, MessageSquare } from 'lucide-react'
+import { Mail, Store, Building2, User, MessageSquare } from 'lucide-react'
 import { PageHeader } from '@/components/shared/page-header'
 import { FilterBar } from '@/components/shared/filter-bar'
 import { DataTable } from '@/components/shared/data-table'
@@ -20,7 +20,6 @@ const TYPE_TABS: { label: string; value: TypeTab }[] = [
   { label: 'All', value: 'ALL' },
   { label: 'Merchants', value: 'MERCHANT' },
   { label: 'Employers', value: 'EMPLOYER' },
-  { label: 'Employee access', value: 'EMPLOYEE_ACCESS' },
   { label: 'Individuals', value: 'INDIVIDUAL_WAITLIST' },
   { label: 'Messages', value: 'CONTACT_MESSAGE' },
 ]
@@ -28,7 +27,6 @@ const TYPE_TABS: { label: string; value: TypeTab }[] = [
 const TYPE_META: Record<LeadType, { label: string; Icon: typeof Store }> = {
   MERCHANT: { label: 'Merchant', Icon: Store },
   EMPLOYER: { label: 'Employer', Icon: Building2 },
-  EMPLOYEE_ACCESS: { label: 'Employee access', Icon: Users },
   INDIVIDUAL_WAITLIST: { label: 'Individual', Icon: User },
   CONTACT_MESSAGE: { label: 'Message', Icon: MessageSquare },
 }

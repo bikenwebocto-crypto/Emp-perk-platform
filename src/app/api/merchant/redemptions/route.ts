@@ -451,8 +451,22 @@ export async function GET(request: NextRequest) {
       }))
     }
 
+    const lastRedemption = includeMetrics
+      ? await prisma.redemption.findFirst({
+          where: { merchantId: merchant.id },
+          orderBy: { redeemedAt: 'desc' },
+          select: { redeemedAt: true },
+        })
+      : null
+
     const metrics = includeMetrics
       ? {
+          lastRedeemedAt: lastRedemption?.redeemedAt ?? null,
+          periodStarts: {
+            today: todayStart,
+            thisWeek: weekStart,
+            thisMonth: monthStart,
+          },
           today: todayCount,
           thisWeek: weekCount,
           thisMonth: monthCount,
