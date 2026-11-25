@@ -70,6 +70,10 @@ export default function EditOfferPage({ params }: { params: Promise<{ id: string
         redemptionInstructions: redemptionConfig.instructions ? String(redemptionConfig.instructions) : '',
         bookingUrl: redemptionConfig.bookingUrl ? String(redemptionConfig.bookingUrl) : '',
         redemptionType: offer.redemption?.redemptionType ?? 'IN_STORE_QR',
+        // Channel + branches come from GET /api/merchant/offers/[id] (stored in redemption configuration).
+        ...(offer.channel ? { channel: offer.channel } : {}),
+        ...(typeof offer.allBranches === 'boolean' ? { allBranches: offer.allBranches } : {}),
+        ...(Array.isArray(offer.branchIds) ? { branchIds: offer.branchIds } : {}),
         submissionNotes: offer.review?.submissionNotes ?? '',
       }}
     />

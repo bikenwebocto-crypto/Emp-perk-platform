@@ -16,7 +16,22 @@
       "PowerShell(npx tsc --noEmit -p . 2>&1)",
       "PowerShell(foreach \\($f in \"src/app/\\(dashboard\\)/employee/profile/page.tsx\",\"src/app/\\(dashboard\\)/employee/settings/page.tsx\",\"src/app/\\(dashboard\\)/merchant/settings/page.tsx\",\"src/app/\\(dashboard\\)/admin/accounts/page.tsx\"\\) { \"== $f : \" + \\(Select-String -LiteralPath $f -Pattern \"password\" -SimpleMatch | Measure-Object\\).Count }; Get-ChildItem \"src/app/\\(dashboard\\)/admin\" -Directory | Select-Object -Expand Name; Select-String -Path src/schemas/index.ts,src/lib/access/account-access.ts -Pattern \"SUPER_ADMIN|_ADMIN'\" | Select-Object -First 6)",
       "PowerShell(Get-ChildItem -Recurse -File \"src/app/api/merchant/banners\" | % FullName; Get-Content \"src/app/\\(dashboard\\)/merchant/banners/page.tsx\" | Select -Index \\(743..750\\))",
-      "Bash(echo \"exit:$?\")"
+      "Bash(echo \"exit:$?\")",
+      "Read(//d/Webocto projects/opencode_demo/src/app/\\\\\\(dashboard\\\\\\)/merchant/offers/**)",
+      "PowerShell($f=\"src/app/\\(dashboard\\)/merchant/page.tsx\"; $c=[IO.File]::ReadAllText\\($f\\); $s=$c.IndexOf\\(\"function OnboardingSteps\\(\"\\); $e=$c.IndexOf\\(\"type StepState\"\\); $c=$c.Remove\\($s,$e-$s\\); $c=$c.Replace\\(\"      {!isLoading && d.onboardingStep ? \\(`r`n        <OnboardingSteps step={d.onboardingStep} />`r`n      \\) : \\(\",\"      {\\(\"\\).Replace\\(\"      {!isLoading && d.onboardingStep ? \\(`n        <OnboardingSteps step={d.onboardingStep} />`n      \\) : \\(\",\"      {\\(\"\\); [IO.File]::WriteAllText\\($f,$c\\); Select-String -Path $f -Pattern \"OnboardingSteps\"; npx tsc --noEmit -p . 2>&1 | Select-String \"merchant/page.tsx\")",
+      "Bash(npx prisma *)",
+      "Read(//d/Webocto projects/opencode_demo/src/app/api/mobile/offers/**)",
+      "PowerShell(Get-ChildItem prisma/migrations/20261123000000_branch_website_url | ForEach-Object { Get-Content $_.FullName }; git diff prisma/schema.prisma)",
+      "PowerShell(npx vitest run --config tests/vitest.config.ts src/lib/offers 2>&1)",
+      "PowerShell($p = Get-Content package.json -Raw | ConvertFrom-Json; $p.devDependencies | Format-List; Get-ChildItem tests -Name)",
+      "PowerShell(npx vitest run tests/integration/merchant/offer-channel-frequency.spec.ts 2>&1)",
+      "Bash(NODE_PATH=__TRACKED_VAR__/node_modules node -r dotenv/config C:/Users/Admin/AppData/Local/Temp/claude/be6a8a0796ed7525/3d72066b-26a4-453d-8384-b9ddb8e16a0f/scratchpad/q.cjs)",
+      "Bash(NODE_PATH=__TRACKED_VAR__/node_modules node --env-file=.env C:/Users/Admin/AppData/Local/Temp/claude/be6a8a0796ed7525/3d72066b-26a4-453d-8384-b9ddb8e16a0f/scratchpad/q.cjs)",
+      "Bash(node \"C:/Users/Admin/AppData/Local/Temp/claude/be6a8a0796ed7525/fdfb9c99-9f22-4557-b210-d4f123f26c83/scratchpad/build.js\" postman/offers-redemptions.postman_collection.json)",
+      "Bash(node -e \"const c=require\\('./postman/offers-redemptions.postman_collection.json'\\);let n=0;c.item.forEach\\(f=>n+=f.item.length\\);console.log\\(n,'requests'\\);console.log\\(c.item[0].item[0].event[0].script.exec.slice\\(0,4\\).join\\('\\\\n'\\)\\)\")",
+      "Bash(git diff *)",
+      "Bash(node --env-file=.env /c/Users/Admin/AppData/Local/Temp/claude/be6a8a0796ed7525/db5955fa-d6f3-4f05-829b-9b4aae206f71/scratchpad/q.cjs)",
+      "Bash(node --env-file=.env -e 'const{PrismaClient}=require\\('\\\\''./node_modules/@prisma/client'\\\\''\\);const p=new PrismaClient\\(\\);p.$queryRawUnsafe\\('\\\\''select migration_name, finished_at from _prisma_migrations order by finished_at desc limit 4'\\\\''\\).then\\(r=>console.log\\(r\\)\\).finally\\(\\(\\)=>p.$disconnect\\(\\)\\)')"
     ]
   }
 }

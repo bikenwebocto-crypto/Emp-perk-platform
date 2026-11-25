@@ -36,6 +36,7 @@ import {
   RejectDialog,
   type ReviewComponentKey,
 } from '@/components/admin/action-queue/reviews'
+import { ApproveConfirmDialog } from '@/components/admin/action-queue/reviews/ApproveConfirmDialog'
 import {
   QUEUE_TYPE_MAP,
   getEntityKindFromReferenceType,
@@ -132,6 +133,11 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
   const [edits, setEdits] = useState<Record<string, unknown>>({})
   const [editMode, setEditMode] = useState(false)
   const [showRejectDialog, setShowRejectDialog] = useState(false)
+  const [liveEvergreen, setLiveEvergreen] = useState<{ id: string; title: string } | null>(null)
+  // Approval waiting for the admin to confirm in the popup.
+  const [pendingApproval, setPendingApproval] = useState<
+    { action: 'APPROVE' | 'EDIT_AND_APPROVE'; extra?: Record<string, any> } | null
+  >(null)
 
   const loadData = useCallback(async () => {
     try {
@@ -147,6 +153,7 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
       setQueueItem(json.data.queueItem)
       setEntity(json.data.entity ?? null)
       setAuditLogs(json.data.auditLogs ?? [])
+      setLiveEvergreen(json.data.liveEvergreen ?? null)
     } catch (err: any) {
       showToast({ type: 'error', title: 'Failed to load review data', description: err?.message })
     } finally {
@@ -186,6 +193,7 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
         setEditMode(false)
         setEdits({})
         setShowRejectDialog(false)
+        setPendingApproval(null)
         await loadData()
       } catch (err: any) {
         showToast({ type: 'error', title: 'Action failed', description: err?.message })
@@ -204,8 +212,13 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
   )
 
   const handleApprove = useCallback(() => {
-    performAction('APPROVE')
-  }, [performAction])
+    setPendingApproval({ action: 'APPROVE' })
+  }, [])
+
+  const confirmApproval = useCallback(() => {
+    if (!pendingApproval) return
+    performAction(pendingApproval.action, pendingApproval.extra ?? {})
+  }, [pendingApproval, performAction])
 
   const handleEditAndApprove = useCallback(() => {
     const editPayload: Record<string, unknown> = {}
@@ -215,12 +228,11 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
       }
     }
     if (Object.keys(editPayload).length === 0) {
-      showToast({ type: 'info', title: 'No edits to apply, approving as-is' })
-      performAction('APPROVE')
+      setPendingApproval({ action: 'APPROVE' })
       return
     }
-    performAction('EDIT_AND_APPROVE', { edits: editPayload })
-  }, [edits, editableFields, performAction])
+    setPendingApproval({ action: 'EDIT_AND_APPROVE', extra: { edits: editPayload } })
+  }, [edits, editableFields])
 
   const handleReject = useCallback(
     (reason: string) => {
@@ -457,6 +469,14 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
       </div>
+
+      <ApproveConfirmDialog
+        open={!!pendingApproval}
+        onClose={() => setPendingApproval(null)}
+        onConfirm={confirmApproval}
+        processing={processing}
+        replacedEvergreen={liveEvergreen}
+      />
 
       <RejectDialog
         open={showRejectDialog}

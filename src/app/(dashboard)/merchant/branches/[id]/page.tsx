@@ -262,6 +262,14 @@ export default function BranchDetailPage({ params }: { params: Promise<{ id: str
                         : 'Pure digital (no delivery)'}
                     </p>
                   </div>
+                  {branch.websiteUrl && (
+                    <div className="sm:col-span-2">
+                      <p className="text-xs text-muted-foreground">Website</p>
+                      <a href={branch.websiteUrl} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline break-all">
+                        {branch.websiteUrl}
+                      </a>
+                    </div>
+                  )}
                   {branch.addressLine1 && (
                     <div className="sm:col-span-2">
                       <p className="text-xs text-muted-foreground">Origin Address</p>

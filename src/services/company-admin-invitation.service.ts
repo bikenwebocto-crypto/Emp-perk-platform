@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { getAdminClient } from '@/lib/supabase/admin'
 import { emailService } from '@/lib/email/email'
 import { createAuditLog, type AuditLogInput } from '@/services/audit-log.service'
 import { renderCompanyAdminInvitationTemplate } from '@/emails/templates'
@@ -36,16 +37,11 @@ const AUDIT_ACTOR_TYPES: AuditLogInput['actorType'][] = ['admin', 'merchant', 'c
 export async function sendCompanyAdminInvitation(
   params: CompanyAdminInvitationParams,
 ): Promise<CompanyAdminInvitationResult> {
-  // Company admins have no Supabase auth user yet, so the email links to the
-  // sign-up form (pre-filled with their email). sync-admin links the new
-  // Supabase user to this account by email on first sign-in.
-  const signupPath = `/login?mode=signup&email=${encodeURIComponent(params.email)}`
-  const loginUrl = process.env.NEXT_PUBLIC_APP_URL
-    ? `${process.env.NEXT_PUBLIC_APP_URL}${signupPath}`
-    : signupPath
-
   let result: CompanyAdminInvitationResult
   try {
+    // Public sign-up is disabled, so the email carries a one-time set-password
+    // link. sync-admin still links the Supabase user to this account by email.
+    const loginUrl = await createSetPasswordUrl(params.email)
     const html = renderCompanyAdminInvitationTemplate({
       firstName: params.firstName,
       companyName: params.companyName,
@@ -78,6 +74,33 @@ export async function sendCompanyAdminInvitation(
   })
 
   return result
+}
+
+/**
+ * Build a /auth/confirm link that opens the set-password form. Creates the
+ * Supabase user via an `invite` link; if the user already exists (resend,
+ * earlier invite), falls back to a `recovery` link. Throws on failure.
+ */
+async function createSetPasswordUrl(rawEmail: string): Promise<string> {
+  const email = rawEmail.trim().toLowerCase()
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/+$/, '')
+  const admin = getAdminClient()
+
+  let type: 'invite' | 'recovery' = 'invite'
+  let { data, error } = await admin.auth.admin.generateLink({ type: 'invite', email })
+  if (error) {
+    const exists =
+      error.code === 'email_exists' || error.status === 422 || /already (been )?registered/i.test(error.message)
+    if (!exists) throw new Error(error.message)
+    type = 'recovery'
+    ;({ data, error } = await admin.auth.admin.generateLink({ type: 'recovery', email }))
+    if (error) throw new Error(error.message)
+  }
+  const tokenHash = data?.properties?.hashed_token
+  if (!tokenHash) throw new Error('Supabase did not return a link token')
+
+  const qs = new URLSearchParams({ token_hash: tokenHash, type, email })
+  return `${appUrl}/auth/confirm?${qs.toString()}`
 }
 
 /** Latest invite outcome per admin id (admins with no recorded attempt are omitted). */

@@ -29,6 +29,7 @@ import {
   getBranchDisplayType,
 } from '@/lib/branch-helpers'
 import type { BranchType } from '@/types'
+import { branchSetupStatus, countActiveBranches } from '@/lib/offers/channel'
 
 type StatusFilter = 'all' | 'active' | 'inactive'
 
@@ -46,6 +47,11 @@ export default function MerchantBranchesPage() {
     type: typeFilter,
     q: search.trim() || undefined,
   })
+  // Unfiltered: setup needs an active In-store AND an active Online branch.
+  const { data: activeData } = useMerchantBranches({ status: 'active' })
+  const branchSetup = activeData
+    ? branchSetupStatus(countActiveBranches((activeData.data ?? []) as any[]))
+    : null
   const deleteBranch = useDeleteBranch()
   const allBranches = (data?.data ?? []) as any[]
   const isBranchActive = (b: any) => b.isActive && b.status === 'ACTIVE'
@@ -139,6 +145,29 @@ const hasFilter =
           </Link>
         }
       />
+
+      {branchSetup && !branchSetup.complete && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="flex-1">
+            <p className="font-medium">Branch setup incomplete</p>
+            <p>{branchSetup.message}</p>
+          </div>
+          <Link href="/merchant/branches/new">
+            <Button size="sm" variant="outline">
+              <Plus className="mr-1 h-4 w-4" />
+              {branchSetup.missing.length === 1 && branchSetup.missing[0] === 'ONLINE'
+                ? 'Add Online branch'
+                : branchSetup.missing.length === 1
+                  ? 'Add In-store branch'
+                  : 'Add branch'}
+            </Button>
+          </Link>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">

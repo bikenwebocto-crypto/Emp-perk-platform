@@ -28,6 +28,9 @@ export default defineConfig({
     // Route-handler tests share mocked module state; run sequentially
     // per-file to keep session/prisma mocks deterministic.
     fileParallelism: false,
+    // List every test with ✓ (passed) / × (failed) / ↓ (skipped), then a
+    // "Failed Tests" section with each failure's diff and the totals.
+    reporters: ['verbose'],
   },
   resolve: {
     alias: {

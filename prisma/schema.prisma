@@ -516,6 +516,7 @@ model MerchantBranch {
   status             BranchStatus @default(ACTIVE)
   storefrontImageUrl String?      @db.VarChar(500)
   wheelchairAccess   Boolean      @default(false)
+  websiteUrl         String?      @db.VarChar(500)
   merchant           Merchant     @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 
   @@index([merchantId])
@@ -633,6 +634,8 @@ model OfferRedemption {
   id                 String   @id @default(uuid()) @db.Uuid
   offerId            String   @unique @db.Uuid
   redemptionType     String?  @db.VarChar(50)
+  /// Every way the offer can be redeemed, e.g. ["ONLINE_CODE", "VIRTUAL_CARD_AUTO_VERIFY"] for Both.
+  redemptionTypes    String[] @default([])
   configuration      Json?
   maxRedemptions     Int?     @default(0)
   currentRedemptions Int      @default(0)

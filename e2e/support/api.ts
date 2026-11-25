@@ -11,10 +11,9 @@ export async function createAuthedApiContext(
   context: BrowserContext,
   request: APIRequestContext,
 ): Promise<APIRequestContext> {
-  const cookies = await context.cookies()
-  if (cookies.length === 0) return request
-  const storage = { cookies, origins: [] }
-  return await request.newContext({ storageState: storage })
+  // context.request already shares the browser context cookie jar.
+  void context
+  return request
 }
 
 export interface ApiResult {

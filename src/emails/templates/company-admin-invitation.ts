@@ -35,11 +35,11 @@ export function renderCompanyAdminInvitationTemplate(
 </table>
 
 <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
-  <a href="${data.loginUrl}" style="display: inline-block; background-color: #16a34a; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; font-weight: 600;">Create Your Account</a>
+  <a href="${data.loginUrl}" style="display: inline-block; background-color: #16a34a; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; font-weight: 600;">Set Your Password</a>
 </p>
 
 <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-  Use the link above to sign up with this email address and set your password. After that, you can sign in to your administrator dashboard.
+  Use the link above to set your password. The link can be used once and expires after 24 hours; ask your administrator to resend it if it expires. After that, you can sign in to your administrator dashboard.
 </p>
 
 <p style="color: #6b7280; font-size: 14px; line-height: 1.5; margin: 0;">

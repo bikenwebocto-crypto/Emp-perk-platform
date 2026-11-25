@@ -16,7 +16,15 @@ interface OfferMobilePreviewProps {
   merchantName?: string
   categoryName?: string
   redemptionType?: string
+  /** IN_STORE / ONLINE / BOTH. When set, the preview shows the matching redeem buttons. */
+  channel?: 'IN_STORE' | 'ONLINE' | 'BOTH'
   minSpend?: string
+}
+
+const channelBadge: Record<string, { label: string; bg: string }> = {
+  IN_STORE: { label: 'In-store', bg: 'bg-violet-100 text-violet-800 border-violet-200' },
+  ONLINE: { label: 'Online', bg: 'bg-sky-100 text-sky-800 border-sky-200' },
+  BOTH: { label: 'In-store & Online', bg: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
 }
 
 const offerTypeConfig: Record<string, { label: string; icon: any; color: string }> = {
@@ -50,12 +58,19 @@ export function OfferMobilePreview({
   merchantName,
   categoryName,
   redemptionType,
+  channel,
   minSpend,
 }: OfferMobilePreviewProps) {
   const bannerImage = imageUrls.length > 0 ? imageUrls[0] : ''
   const typeConfig = (offerTypeConfig[offerType] ?? offerTypeConfig.FLAT)!
   const TypeIcon = typeConfig.icon
-  const redemptionCfg = redemptionType ? redemptionTypeConfig[redemptionType] : null
+  const redemptionCfg = channel
+    ? channelBadge[channel]
+    : redemptionType
+      ? redemptionTypeConfig[redemptionType]
+      : null
+  const showCardButton = channel === 'IN_STORE' || channel === 'BOTH'
+  const showCodeButton = channel === 'ONLINE' || channel === 'BOTH'
 
   const formatDate = (d: string) => {
     if (!d) return '—'
@@ -197,7 +212,7 @@ export function OfferMobilePreview({
               )}
               {minSpend && Number(minSpend) > 0 && (
                 <div className="flex items-center gap-0.5 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold">
-                  Min. ${Number(minSpend).toFixed(0)}
+                  Min. €{Number(minSpend).toFixed(0)}
                 </div>
               )}
             </div>
@@ -213,13 +228,40 @@ export function OfferMobilePreview({
               </div>
             )}
 
-            {/* Action button */}
-            <button
-              type="button"
-              className={`mt-1 w-full rounded-xl bg-gradient-to-r ${typeConfig.color} py-2.5 text-[12px] font-bold uppercase tracking-wide text-white shadow-lg transition-transform active:scale-[0.98]`}
-            >
-              {discount ? `Save ${discount.text}` : 'View Offer'}
-            </button>
+            {/* Action buttons: one per channel when the channel is known */}
+            {channel ? (
+              <div className="mt-1 flex gap-2">
+                {showCardButton && (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    className="flex-1 rounded-lg bg-primary py-2 text-[12px] font-semibold text-primary-foreground"
+                  >
+                    Show my card
+                  </button>
+                )}
+                {showCodeButton && (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    className={`flex-1 rounded-lg py-2 text-[12px] font-semibold ${
+                      showCardButton
+                        ? 'border border-border bg-background text-foreground'
+                        : 'bg-primary text-primary-foreground'
+                    }`}
+                  >
+                    Reveal code
+                  </button>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                className={`mt-1 w-full rounded-xl bg-gradient-to-r ${typeConfig.color} py-2.5 text-[12px] font-bold uppercase tracking-wide text-white shadow-lg transition-transform active:scale-[0.98]`}
+              >
+                {discount ? `Save ${discount.text}` : 'View Offer'}
+              </button>
+            )}
           </div>
         </div>
 

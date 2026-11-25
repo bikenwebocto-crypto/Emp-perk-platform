@@ -65,7 +65,7 @@ export async function isOfferVisibleToEmployees(
   }
   const hasActiveBranch = offer.merchant.branches.some((b) => b.isActive && b.status === 'ACTIVE')
   const hasOnlineBranch = offer.merchant.branches.some(
-    (b) => b.branchType === 'ONLINE' && b.status === 'ACTIVE'
+    (b) => b.branchType === 'ONLINE' && b.isActive && b.status === 'ACTIVE'
   )
   if (!hasActiveBranch && !hasOnlineBranch) {
     return { visible: false, reason: 'Merchant has no active branches' }

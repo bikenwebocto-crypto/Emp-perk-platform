@@ -11,7 +11,7 @@ vi.mock('@/lib/prisma', () => {
       models.set(
         name,
         new Proxy(fns, {
-          get: (t, p: string) => (t[p] ??= vi.fn(async () => null)),
+          get: (t, p: string) => (t[p] ??= vi.fn(async () => (p === 'findMany' ? [] : null))),
         }),
       )
     }
@@ -26,6 +26,11 @@ vi.mock('@/lib/prisma', () => {
   )
   return { prisma }
 })
+// next/server `after()` throws outside a real request scope; run it inline.
+vi.mock('next/server', async (orig) => ({
+  ...(await orig<typeof import('next/server')>()),
+  after: vi.fn((fn: () => unknown) => { void Promise.resolve().then(fn).catch(() => {}) }),
+}))
 vi.mock('@/lib/merchant-session', () => ({
   getMerchantFromSession: vi.fn(async () => ({
     id: 'merchant-1',

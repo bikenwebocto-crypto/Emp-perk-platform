@@ -126,7 +126,7 @@ export const EVERGREEN_ALREADY_LIVE_MESSAGE =
   "You already have a LIVE Evergreen offer. Only one LIVE Evergreen offer is allowed — use Replace on your current Evergreen offer instead.";
 
 export const EVERGREEN_REPLACE_CONFIRM_MESSAGE =
-  "You already have a LIVE Evergreen offer. Only one Evergreen offer can be live per account — if you continue, your current Evergreen offer will become inactive and this new offer will go LIVE.";
+  "You already have a LIVE Evergreen offer. Only one Evergreen offer can be live per account — if you continue, this new offer is sent for admin approval. Once approved, your current Evergreen offer will become inactive and this new offer will go LIVE.";
 
 export const EVERGREEN_REPLACE_CONFIRM_CODE = "EVERGREEN_REPLACE_CONFIRM_REQUIRED";
 
@@ -171,11 +171,10 @@ export function isEvergreenOffer(offer: {
 
 /**
  * Should this submission skip admin approval and go straight to LIVE?
- * Only first-time Evergreen submissions that passed quality checks.
- * Evergreen *replacements* keep the controlled admin replacement flow so
- * the merchant's current LIVE Evergreen is never lost by accident.
+ * Never: every offer, Evergreen included, goes to AWAITING_APPROVAL. The
+ * current LIVE Evergreen is deactivated by the admin approval, not on submit.
  */
-export function shouldAutoActivateEvergreen(params: {
+export function shouldAutoActivateEvergreen(_params: {
   qcPassed: boolean;
   isReplacement: boolean;
   offer: {
@@ -185,7 +184,7 @@ export function shouldAutoActivateEvergreen(params: {
     endDate: Date | string;
   };
 }): boolean {
-  return params.qcPassed && !params.isReplacement && isEvergreenOffer(params.offer);
+  return false;
 }
 
 /**

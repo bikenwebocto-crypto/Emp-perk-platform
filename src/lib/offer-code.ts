@@ -3,12 +3,16 @@ import {
   generateOfferCode,
   OFFER_CODE_MIN_LENGTH,
   OFFER_CODE_MAX_LENGTH,
+  OFFER_CODE_DEFAULT_LENGTH,
+  OFFER_CODE_INVALID_MESSAGE,
 } from './offer-code.shared'
 
 export {
   generateOfferCode,
   OFFER_CODE_MIN_LENGTH,
   OFFER_CODE_MAX_LENGTH,
+  OFFER_CODE_DEFAULT_LENGTH,
+  OFFER_CODE_INVALID_MESSAGE,
 }
 
 export function clampOfferCodeLength(length: number): number {
@@ -18,11 +22,11 @@ export function clampOfferCodeLength(length: number): number {
 
 /**
  * Generate a unique offer code with a configurable length.
- * Format: uppercase letters and digits only, with a length between 6 and 30 chars.
+ * Format: uppercase letters and digits only, with a length between 3 and 13 chars.
  * Retries up to maxAttempts times if a collision is detected.
  */
 export async function generateUniqueOfferCode(
-  length: number = OFFER_CODE_MIN_LENGTH,
+  length: number = OFFER_CODE_DEFAULT_LENGTH,
   maxAttempts: number = 10,
 ): Promise<string> {
   const targetLength = clampOfferCodeLength(length)
@@ -41,10 +45,10 @@ export async function generateUniqueOfferCode(
 }
 
 /**
- * Validate offer code format: between 6 and 30 alphanumeric uppercase characters.
+ * Validate offer code format: between 3 and 13 alphanumeric uppercase characters.
  */
 export function isValidOfferCode(code: string): boolean {
-  return /^[A-Z0-9]{6,30}$/.test(code)
+  return /^[A-Z0-9]{3,13}$/.test(code)
 }
 
 /**

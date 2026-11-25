@@ -1,0 +1,3090 @@
+{
+  "info": {
+    "name": "Offers & Redemptions – API tests",
+    "description": "Merchant offers, admin approval, mobile redemption and merchant verification. Run folders in order with the Collection Runner. Fill the collection variables first (supabaseUrl, supabaseAnonKey, credentials, categoryId).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const d = (days) => new Date(Date.now() + days * 864e5).toISOString();",
+          "pm.collectionVariables.set('startDate', d(0));",
+          "pm.collectionVariables.set('endDate30', d(30));",
+          "pm.collectionVariables.set('endDate400', d(400));",
+          "if (!pm.collectionVariables.get('runId')) pm.collectionVariables.set('runId', Date.now().toString().slice(-6));"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "supabaseUrl",
+      "value": "https://YOUR-PROJECT.supabase.co"
+    },
+    {
+      "key": "supabaseAnonKey",
+      "value": ""
+    },
+    {
+      "key": "merchantEmail",
+      "value": ""
+    },
+    {
+      "key": "merchantPassword",
+      "value": ""
+    },
+    {
+      "key": "employeeEmail",
+      "value": ""
+    },
+    {
+      "key": "employeePassword",
+      "value": ""
+    },
+    {
+      "key": "adminEmail",
+      "value": ""
+    },
+    {
+      "key": "adminPassword",
+      "value": ""
+    },
+    {
+      "key": "categoryId",
+      "value": ""
+    },
+    {
+      "key": "merchantToken",
+      "value": ""
+    },
+    {
+      "key": "merchantCookie",
+      "value": ""
+    },
+    {
+      "key": "employeeToken",
+      "value": ""
+    },
+    {
+      "key": "adminCookie",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "employeeCookie",
+      "value": ""
+    },
+    {
+      "key": "inStoreBranchId",
+      "value": ""
+    },
+    {
+      "key": "onlineBranchId",
+      "value": ""
+    },
+    {
+      "key": "evergreenOfferId",
+      "value": ""
+    },
+    {
+      "key": "onlineOfferId",
+      "value": ""
+    },
+    {
+      "key": "draftOfferId",
+      "value": ""
+    },
+    {
+      "key": "flatOfferId",
+      "value": ""
+    },
+    {
+      "key": "actionQueueId",
+      "value": ""
+    },
+    {
+      "key": "redemptionId",
+      "value": ""
+    },
+    {
+      "key": "redemptionCode",
+      "value": ""
+    },
+    {
+      "key": "onlineRedemptionId",
+      "value": ""
+    },
+    {
+      "key": "onlineRedemptionCode",
+      "value": ""
+    },
+    {
+      "key": "runId",
+      "value": ""
+    },
+    {
+      "key": "startDate",
+      "value": ""
+    },
+    {
+      "key": "endDate30",
+      "value": ""
+    },
+    {
+      "key": "endDate400",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Auth",
+      "item": [
+        {
+          "name": "Login merchant (Supabase)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "apikey",
+                "value": "{{supabaseAnonKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{supabaseUrl}}/auth/v1/token?grant_type=password",
+              "host": [
+                "{{supabaseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "v1",
+                "token"
+              ],
+              "query": [
+                {
+                  "key": "grant_type",
+                  "value": "password"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{merchantEmail}}\",\n  \"password\": \"{{merchantPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.collectionVariables.set('merchantToken', s.access_token);",
+                  "const ref = pm.collectionVariables.get('supabaseUrl').replace(/^https?:\\/\\//, '').split('.')[0];",
+                  "const name = 'sb-' + ref + '-auth-token';",
+                  "const b64 = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(JSON.stringify(s)))",
+                  "  .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');",
+                  "const val = 'base64-' + b64;",
+                  "const CHUNK = 3180;",
+                  "let cookie;",
+                  "if (val.length <= CHUNK) cookie = name + '=' + val;",
+                  "else { const parts = []; for (let i = 0; i * CHUNK < val.length; i++) parts.push(name + '.' + i + '=' + val.slice(i * CHUNK, (i + 1) * CHUNK)); cookie = parts.join('; '); }",
+                  "pm.collectionVariables.set('merchantCookie', cookie);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login employee (Supabase)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "apikey",
+                "value": "{{supabaseAnonKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{supabaseUrl}}/auth/v1/token?grant_type=password",
+              "host": [
+                "{{supabaseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "v1",
+                "token"
+              ],
+              "query": [
+                {
+                  "key": "grant_type",
+                  "value": "password"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{employeeEmail}}\",\n  \"password\": \"{{employeePassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.collectionVariables.set('employeeToken', s.access_token);",
+                  "const ref = pm.collectionVariables.get('supabaseUrl').replace(/^https?:\\/\\//, '').split('.')[0];",
+                  "const name = 'sb-' + ref + '-auth-token';",
+                  "const b64 = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(JSON.stringify(s)))",
+                  "  .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');",
+                  "const val = 'base64-' + b64;",
+                  "const CHUNK = 3180;",
+                  "let cookie;",
+                  "if (val.length <= CHUNK) cookie = name + '=' + val;",
+                  "else { const parts = []; for (let i = 0; i * CHUNK < val.length; i++) parts.push(name + '.' + i + '=' + val.slice(i * CHUNK, (i + 1) * CHUNK)); cookie = parts.join('; '); }",
+                  "pm.collectionVariables.set('employeeCookie', cookie);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login admin (Supabase)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "apikey",
+                "value": "{{supabaseAnonKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{supabaseUrl}}/auth/v1/token?grant_type=password",
+              "host": [
+                "{{supabaseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "v1",
+                "token"
+              ],
+              "query": [
+                {
+                  "key": "grant_type",
+                  "value": "password"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.collectionVariables.set('adminToken', s.access_token);",
+                  "const ref = pm.collectionVariables.get('supabaseUrl').replace(/^https?:\\/\\//, '').split('.')[0];",
+                  "const name = 'sb-' + ref + '-auth-token';",
+                  "const b64 = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(JSON.stringify(s)))",
+                  "  .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');",
+                  "const val = 'base64-' + b64;",
+                  "const CHUNK = 3180;",
+                  "let cookie;",
+                  "if (val.length <= CHUNK) cookie = name + '=' + val;",
+                  "else { const parts = []; for (let i = 0; i * CHUNK < val.length; i++) parts.push(name + '.' + i + '=' + val.slice(i * CHUNK, (i + 1) * CHUNK)); cookie = parts.join('; '); }",
+                  "pm.collectionVariables.set('adminCookie', cookie);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Branches",
+      "item": [
+        {
+          "name": "Create branch – no auth → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/branches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "branches"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"x\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create branch – missing address → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/branches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "branches"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bad branch\",\n  \"branchType\": \"IN_STORE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create branch – bad website URL → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/branches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "branches"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bad web\",\n  \"branchType\": \"ONLINE\",\n  \"websiteUrl\": \"ftp://nope\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create IN_STORE branch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/branches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "branches"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"PM Store {{runId}}\",\n  \"branchType\": \"IN_STORE\",\n  \"addressLine1\": \"{{runId}} Test Street\",\n  \"city\": \"Bengaluru\",\n  \"state\": \"KA\",\n  \"postalCode\": \"560001\",\n  \"country\": \"India\",\n  \"latitude\": 12.9716,\n  \"longitude\": 77.5946,\n  \"phone\": \"+919999999999\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201/200', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const j = pm.response.json(); const b = j.data || j.branch || j;",
+                  "pm.test('has id', () => pm.expect(b.id).to.be.a('string'));",
+                  "pm.collectionVariables.set('inStoreBranchId', b.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create duplicate IN_STORE address → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/branches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "branches"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"PM Store dup\",\n  \"branchType\": \"IN_STORE\",\n  \"addressLine1\": \"{{runId}} Test Street\",\n  \"city\": \"Bengaluru\",\n  \"state\": \"KA\",\n  \"postalCode\": \"560001\",\n  \"country\": \"India\",\n  \"latitude\": 12.9716,\n  \"longitude\": 77.5946\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List branches (find/create ONLINE)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/branches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "branches"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json(); const list = j.data || j.branches || [];",
+                  "const online = (Array.isArray(list) ? list : []).find(b => b.branchType === 'ONLINE');",
+                  "if (online) pm.collectionVariables.set('onlineBranchId', online.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create ONLINE branch (skipped if one exists)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/branches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "branches"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"PM Online\",\n  \"branchType\": \"ONLINE\",\n  \"websiteUrl\": \"https://example.com/shop\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.collectionVariables.get('onlineBranchId')) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201/200', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const j = pm.response.json(); const b = j.data || j.branch || j;",
+                  "pm.collectionVariables.set('onlineBranchId', b.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Offers – validation",
+      "item": [
+        {
+          "name": "Create offer – no auth → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"x\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create offer – missing required → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Only a title\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create offer – invalid channel → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman test offer description\",\n  \"shortDescription\": \"Postman test offer\",\n  \"termsAndConditions\": \"Valid once per employee. Not combinable.\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"startDate\": \"{{startDate}}\",\n  \"title\": \"Bad channel {{runId}}\",\n  \"offerType\": \"flat_rate\",\n  \"endDate\": \"{{endDate30}}\",\n  \"channel\": \"TELEPATHY\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('channel msg', () => pm.expect(pm.response.json().error.message).to.match(/channel/i));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create offer – branchIds not array → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman test offer description\",\n  \"shortDescription\": \"Postman test offer\",\n  \"termsAndConditions\": \"Valid once per employee. Not combinable.\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"startDate\": \"{{startDate}}\",\n  \"title\": \"Bad branches {{runId}}\",\n  \"offerType\": \"flat_rate\",\n  \"endDate\": \"{{endDate30}}\",\n  \"channel\": \"IN_STORE\",\n  \"allBranches\": false,\n  \"branchIds\": \"abc\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create offer – flat discount ≥ min spend → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman test offer description\",\n  \"shortDescription\": \"Postman test offer\",\n  \"termsAndConditions\": \"Valid once per employee. Not combinable.\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"startDate\": \"{{startDate}}\",\n  \"title\": \"Flat bad {{runId}}\",\n  \"offerType\": \"flat_rate\",\n  \"discountValue\": 500,\n  \"minimumSpend\": 400,\n  \"endDate\": \"{{endDate30}}\",\n  \"channel\": \"IN_STORE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create offer – percent > 90 → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman test offer description\",\n  \"shortDescription\": \"Postman test offer\",\n  \"termsAndConditions\": \"Valid once per employee. Not combinable.\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"startDate\": \"{{startDate}}\",\n  \"title\": \"Pct bad {{runId}}\",\n  \"offerType\": \"percentage\",\n  \"discountPercent\": 95,\n  \"minimumSpend\": 100,\n  \"endDate\": \"{{endDate30}}\",\n  \"channel\": \"IN_STORE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create offer – bad repeatAfterHours → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman test offer description\",\n  \"shortDescription\": \"Postman test offer\",\n  \"termsAndConditions\": \"Valid once per employee. Not combinable.\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"startDate\": \"{{startDate}}\",\n  \"title\": \"Repeat bad {{runId}}\",\n  \"offerType\": \"flat_rate\",\n  \"discountValue\": 50,\n  \"minimumSpend\": 500,\n  \"endDate\": \"{{endDate30}}\",\n  \"repeatAfterHours\": -5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create offer – unknown category → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman test offer description\",\n  \"shortDescription\": \"Postman test offer\",\n  \"termsAndConditions\": \"Valid once per employee. Not combinable.\",\n  \"categoryId\": \"00000000-0000-0000-0000-000000000000\",\n  \"startDate\": \"{{startDate}}\",\n  \"title\": \"Cat bad {{runId}}\",\n  \"offerType\": \"flat_rate\",\n  \"discountValue\": 50,\n  \"minimumSpend\": 500,\n  \"endDate\": \"{{endDate30}}\",\n  \"saveAsDraft\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('INVALID_CATEGORY', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_CATEGORY'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Offers – create & lifecycle",
+      "item": [
+        {
+          "name": "Create Evergreen IN_STORE offer (auto LIVE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "description": "Evergreen = end date ≥ 1 year after start. Goes LIVE without admin approval. confirmReplaceEvergreen replaces any current LIVE Evergreen.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman test offer description\",\n  \"shortDescription\": \"Postman test offer\",\n  \"termsAndConditions\": \"Valid once per employee. Not combinable.\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"startDate\": \"{{startDate}}\",\n  \"title\": \"PM Evergreen {{runId}}\",\n  \"offerType\": \"flat_rate\",\n  \"discountValue\": 100,\n  \"minimumSpend\": 1000,\n  \"endDate\": \"{{endDate400}}\",\n  \"channel\": \"IN_STORE\",\n  \"allBranches\": true,\n  \"repeatAfterHours\": 24,\n  \"confirmReplaceEvergreen\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('auto activated LIVE', () => { pm.expect(j.autoActivated).to.eql(true); pm.expect(j.data.status).to.eql('LIVE'); });",
+                  "pm.collectionVariables.set('evergreenOfferId', j.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create duplicate title → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman test offer description\",\n  \"shortDescription\": \"Postman test offer\",\n  \"termsAndConditions\": \"Valid once per employee. Not combinable.\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"startDate\": \"{{startDate}}\",\n  \"title\": \"PM Evergreen {{runId}}\",\n  \"offerType\": \"flat_rate\",\n  \"discountValue\": 100,\n  \"minimumSpend\": 1000,\n  \"endDate\": \"{{endDate30}}\",\n  \"channel\": \"IN_STORE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('duplicate msg', () => pm.expect(pm.response.json().error.message).to.match(/already exists/i));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create ONLINE offer – no code → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman test offer description\",\n  \"shortDescription\": \"Postman test offer\",\n  \"termsAndConditions\": \"Valid once per employee. Not combinable.\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"startDate\": \"{{startDate}}\",\n  \"title\": \"PM Online nocode {{runId}}\",\n  \"offerType\": \"percentage\",\n  \"discountPercent\": 10,\n  \"minimumSpend\": 200,\n  \"discountMax\": 100,\n  \"endDate\": \"{{endDate30}}\",\n  \"channel\": \"ONLINE\",\n  \"bookingUrl\": \"https://example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create ONLINE offer (awaiting approval)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman test offer description\",\n  \"shortDescription\": \"Postman test offer\",\n  \"termsAndConditions\": \"Valid once per employee. Not combinable.\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"startDate\": \"{{startDate}}\",\n  \"title\": \"PM Online {{runId}}\",\n  \"offerType\": \"percentage\",\n  \"discountPercent\": 10,\n  \"minimumSpend\": 200,\n  \"discountMax\": 100,\n  \"endDate\": \"{{endDate30}}\",\n  \"channel\": \"ONLINE\",\n  \"redemptionCode\": \"PM{{runId}}\",\n  \"bookingUrl\": \"https://example.com/shop\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('QC passed', () => pm.expect(j.qualityCheck).to.eql('PASSED'));",
+                  "pm.test('AWAITING_APPROVAL', () => pm.expect(j.data.status).to.eql('AWAITING_APPROVAL'));",
+                  "pm.collectionVariables.set('onlineOfferId', j.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"PM Draft {{runId}}\",\n  \"offerType\": \"flat_rate\",\n  \"discountValue\": 50,\n  \"minimumSpend\": 500,\n  \"startDate\": \"{{startDate}}\",\n  \"endDate\": \"{{endDate30}}\",\n  \"saveAsDraft\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (pm.response.code === 400 && /pending draft/i.test(j.error?.message || '')) {",
+                  "  pm.test('existing draft blocks new draft (expected rule)', () => pm.expect(true).to.be.true);",
+                  "} else {",
+                  "  pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "  pm.test('DRAFT', () => pm.expect(j.data.status).to.eql('DRAFT'));",
+                  "  pm.collectionVariables.set('draftOfferId', j.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Second draft → 400 (one pending draft rule)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"PM Draft 2 {{runId}}\",\n  \"offerType\": \"flat_rate\",\n  \"startDate\": \"{{startDate}}\",\n  \"endDate\": \"{{endDate30}}\",\n  \"saveAsDraft\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get draft offer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers/{{draftOfferId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers",
+                "{{draftOfferId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('draftOfferId')) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Submit draft for approval",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers/{{draftOfferId}}/submit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers",
+                "{{draftOfferId}}",
+                "submit"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman test offer description\",\n  \"shortDescription\": \"Postman test offer\",\n  \"termsAndConditions\": \"Valid once per employee. Not combinable.\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"startDate\": \"{{startDate}}\",\n  \"title\": \"PM Draft {{runId}}\",\n  \"offerType\": \"flat_rate\",\n  \"discountValue\": 50,\n  \"minimumSpend\": 500,\n  \"endDate\": \"{{endDate30}}\",\n  \"channel\": \"BOTH\",\n  \"allBranches\": true,\n  \"redemptionCode\": \"PMD{{runId}}\",\n  \"bookingUrl\": \"https://example.com/shop\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('draftOfferId')) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "pm.collectionVariables.set('flatOfferId', pm.collectionVariables.get('draftOfferId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List offers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers?page=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('has evergreen', () => pm.expect(j.data.map(o => o.id)).to.include(pm.collectionVariables.get('evergreenOfferId')));",
+                  "pm.test('hasLiveForever', () => pm.expect(j.hasLiveForever).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete LIVE offer → 403",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers?ids={{evergreenOfferId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ],
+              "query": [
+                {
+                  "key": "ids",
+                  "value": "{{evergreenOfferId}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete – no ids → 400",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Admin approval",
+      "item": [
+        {
+          "name": "Find action-queue item for ONLINE offer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "{{adminCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/action-queue?status=PENDING&pageSize=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "action-queue"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "PENDING"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json(); const items = j.data?.items || j.data || j.items || [];",
+                  "const offerId = pm.collectionVariables.get('onlineOfferId');",
+                  "const it = items.find(i => (i.metadata && i.metadata.offerId === offerId) || i.offerId === offerId);",
+                  "pm.test('queue item found', () => pm.expect(it).to.be.an('object'));",
+                  "if (it) pm.collectionVariables.set('actionQueueId', it.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Action – invalid action → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{adminCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/action-queue/{{actionQueueId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "action-queue",
+                "{{actionQueueId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"NOPE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Action – merchant cannot approve → 401/403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/action-queue/{{actionQueueId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "action-queue",
+                "{{actionQueueId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"APPROVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('denied', () => pm.expect(pm.response.code).to.be.oneOf([401, 403]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Approve ONLINE offer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{adminCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/action-queue/{{actionQueueId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "action-queue",
+                "{{actionQueueId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"APPROVE\",\n  \"remark\": \"Approved via Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Offer is now LIVE",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers/{{onlineOfferId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers",
+                "{{onlineOfferId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json(); const o = j.data || j.offer || j;",
+                  "pm.test('LIVE', () => pm.expect(o.status).to.eql('LIVE'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Mobile – browse & save",
+      "item": [
+        {
+          "name": "Offers – no bearer → 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Offers – bad bearer → 401",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer not-a-token"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List offers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Offer detail (evergreen)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/{{evergreenOfferId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "{{evergreenOfferId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Offer detail – unknown id → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/00000000-0000-0000-0000-000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "00000000-0000-0000-0000-000000000000"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404/400', () => pm.expect(pm.response.code).to.be.oneOf([400, 404]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Click offer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/{{evergreenOfferId}}/click",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "{{evergreenOfferId}}",
+                "click"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save offer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/{{evergreenOfferId}}/save",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "{{evergreenOfferId}}",
+                "save"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saved offers include it",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/profile/saved-offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "profile",
+                "saved-offers"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('contains offer', () => pm.expect(pm.response.text()).to.include(pm.collectionVariables.get('evergreenOfferId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unsave offer",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/{{evergreenOfferId}}/save",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "{{evergreenOfferId}}",
+                "save"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Mobile – redemption",
+      "item": [
+        {
+          "name": "Redeem – no bearer → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/{{evergreenOfferId}}/redeem",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "{{evergreenOfferId}}",
+                "redeem"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redeem – unknown offer → 400/404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/00000000-0000-0000-0000-000000000000/redeem",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "00000000-0000-0000-0000-000000000000",
+                "redeem"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400/404', () => pm.expect(pm.response.code).to.be.oneOf([400, 404]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redeem – foreign branchId → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/{{evergreenOfferId}}/redeem",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "{{evergreenOfferId}}",
+                "redeem"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"branchId\": \"00000000-0000-0000-0000-000000000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redeem IN_STORE evergreen (virtual card)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/{{evergreenOfferId}}/redeem",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "{{evergreenOfferId}}",
+                "redeem"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"branchId\": \"{{inStoreBranchId}}\",\n  \"spentAmount\": 1500,\n  \"notes\": \"Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const d = pm.response.json().data;",
+                  "pm.test('CONFIRMED', () => pm.expect(d.status).to.eql('CONFIRMED'));",
+                  "pm.test('virtual card', () => pm.expect(d.type).to.eql('VIRTUAL_CARD_AUTO_VERIFY'));",
+                  "pm.collectionVariables.set('redemptionId', d.id);",
+                  "if (d.virtualCard && d.virtualCard.redemptionCode) pm.collectionVariables.set('redemptionCode', d.virtualCard.redemptionCode);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redeem again within cooldown → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/{{evergreenOfferId}}/redeem",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "{{evergreenOfferId}}",
+                "redeem"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"branchId\": \"{{inStoreBranchId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redeem ONLINE offer (pending code)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/{{onlineOfferId}}/redeem",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "{{onlineOfferId}}",
+                "redeem"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const d = pm.response.json().data;",
+                  "pm.test('PENDING', () => pm.expect(d.status).to.eql('PENDING'));",
+                  "pm.test('has offerCode', () => pm.expect(d.offerCode).to.be.a('string'));",
+                  "pm.collectionVariables.set('onlineRedemptionId', d.id);",
+                  "pm.collectionVariables.set('onlineRedemptionCode', d.offerCode);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "QR scan – missing token → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/{{evergreenOfferId}}/scan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "{{evergreenOfferId}}",
+                "scan"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "QR scan – bad token → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/offers/{{evergreenOfferId}}/scan?token=bogus&branch={{inStoreBranchId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "offers",
+                "{{evergreenOfferId}}",
+                "scan"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "bogus"
+                },
+                {
+                  "key": "branch",
+                  "value": "{{inStoreBranchId}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "My redemptions include both",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mobile/profile/redemptions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mobile",
+                "profile",
+                "redemptions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.text();",
+                  "pm.test('contains online redemption', () => pm.expect(t).to.include(pm.collectionVariables.get('onlineRedemptionId')));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Merchant – verify redemptions",
+      "item": [
+        {
+          "name": "Redeem code – no auth → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/redemptions/redeem",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "redemptions",
+                "redeem"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"X\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redeem code – empty → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/redemptions/redeem",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "redemptions",
+                "redeem"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redeem code – unknown → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/redemptions/redeem",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "redemptions",
+                "redeem"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"ZZZZNOTREAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redeem ONLINE code (lowercase ok)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/redemptions/redeem",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "redemptions",
+                "redeem"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{lcCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('lcCode', (pm.collectionVariables.get('onlineRedemptionCode') || '').toLowerCase());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('verified', () => pm.expect(j.redemption.isVerified).to.eql(true));",
+                  "pm.test('employee name masked', () => pm.expect(j.redemption.employeeName).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redeem same code again → 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/redemptions/redeem",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "redemptions",
+                "redeem"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{onlineRedemptionCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('ALREADY_REDEEMED', () => pm.expect(pm.response.json().error.code).to.eql('ALREADY_REDEEMED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List merchant redemptions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/redemptions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "redemptions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('contains evergreen redemption', () => pm.expect(pm.response.text()).to.include(pm.collectionVariables.get('redemptionId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redemption status – invalid action → 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/redemptions/{{redemptionId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "redemptions",
+                "{{redemptionId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"MAYBE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redemption status – employee token → 401",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{employeeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/redemptions/{{redemptionId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "redemptions",
+                "{{redemptionId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"CONFIRM\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('denied', () => pm.expect(pm.response.code).to.be.oneOf([401, 403]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "8. Cleanup",
+      "item": [
+        {
+          "name": "Revoke ONLINE offer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers/{{onlineOfferId}}/revoke",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers",
+                "{{onlineOfferId}}",
+                "revoke"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Postman cleanup\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('2xx or rule-blocked 4xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 403, 409]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete submitted draft offer",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/offers?ids={{flatOfferId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "offers"
+              ],
+              "query": [
+                {
+                  "key": "ids",
+                  "value": "{{flatOfferId}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('flatOfferId')) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete IN_STORE test branch",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "{{merchantCookie}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/merchant/branches/{{inStoreBranchId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "merchant",
+                "branches",
+                "{{inStoreBranchId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('2xx or blocked (branch used by live offer)', () => pm.expect(pm.response.code).to.be.oneOf([200, 204, 400, 409]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

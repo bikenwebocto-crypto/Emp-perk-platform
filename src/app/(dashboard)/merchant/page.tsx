@@ -11,6 +11,12 @@ import { cn } from '@/utils/cn'
 import { useTableSort } from '@/hooks/use-table-sort'
 import { SortableTh } from '@/components/shared/sortable-th'
 import {
+  branchSelectionFromConfig,
+  branchSetupStatus,
+  channelUsesBranches,
+  countActiveBranches,
+} from '@/lib/offers/channel'
+import {
   ShoppingBag,
   Eye,
   TrendingUp,
@@ -31,8 +37,38 @@ import {
   FileText,
 } from 'lucide-react'
 
+type MerchantOnboardingStep = 'branch' | 'offer' | null
+
+const IN_REVIEW_STATUSES = ['VALIDATION_IN_PROGRESS', 'AWAITING_APPROVAL']
+
+interface PendingEvergreen {
+  id: string
+  title: string
+  submittedAt: string | null
+  channelLabel: string
+  branchLabel: string | null
+}
+
+function describeScope(redemption: { redemptionType?: string | null; configuration?: unknown } | null | undefined) {
+  const sel = branchSelectionFromConfig(redemption?.redemptionType, redemption?.configuration)
+  const channelLabel =
+    sel.channel === 'BOTH' ? 'Both channels' : sel.channel === 'ONLINE' ? 'Online' : 'In-store'
+  const branchLabel = channelUsesBranches(sel.channel)
+    ? sel.allBranches
+      ? 'All branches'
+      : `${sel.branchIds.length} branch${sel.branchIds.length === 1 ? '' : 'es'}`
+    : null
+  return { channelLabel, branchLabel }
+}
+
 interface DashboardData {
   businessName: string
+  /** Set while the merchant has no active branch, or no live offer yet. */
+  onboardingStep: MerchantOnboardingStep
+  /** What's still missing from branch setup (needs an active In-store and Online branch). */
+  branchSetupMessage: string | null
+  /** First evergreen offer currently waiting for admin review (first-time merchants). */
+  pendingEvergreen: PendingEvergreen | null
   stats: {
     liveOffers: { value: number; change: number; trend: 'up' | 'down' }
     activeViews: { value: number; change: number; trend: 'up' | 'down' }
@@ -74,12 +110,31 @@ function timeAgo(date: string | Date) {
 }
 
 async function fetchDashboard(): Promise<DashboardData> {
-  const [analyticsRes, overviewRes, redemptionsRes, profileRes] = await Promise.all([
+  const [analyticsRes, overviewRes, redemptionsRes, profileRes, branchesRes, offersRes] = await Promise.all([
     fetch('/api/merchant/analytics/summary'),
     fetch('/api/merchant/profile/business-overview'),
     fetch('/api/merchant/redemptions?pageSize=5'),
     fetch('/api/merchant/profile'),
+    fetch('/api/merchant/branches?status=active'),
+    fetch('/api/merchant/offers?pageSize=50'),
   ])
+  const offersJson = offersRes.ok ? await offersRes.json() : null
+  const offerRows: any[] = Array.isArray(offersJson?.data) ? offersJson.data : []
+  const reviewOffer = offerRows.find(
+    (o) => o.evergreen && IN_REVIEW_STATUSES.includes(o.status),
+  )
+  const pendingEvergreen: PendingEvergreen | null = reviewOffer
+    ? {
+        id: reviewOffer.id,
+        title: reviewOffer.title,
+        submittedAt: reviewOffer.submittedAt ?? reviewOffer.updatedAt ?? null,
+        ...describeScope(reviewOffer.redemption),
+      }
+    : null
+  const branchesJson = branchesRes.ok ? await branchesRes.json() : null
+  const branchSetup = branchSetupStatus(
+    countActiveBranches(Array.isArray(branchesJson?.data) ? branchesJson.data : []),
+  )
 
   const analyticsJson = analyticsRes.ok ? await analyticsRes.json() : null
   const overviewJson = overviewRes.ok ? await overviewRes.json() : null
@@ -123,8 +178,13 @@ async function fetchDashboard(): Promise<DashboardData> {
     time: r.time,
   }))
 
+  const liveOffers: number = summary?.liveOffers ?? 0
+
   return {
     businessName,
+    onboardingStep: !branchSetup.complete ? 'branch' : liveOffers === 0 ? 'offer' : null,
+    branchSetupMessage: branchSetup.message,
+    pendingEvergreen,
     stats: {
       liveOffers: { value: summary?.liveOffers ?? 0, change: 0, trend: 'up' },
       activeViews: { value: totalViews, change: 0, trend: 'up' },
@@ -165,6 +225,103 @@ function DashboardStatCard({ title, value, href, icon: Icon, accentClass }: Dash
   )
 }
 
+type StepState = 'done' | 'progress' | 'waiting'
+
+const STEP_BADGE: Record<StepState, { label: string; className: string }> = {
+  done: { label: 'Done', className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  progress: { label: 'In progress', className: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  waiting: { label: 'Waiting', className: 'bg-muted text-muted-foreground' },
+}
+
+function GettingStarted({
+  step,
+  offer,
+  branchMessage,
+}: {
+  step: Exclude<MerchantOnboardingStep, null>
+  offer: PendingEvergreen | null
+  branchMessage: string | null
+}) {
+  // 0 = branch, 1 = offer, 2 = review
+  const current = step === 'branch' ? 0 : offer ? 2 : 1
+  const titles = ['Set up branches (In-store + Online)', 'Submit evergreen offer', 'Under review', 'Live in the app']
+  const steps = titles.map((title, i) => ({
+    title,
+    state: (i < current ? 'done' : i === current ? 'progress' : 'waiting') as StepState,
+  }))
+  const banner =
+    current === 0
+      ? { title: 'Branch setup incomplete', text: branchMessage ?? 'Add an In-store branch and an Online branch, and make sure both are active.', href: '/merchant/branches', cta: 'Go to Branches' }
+      : current === 1
+        ? { title: 'Create your evergreen offer', text: 'Configure an always-on offer and submit it for approval.', href: '/merchant/offers/create', cta: 'Create offer' }
+        : { title: 'Your evergreen offer is under review', text: 'You will appear in the app once it is approved. We will email you.', href: null, cta: null }
+  const submitted = offer?.submittedAt
+    ? new Date(offer.submittedAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : null
+  const summary = offer ? [offer.title, offer.channelLabel, offer.branchLabel].filter(Boolean).join(' · ') : ''
+
+  return (
+    <div className="space-y-6 pb-8">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-bold tracking-tight">Welcome to Perks &amp; More</h1>
+        <p className="text-sm text-muted-foreground">You are not visible in the app yet.</p>
+      </div>
+
+      <div className="flex flex-col gap-3 rounded-lg border border-blue-300 bg-blue-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-blue-800 dark:bg-blue-950/30">
+        <div>
+          <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">{banner.title}</p>
+          <p className="mt-0.5 text-sm text-blue-800/90 dark:text-blue-300">{banner.text}</p>
+        </div>
+        {banner.href && (
+          <Link href={banner.href}>
+            <Button size="sm" className="gap-1">
+              {banner.cta} <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </Link>
+        )}
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Your steps</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {steps.map((step, i) => (
+              <li key={step.title} className="rounded-lg border bg-muted/30 p-4">
+                <p className="text-xs text-muted-foreground">Step {i + 1}</p>
+                <p className="mt-1 text-sm font-semibold">{step.title}</p>
+                <span
+                  className={cn(
+                    'mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
+                    STEP_BADGE[step.state].className,
+                  )}
+                >
+                  {STEP_BADGE[step.state].label}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </CardContent>
+      </Card>
+
+      {offer && (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">{submitted ? `Submitted ${submitted}` : 'Submitted'}</CardTitle>
+          <CardDescription className="text-sm">{summary}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link href={`/merchant/offers/${offer.id}`}>
+            <Button variant="outline">View offer</Button>
+          </Link>
+        </CardContent>
+      </Card>
+      )}
+    </div>
+  )
+}
+
 export default function MerchantDashboard() {
   const { data, isLoading } = useQuery({
     queryKey: ['merchant-dashboard'],
@@ -175,6 +332,9 @@ export default function MerchantDashboard() {
 
   const d = data ?? {
     businessName: 'Your Business',
+    onboardingStep: null as MerchantOnboardingStep,
+    branchSetupMessage: null as string | null,
+    pendingEvergreen: null as PendingEvergreen | null,
     stats: {
       liveOffers: { value: 0, change: 0, trend: 'up' as const },
       activeViews: { value: 0, change: 0, trend: 'up' as const },
@@ -194,6 +354,11 @@ export default function MerchantDashboard() {
     status: (r) => r.status,
   })
   const sortProps = { activeKey: redemptionSort.sortKey, dir: redemptionSort.sortDir, onSort: redemptionSort.toggleSort }
+
+  // First-time merchant: evergreen offer submitted, waiting for approval.
+  if (!isLoading && d.onboardingStep) {
+    return <GettingStarted step={d.onboardingStep} offer={d.pendingEvergreen} branchMessage={d.branchSetupMessage} />
+  }
 
   return (
     <div className="space-y-8 pb-8">
@@ -228,6 +393,8 @@ export default function MerchantDashboard() {
         </div>
       </div>
 
+      {(
+      <>
       {/* KPI Cards - Business Overview with Drill-down */}
       <section>
         <div className="mb-4 flex items-center justify-between">
@@ -497,6 +664,8 @@ export default function MerchantDashboard() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   )
 }

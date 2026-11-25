@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { redemptionResponseFields } from '@/lib/offers/channel'
 import { internalError } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
@@ -68,6 +69,7 @@ export async function GET(request: NextRequest) {
           redemption: {
             select: {
               redemptionType: true,
+              redemptionTypes: true,
               configuration: true,
             },
           },
@@ -140,6 +142,7 @@ export async function GET(request: NextRequest) {
         minimumSpend: pricingConfig.minimumSpend,
         discountMax: pricingConfig.maximumDiscount,
         redemptionType: o.redemption?.redemptionType,
+        ...redemptionResponseFields(o.redemption),
         offerCode: redemptionConfig.code,
         bookingUrl: redemptionConfig.bookingUrl,
         qrCodeUrl: redemptionConfig.qrCodeUrl,

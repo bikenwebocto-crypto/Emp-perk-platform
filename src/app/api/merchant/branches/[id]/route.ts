@@ -9,6 +9,7 @@ import {
   hasDuplicateAddress,
 } from '@/lib/branch-helpers'
 import { createAuditLog } from '@/services/audit-log.service'
+import { getLiveOffersLinkedToBranch, linkedOffersMessage } from '@/lib/offers/channel.server'
 import { channels, publishBusinessNotification } from '@/services/business-notification.service'
 
 function unauthorized() {
@@ -112,6 +113,7 @@ export async function PATCH(
       'phone', 'email', 'latitude', 'longitude', 'openingHours', 'isPrimary',
       'branchType', 'deliveryRadiusKm', 'isNationwide', 'storefrontImageUrl',
       'branchImages', 'parkingInfo', 'wheelchairAccess', 'landmark', 'description', 'status',
+      'websiteUrl',
     ]
     const updateData: Record<string, unknown> = {}
     for (const key of allowed) {
@@ -129,10 +131,26 @@ export async function PATCH(
         branchType: updateData.branchType as 'IN_STORE' | 'ONLINE' | undefined,
         isNationwide: updateData.isNationwide as boolean | undefined,
         deliveryRadiusKm: updateData.deliveryRadiusKm as number | null | undefined,
+        websiteUrl: updateData.websiteUrl as string | null | undefined,
       },
       true
     )
     if (!validation.valid) return badRequest('Validation failed', validation.errors)
+
+    // A branch used by a live offer can't be deactivated, closed or switched to another type.
+    const deactivating =
+      existing.status === 'ACTIVE' &&
+      updateData.status !== undefined &&
+      updateData.status !== 'ACTIVE'
+    const changingType =
+      updateData.branchType !== undefined && updateData.branchType !== existing.branchType
+    if (deactivating || changingType) {
+      const linked = await getLiveOffersLinkedToBranch(merchant.id, existing)
+      if (linked.length > 0) {
+        const message = linkedOffersMessage('deactivate', linked)
+        return badRequest(message, deactivating ? { status: message } : { branchType: message })
+      }
+    }
 
     if (updateData.branchType === 'ONLINE' && existing.branchType !== 'ONLINE') {
       const otherOnline = await prisma.merchantBranch.findFirst({
@@ -319,6 +337,12 @@ export async function DELETE(
       return badRequest('Cannot delete your only branch. Merchants must have at least one branch.', {
         branch: 'Every merchant must have at least one branch',
       })
+    }
+
+    const linked = await getLiveOffersLinkedToBranch(merchant.id, existing)
+    if (linked.length > 0) {
+      const message = linkedOffersMessage('delete', linked)
+      return badRequest(message, { branch: message })
     }
 
     const now = new Date()

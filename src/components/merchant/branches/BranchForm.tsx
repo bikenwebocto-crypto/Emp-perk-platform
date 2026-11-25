@@ -43,8 +43,18 @@ export interface BranchFormValues {
   wheelchairAccess: boolean
   landmark: string
   description: string
+  websiteUrl: string
   status: BranchStatus
 }
+
+type OnlineMode = 'DIGITAL' | 'RADIUS' | 'NATIONWIDE'
+
+// "Digital only" (online store, no delivery, no address) is hidden for now.
+// Existing digital branches still load as DIGITAL and are saved unchanged.
+const ONLINE_MODE_OPTIONS: { value: OnlineMode; label: string; description: string }[] = [
+  { value: 'RADIUS', label: 'Local delivery', description: 'Deliver within a set radius of your base address.' },
+  { value: 'NATIONWIDE', label: 'Nationwide', description: 'Ship anywhere in the country from your base address.' },
+]
 
 export const EMPTY_BRANCH: BranchFormValues = {
   name: '',
@@ -69,6 +79,7 @@ export const EMPTY_BRANCH: BranchFormValues = {
   wheelchairAccess: false,
   landmark: '',
   description: '',
+  websiteUrl: '',
   status: 'ACTIVE',
 }
 interface BranchFormProps {
@@ -86,6 +97,14 @@ function updateOpeningHour(
   patch: Partial<BranchOpeningHour>
 ): BranchOpeningHour[] {
   return hours.map((h) => (h.day === day ? { ...h, ...patch } : h))
+}
+
+function deriveOnlineMode(v?: Partial<BranchFormValues>, isEdit = false): OnlineMode {
+  if (v?.isNationwide) return 'NATIONWIDE'
+  if ((v?.deliveryRadiusKm ?? 0) > 0) return 'RADIUS'
+  // Only an existing ONLINE branch saved without delivery is digital; new ones default to Nationwide.
+  if (isEdit && v?.branchType === 'ONLINE') return 'DIGITAL'
+  return 'NATIONWIDE'
 }
 
 function parseGeocoderResult(result: google.maps.GeocoderResult) {
@@ -122,6 +141,12 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
     setValues((prev) => ({ ...prev, [key]: value }))
   }
 
+  const [onlineMode, setOnlineMode] = useState<OnlineMode>(() => deriveOnlineMode(initialValues, isEdit))
+  const [showHours, setShowHours] = useState(false)
+  useEffect(() => {
+    if (initialValues) setOnlineMode(deriveOnlineMode(initialValues, isEdit))
+  }, [initialValues])
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     // Email is optional for a branch, but must be valid when entered.
@@ -129,11 +154,28 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
       showToast({ type: 'error', title: getEmailError(values.email)! })
       return
     }
-    onSubmit(values)
+    if (values.websiteUrl && !/^https?:\/\/\S+$/i.test(values.websiteUrl.trim())) {
+      showToast({ type: 'error', title: 'Website URL must start with http:// or https://' })
+      return
+    }
+    if (isOnline && onlineMode === 'RADIUS' && !((values.deliveryRadiusKm ?? 0) > 0)) {
+      showToast({ type: 'error', title: 'Enter a delivery radius greater than 0 km' })
+      return
+    }
+    // Normalise online coverage fields from the selected mode so the server
+    // sees a consistent combination.
+    const submitted: BranchFormValues = isOnline
+      ? {
+          ...values,
+          isNationwide: onlineMode === 'NATIONWIDE',
+          deliveryRadiusKm: onlineMode === 'RADIUS' ? values.deliveryRadiusKm : null,
+        }
+      : values
+    onSubmit(submitted)
   }
 
   const isOnline = values.branchType === 'ONLINE'
-  const isDelivery = isOnline && (values.isNationwide || (values.deliveryRadiusKm ?? 0) > 0)
+  const isDelivery = isOnline && onlineMode !== 'DIGITAL'
   const needsAddress = !isOnline || isDelivery
 
   const [isLocating, setIsLocating] = useState(false)
@@ -245,60 +287,52 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
               )
             })}
           </div>
+          {isEdit && initialValues?.branchType !== 'ONLINE' && (
+            <p className="text-xs text-muted-foreground">
+              An in-store branch can&apos;t be converted to online. Create a new online branch instead.
+            </p>
+          )}
           {errors.branchType && <p className="text-xs text-destructive">{errors.branchType}</p>}
 
           {isOnline && (
-            <div className="rounded-md border bg-muted/30 p-3 space-y-3">
-              <div className="flex items-start gap-2">
-                <Globe className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">
-                  Configure how employees can use this online branch. Choose delivery to serve a local area, or pure digital for an online-only store.
-                </p>
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={values.isNationwide}
-                  onChange={(e) => {
-                    const checked = e.target.checked
-                    setValues((prev) => ({
-                      ...prev,
-                      isNationwide: checked,
-                      deliveryRadiusKm: checked ? prev.deliveryRadiusKm ?? 0 : prev.deliveryRadiusKm,
-                    }))
-                  }}
-                />
-                <span>Ships nationwide</span>
-              </label>
-              {!values.isNationwide && (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Delivery radius (km)
+            <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+              <p className="flex items-center gap-2 text-sm font-medium">
+                <Globe className="h-4 w-4 text-muted-foreground" /> How do customers get your products?
+              </p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {ONLINE_MODE_OPTIONS.map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`flex cursor-pointer flex-col gap-1 rounded-md border bg-background p-2.5 transition-colors ${
+                      onlineMode === opt.value ? 'border-primary bg-primary/5' : 'hover:border-muted-foreground/30'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 text-sm font-medium">
+                      <input
+                        type="radio"
+                        name="onlineMode"
+                        checked={onlineMode === opt.value}
+                        onChange={() => setOnlineMode(opt.value)}
+                        className="h-4 w-4"
+                      />
+                      {opt.label}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{opt.description}</span>
                   </label>
+                ))}
+              </div>
+              {onlineMode === 'RADIUS' && (
+                <div className="max-w-xs">
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Delivery radius (km) *</label>
                   <Input
                     type="number"
-                    min={0}
+                    min={1}
                     max={5000}
                     value={values.deliveryRadiusKm ?? ''}
                     onChange={(e) => setField('deliveryRadiusKm', e.target.value === '' ? null : Number(e.target.value))}
                     placeholder="e.g. 25"
                   />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Employees within this radius can redeem offers from this branch.
-                  </p>
                   {errors.deliveryRadiusKm && <p className="mt-1 text-xs text-destructive">{errors.deliveryRadiusKm}</p>}
-                </div>
-              )}
-              {!isDelivery && (
-                <p className="rounded-md bg-blue-50 p-2 text-xs text-blue-900 dark:bg-blue-900/20 dark:text-blue-300">
-                  Pure digital merchant: no physical address or coordinates required.
-                </p>
-              )}
-              {isDelivery && (
-                <div className="space-y-3 rounded-md border p-3">
-                  <p className="text-xs text-muted-foreground">
-                    Delivery merchants still need a base address to compute distances and validate coverage.
-                  </p>
                 </div>
               )}
             </div>
@@ -322,6 +356,25 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
             />
             {errors.name && <p className="mt-1 text-xs text-destructive">{errors.name}</p>}
           </div>
+
+          {isOnline && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Website URL</label>
+              <Input
+                type="url"
+                value={values.websiteUrl}
+                onChange={(e) => setField('websiteUrl', e.target.value)}
+                placeholder="https://yourstore.com"
+              />
+              {errors.websiteUrl && <p className="mt-1 text-xs text-destructive">{errors.websiteUrl}</p>}
+            </div>
+          )}
+
+          {isOnline && needsAddress && (
+            <p className="text-xs text-muted-foreground">
+              Base address — used to measure delivery coverage.
+            </p>
+          )}
 
           {needsAddress && (
             <>
@@ -386,7 +439,7 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
                 <Input
                   value={values.country}
                   onChange={(e) => setField('country', e.target.value)}
-                  placeholder="e.g. United States"
+                  placeholder="e.g. Cyprus"
                 />
                 {errors.country && <p className="mt-1 text-xs text-destructive">{errors.country}</p>}
               </div>
@@ -396,7 +449,7 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Phone</label>
-              <Input value={values.phone} onChange={(e) => setField('phone', e.target.value)} placeholder="+1 555-0100" />
+              <Input value={values.phone} onChange={(e) => setField('phone', e.target.value)} placeholder="+357 22 123456" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Email</label>
@@ -411,6 +464,19 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
               )}
             </div>
           </div>
+
+          {isOnline && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>
+              <textarea
+                rows={2}
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                value={values.description}
+                onChange={(e) => setField('description', e.target.value)}
+                placeholder="Short description for employees…"
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -465,14 +531,21 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
         </Card>
       )}
 
+      {isOnline && (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={showHours} onChange={(e) => setShowHours(e.target.checked)} />
+          <span>Set customer support hours (optional)</span>
+        </label>
+      )}
+
+      {(!isOnline || showHours) && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
-            <Clock className="h-5 w-5" /> Opening Hours
+            <Clock className="h-5 w-5" /> {isOnline ? 'Support Hours' : 'Opening Hours'}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          
           {(normalizeOpeningHours(values.openingHours)).map((h) => (
             <div key={h.day} className="grid grid-cols-[100px_1fr_1fr_auto] items-center gap-2 text-sm">
               <span className="font-medium">{h.day.charAt(0) + h.day.slice(1).toLowerCase()}</span>
@@ -507,7 +580,9 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
           ))}
         </CardContent>
       </Card>
+      )}
 
+      {!isOnline && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -551,16 +626,19 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
           </label>
         </CardContent>
       </Card>
+      )}
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
-            <ImageIcon className="h-5 w-5" /> Images (optional)
+            <ImageIcon className="h-5 w-5" /> {isOnline ? 'Store Image (optional)' : 'Images (optional)'}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Storefront Image URL</label>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              {isOnline ? 'Logo / Banner Image URL' : 'Storefront Image URL'}
+            </label>
             <Input
               value={values.storefrontImageUrl}
               onChange={(e) => setField('storefrontImageUrl', e.target.value)}
@@ -574,6 +652,7 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
               />
             )}
           </div>
+          {!isOnline && (
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Branch Image URLs (one per line)</label>
             <textarea
@@ -592,6 +671,7 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
               placeholder="https://…&#10;https://…"
             />
           </div>
+          )}
         </CardContent>
       </Card>
 
@@ -613,6 +693,7 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
                 ))}
               </select>
             </div>
+            {!isOnline && (
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -621,11 +702,12 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
               />
               <span>Set as primary branch for this merchant</span>
             </label>
+            )}
           </CardContent>
         </Card>
       )}
 
-      {!isEdit && (
+      {!isEdit && !isOnline && (
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
@@ -673,6 +755,7 @@ export function valuesToPayload(v: BranchFormValues) {
     wheelchairAccess: v.wheelchairAccess,
     landmark: v.landmark.trim() || null,
     description: v.description.trim() || null,
+    websiteUrl: v.branchType === 'ONLINE' ? v.websiteUrl.trim() || null : null,
     status: v.status,
   }
 }

@@ -35,9 +35,8 @@ export function LoginClient({ branding }: LoginClientProps) {
   const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
   const searchParams = useSearchParams();
-  const [view, setView] = useState<'sign_in' | 'sign_up' | 'update_password'>(
-    () => (searchParams.get("mode") === "signup" ? "sign_up" : "sign_in"),
-  );
+  // ?mode=signup is ignored; it always opens sign-in.
+  const [view, setView] = useState<'sign_in' | 'update_password'>("sign_in");
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -69,42 +68,9 @@ export function LoginClient({ branding }: LoginClientProps) {
     if (signInError) setError(signInError.message);
   };
 
-  const handleSignUp = async (e: FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setNotice(null);
-    setEmailTouched(true);
-    if (emailError) return;
-    const passwordError = getPasswordError(password);
-    if (passwordError) {
-      setError(passwordError);
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
-    setSubmitting(true);
-    // If email confirmation is off, Supabase returns a session and
-    // onAuthStateChange(SIGNED_IN) runs the sync + redirect. Otherwise the
-    // confirmation link brings the user back to /login signed in.
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: `${window.location.origin}/login` },
-    });
-    setSubmitting(false);
-    if (signUpError) {
-      setError(signUpError.message);
-      return;
-    }
-    if (!data.session) {
-      setNotice("Check your email for a confirmation link to finish creating your account.");
-      setView("sign_in");
-    }
-  };
-
-  const switchView = (next: "sign_in" | "sign_up") => {
+  // Public sign-up is disabled: accounts are created by admins (invite links)
+  // or requested through the website.
+  const switchView = (next: "sign_in") => {
     setError(null);
     setNotice(null);
     setPassword("");
@@ -477,81 +443,6 @@ export function LoginClient({ branding }: LoginClientProps) {
             >
               Forgot password?
             </Button>
-            <p className="text-center text-sm text-gray-600">
-              Don&apos;t have an account?{" "}
-              <button
-                type="button"
-                className="font-medium text-blue-600 hover:underline"
-                onClick={() => switchView("sign_up")}
-              >
-                Sign up
-              </button>
-            </p>
-          </form>
-        )}
-        {mounted && view === "sign_up" && (
-          <form onSubmit={handleSignUp} className="space-y-4">
-            <div className="space-y-1.5">
-              <label htmlFor="signup-email" className="text-sm font-medium">
-                Email address
-              </label>
-              <Input
-                id="signup-email"
-                type="text"
-                inputMode="email"
-                autoComplete="email"
-                aria-invalid={!!showEmailError}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onBlur={() => setEmailTouched(true)}
-              />
-              {showEmailError && <p className="text-xs text-red-600">{emailError}</p>}
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="signup-password" className="text-sm font-medium">
-                Password
-              </label>
-              <Input
-                id="signup-password"
-                type="password"
-                autoComplete="new-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <PasswordRules password={password} />
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="signup-confirm" className="text-sm font-medium">
-                Confirm password
-              </label>
-              <Input
-                id="signup-confirm"
-                type="password"
-                autoComplete="new-password"
-                required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
-            </div>
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={submitting || !!getPasswordError(password) || password !== confirmPassword}
-            >
-              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create account
-            </Button>
-            <p className="text-center text-sm text-gray-600">
-              Already have an account?{" "}
-              <button
-                type="button"
-                className="font-medium text-blue-600 hover:underline"
-                onClick={() => switchView("sign_in")}
-              >
-                Sign in
-              </button>
-            </p>
           </form>
         )}
       </div>

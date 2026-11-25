@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
+import {
+  channelRedemptionType,
+  channelRedemptionTypes,
+  parseBranchSelection,
+  withBranchSelection,
+  withChannelDetails,
+} from "@/lib/offers/channel";
+import { requiredBranchesError, validateBranchSelection } from "@/lib/offers/channel.server";
+import { MISSING_BRANCHES_CODE } from "@/lib/offers/channel";
 import { getMerchantFromSession } from '@/lib/merchant-session'
 import { OfferStatus } from "@prisma/client";
 import {
@@ -130,7 +139,7 @@ function runQualityChecks(body: any): {
     if (!String(body.redemptionCode ?? '').trim()) {
       errors.redemptionCode = 'Offer code is required';
     } else if (!isValidOfferCode(String(body.redemptionCode).trim())) {
-      errors.redemptionCode = 'Offer code must be between 6 and 30 letters or numbers.';
+      errors.redemptionCode = '3 to 13 letters and numbers';
     }
   }
   if (!body.startDate) errors.startDate = "Start date is required";
@@ -424,6 +433,8 @@ export async function GET(request: NextRequest) {
           startDate: true,
           endDate: true,
           updatedAt: true,
+          submittedAt: true,
+          redemption: { select: { redemptionType: true, configuration: true } },
           _count: { select: { redemptions: true } },
           replacesOffer: { select: { id: true, title: true } },
           analytics: { select: { viewCount: true, saveCount: true } },
@@ -557,7 +568,7 @@ export async function POST(request: NextRequest) {
       replacementReason,
       saveAsDraft,
       confirmReplaceEvergreen,
-      redemptionType,
+      redemptionType: requestedRedemptionType,
       bookingUrl,
       buyQuantity,
       buyItem,
@@ -565,6 +576,28 @@ export async function POST(request: NextRequest) {
       freeItem,
       maxFreeItems,
     } = body;
+
+    // Channel (In-store / Online / Both) + branches; the channel decides redemptionType.
+    const branchSelection = parseBranchSelection(body);
+    if (!branchSelection.ok) return badRequest(branchSelection.error);
+    const redemptionType = branchSelection.value
+      ? channelRedemptionType(branchSelection.value.channel)
+      : requestedRedemptionType;
+    if (branchSelection.value) {
+      const branchError = await validateBranchSelection(merchant.id, branchSelection.value, {
+        forSubmit: !saveAsDraft,
+      });
+      if (branchError) return badRequest(branchError);
+      if (!saveAsDraft) {
+        const missing = await requiredBranchesError(merchant.id, branchSelection.value.channel);
+        if (missing) {
+          return NextResponse.json(
+            { success: false, error: { code: MISSING_BRANCHES_CODE, message: missing, field: "channel" } },
+            { status: 400 },
+          );
+        }
+      }
+    }
 
     if (!title || !offerType || !startDate || !endDate) {
       return badRequest(
@@ -723,7 +756,8 @@ export async function POST(request: NextRequest) {
           merchantId: merchant.id,
           deletedAt: null,
           status: { in: ['DRAFT', 'VALIDATION_FAILED', 'CHANGES_REQUESTED'] },
-          id: { not: body.excludeId ?? '' },
+          // id is a uuid column: '' is not a valid uuid, so only filter when set.
+          ...(body.excludeId ? { id: { not: body.excludeId } } : {}),
         },
       });
       if (existingDraft) {
@@ -852,12 +886,21 @@ export async function POST(request: NextRequest) {
       if (repeatAfterHours.value != null) {
         redemptionConfig.repeatAfterHours = repeatAfterHours.value;
       }
+      const finalRedemptionConfig = branchSelection.value
+        ? withChannelDetails(withBranchSelection(redemptionConfig, branchSelection.value))
+        : redemptionConfig;
 
       await tx.offerRedemption.create({
         data: {
           offerId: created.id,
           redemptionType: redemptionType ?? null,
-          configuration: Object.keys(redemptionConfig).length > 0 ? (redemptionConfig as any) : null,
+          redemptionTypes: branchSelection.value
+            ? channelRedemptionTypes(branchSelection.value.channel)
+            : redemptionType
+              ? [redemptionType]
+              : [],
+          configuration:
+            Object.keys(finalRedemptionConfig).length > 0 ? (finalRedemptionConfig as any) : null,
           maxRedemptions: maxRedemptions ?? null,
           currentRedemptions: 0,
           daysOfWeek: daysOfWeek ?? [0, 1, 2, 3, 4, 5, 6],

@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Save, Send, Loader2, Sparkles, Store } from "lucide-react";
+import { ArrowLeft, Loader2, Sparkles, Store } from "lucide-react";
+import { OfferBannerInfo } from "@/components/merchant/offers/OfferBannerInfo";
 import {
   useCreateMerchantOffer,
   useUpdateMerchantOffer,
@@ -20,7 +21,6 @@ import {
 import type { DeferredFile } from "@/components/shared/ImageUploader";
 import { OfferImageGallery } from "@/components/merchant/offers/OfferImageGallery";
 import { OfferMobilePreview } from "@/components/merchant/offers/OfferMobilePreview";
-import { OfferBannerInfo } from "@/components/merchant/offers/OfferBannerInfo";
 import { showToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EVERGREEN_REPLACE_CONFIRM_CODE } from "@/lib/offers/evergreen";
@@ -43,7 +43,57 @@ import {
   EVERGREEN_REQUIRED_MESSAGE,
   isEvergreenRange,
 } from "@/lib/offers/evergreen";
-import { generateOfferCode, OFFER_CODE_MIN_LENGTH, OFFER_CODE_MAX_LENGTH } from "@/lib/offer-code.shared";
+import {
+  generateOfferCode,
+  OFFER_CODE_MIN_LENGTH,
+  OFFER_CODE_MAX_LENGTH,
+  OFFER_CODE_DEFAULT_LENGTH,
+  OFFER_CODE_INVALID_MESSAGE,
+} from "@/lib/offer-code.shared";
+import {
+  DEFAULT_OFFER_FREQUENCY,
+  frequencyToRepeatHours,
+  OFFER_FREQUENCY_OPTIONS,
+  repeatHoursToFrequency,
+  type OfferFrequency,
+} from "@/lib/offers/frequency";
+import {
+  BRANCHES_REQUIRED_MESSAGE,
+  channelFromRedemption,
+  channelHasOnlineCode,
+  channelRedemptionType,
+  channelUsesBranches,
+  missingBranchesMessage,
+  type ActiveBranchCounts,
+  OFFER_CHANNELS,
+  type OfferChannel,
+} from "@/lib/offers/channel";
+
+interface BranchOption {
+  id: string;
+  name: string;
+  city: string | null;
+  isPrimary: boolean;
+}
+
+async function fetchInStoreBranches(): Promise<BranchOption[]> {
+  const res = await fetch("/api/merchant/branches?type=IN_STORE");
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message ?? "Failed to load branches");
+  return json.data ?? [];
+}
+
+async function fetchActiveBranchCounts(): Promise<ActiveBranchCounts> {
+  const res = await fetch("/api/merchant/branches?status=active");
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message ?? "Failed to load branches");
+  const rows: { branchType: string; status: string }[] = json.data ?? [];
+  const active = rows.filter((b) => b.status === "ACTIVE");
+  return {
+    inStore: active.filter((b) => b.branchType === "IN_STORE").length,
+    online: active.filter((b) => b.branchType === "ONLINE").length,
+  };
+}
 
 interface FormData {
   title: string;
@@ -71,6 +121,11 @@ interface FormData {
   submissionNotes: string;
   replacementReason: string;
   redemptionType: string;
+  /** In-store / Online / Both. Decides redemptionType (see lib/offers/channel). */
+  channel: OfferChannel;
+  /** In-store and Both offers: every in-store branch, or only `branchIds`. */
+  allBranches: boolean;
+  branchIds: string[];
   bookingUrl: string;
   qrCodeUrl: string;
   isFeatured: boolean;
@@ -182,24 +237,8 @@ function limitWords(text: string, max: number): string {
   return match ? match[0] : text;
 }
 
-/** "48" → "2"; "36" → "1.5"; empty/invalid → "". */
-function hoursToDays(hours: string): string {
-  const h = Number(hours);
-  if (!hours || !(h > 0)) return "";
-  return String(Math.round((h / 24) * 100) / 100);
-}
-
-/** 30 → "1 day 6 hours", 48 → "2 days", 5 → "5 hours". */
-function formatRepeat(hours: number): string {
-  const d = Math.floor(hours / 24);
-  const h = Math.round((hours % 24) * 100) / 100;
-  const parts: string[] = [];
-  if (d) parts.push(`${d} day${d === 1 ? "" : "s"}`);
-  if (h) parts.push(`${h} hour${h === 1 ? "" : "s"}`);
-  return parts.join(" ") || `${hours} hours`;
-}
-
-type OfferKind ="EVERGREEN" | "FLASH" | "REGULAR";
+/** REGULAR = neither Evergreen nor Flash: a normal dated offer. */
+type OfferKind = "EVERGREEN" | "FLASH" | "REGULAR";
 
 async function fetchHasLiveForever(merchantId?: string, isAdmin?: boolean): Promise<boolean> {
   const url =
@@ -218,6 +257,48 @@ function dateToLocalInput(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** "shop.com/x" → "https://shop.com/x"; links that already have a scheme are kept. */
+function normalizeUrl(value: string): string {
+  const v = value.trim();
+  if (!v) return v;
+  return /^https?:\/\//i.test(v) ? v : `https://${v}`;
+}
+
+/** Field key → name used in the "Please fix N fields" summary. */
+const FIELD_NAMES: Record<string, string> = {
+  offerKind: "offer type",
+  isForever: "offer type",
+  title: "title",
+  description: "description",
+  shortDescription: "description",
+  offerType: "discount type",
+  discountValue: "discount",
+  discountPercent: "discount",
+  minimumSpend: "minimum spend",
+  discountMax: "maximum discount",
+  buyQuantity: "buy quantity",
+  buyItem: "buy item",
+  getQuantity: "get quantity",
+  freeItem: "free item",
+  maxFreeItems: "maximum free items",
+  branches: "branches",
+  channel: "required branches",
+  redemptionCode: "promo code",
+  bookingUrl: "booking link",
+  startDate: "start date",
+  endDate: "end date",
+  repeatAfterHours: "frequency",
+  maxRedemptions: "max redemptions",
+  daysOfWeek: "available days",
+  termsAndConditions: "terms and conditions",
+  categoryId: "category",
+};
+
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 /** Number inputs accept e/E/+/- ; money fields never need them. */
 function blockNonMoneyKeys(e: React.KeyboardEvent<HTMLInputElement>) {
   if (["e", "E", "+", "-"].includes(e.key)) e.preventDefault();
@@ -226,7 +307,7 @@ function blockNonMoneyKeys(e: React.KeyboardEvent<HTMLInputElement>) {
 function getTargetOfferCodeLength(currentValue: string): number {
   const length = Number(currentValue.trim().length);
   if (!Number.isFinite(length) || length <= 0) {
-    return OFFER_CODE_MIN_LENGTH;
+    return OFFER_CODE_DEFAULT_LENGTH;
   }
 
   return Math.min(
@@ -266,6 +347,8 @@ export function OfferForm({
     }
   };
   const [errors, setErrors] = useState<FormErrors>({});
+  // "More options" starts open: it still holds required fields (min spend, terms).
+  const summaryRef = useRef<HTMLDivElement>(null);
   const [showStrength, setShowStrength] = useState(false);
   const [pendingAction, setPendingAction] = useState<"draft" | "submit" | null>(null);
   // Set when the server says an Evergreen is already LIVE and needs confirmation.
@@ -326,7 +409,10 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     discountPercent: initialData?.discountPercent ?? "",
     minimumSpend: initialData?.minimumSpend ?? "",
     maxRedemptions: initialData?.maxRedemptions ?? "",
-    repeatAfterHours: initialData?.repeatAfterHours ?? "",
+    // New offers start on the default Frequency; edits keep their stored value.
+    repeatAfterHours:
+      initialData?.repeatAfterHours ??
+      (isEdit ? "" : String(frequencyToRepeatHours(DEFAULT_OFFER_FREQUENCY))),
     buyQuantity: initialData?.buyQuantity ?? "",
     buyItem: initialData?.buyItem ?? "",
     getQuantity: initialData?.getQuantity ?? "",
@@ -339,7 +425,14 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     redemptionInstructions: initialData?.redemptionInstructions ?? "",
     submissionNotes: initialData?.submissionNotes ?? "",
     replacementReason: initialData?.replacementReason ?? "",
-    redemptionType: initialData?.redemptionType ?? "ONLINE_CODE",
+    redemptionType: initialData?.redemptionType ?? "VIRTUAL_CARD_AUTO_VERIFY",
+    channel:
+      initialData?.channel ??
+      // New offers default to In-store: an online code needs an ONLINE branch,
+      // which most merchants don't have, so defaulting to Online fails submit.
+      channelFromRedemption(initialData?.redemptionType ?? "VIRTUAL_CARD_AUTO_VERIFY", null),
+    allBranches: initialData?.allBranches ?? true,
+    branchIds: initialData?.branchIds ?? [],
     bookingUrl: initialData?.bookingUrl ?? "",
     qrCodeUrl: initialData?.qrCodeUrl ?? "",
     isFeatured: initialData?.isFeatured ?? false,
@@ -536,17 +629,17 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
   useEffect(() => {
     if (autoKindApplied.current || isEdit || liveForeverLoading) return;
     autoKindApplied.current = true;
-    if (!hasLiveForever && !form.isForever) toggleForever(true);
+    if (form.isForever || form.isFlash) return;
+    // Regular is gone: no live Evergreen → Evergreen; otherwise → Flash.
+    if (!hasLiveForever) toggleForever(true);
+    else toggleFlash(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveForeverLoading, hasLiveForever, isEdit]);
 
-  // Repeat-after: days drive hours (days × 24); hours stay editable and back-fill days.
-  const [repeatDays, setRepeatDays] = useState(() =>
-    hoursToDays(initialData?.repeatAfterHours ?? ""),
-  );
-  const setRepeatHours = (hours: string, syncDays = true) => {
-    setForm((prev) => ({ ...prev, repeatAfterHours: hours }));
-    if (syncDays) setRepeatDays(hoursToDays(hours));
+  // Frequency is stored as the repeat-after cooldown (see lib/offers/frequency).
+  const frequency = repeatHoursToFrequency(form.repeatAfterHours);
+  const setFrequency = (value: OfferFrequency) => {
+    setForm((prev) => ({ ...prev, repeatAfterHours: String(frequencyToRepeatHours(value)) }));
     if (errors.repeatAfterHours)
       setErrors((prev) => {
         const n = { ...prev };
@@ -573,6 +666,56 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     }
   };
 
+  const usesBranches = channelUsesBranches(form.channel);
+  const hasOnlineCode = channelHasOnlineCode(form.channel);
+  const { data: branchOptions = [], isLoading: branchesLoading, isError: branchesError } = useQuery({
+    queryKey: ["merchant-branches", "IN_STORE"],
+    queryFn: fetchInStoreBranches,
+    // Admins act through other endpoints; they can still pick "All branches".
+    enabled: !isAdmin,
+    staleTime: 60 * 1000,
+  });
+
+  // Channel needs: In-store → active In-store branch, Online → active Online
+  // branch, Both → one of each. Warn up front so the merchant adds them first.
+  const { data: activeBranchCounts } = useQuery({
+    queryKey: ["merchant-branches", "active-counts"],
+    queryFn: fetchActiveBranchCounts,
+    enabled: !isAdmin,
+    staleTime: 30 * 1000,
+  });
+  const missingBranchesMsg = activeBranchCounts
+    ? missingBranchesMessage(form.channel, activeBranchCounts)
+    : null;
+
+  const clearError = (...keys: string[]) =>
+    setErrors((prev) => {
+      if (!keys.some((k) => k in prev)) return prev;
+      const n = { ...prev };
+      keys.forEach((k) => delete n[k]);
+      return n;
+    });
+
+  const setChannel = (channel: OfferChannel) => {
+    setForm((prev) => ({ ...prev, channel, redemptionType: channelRedemptionType(channel) }));
+    clearError("branches", "redemptionCode", "bookingUrl");
+  };
+
+  const setAllBranches = (allBranches: boolean) => {
+    setForm((prev) => ({ ...prev, allBranches }));
+    clearError("branches");
+  };
+
+  const toggleBranch = (id: string) => {
+    setForm((prev) => ({
+      ...prev,
+      branchIds: prev.branchIds.includes(id)
+        ? prev.branchIds.filter((b) => b !== id)
+        : [...prev.branchIds, id],
+    }));
+    clearError("branches");
+  };
+
   const handleGenerateOfferCode = () => {
     const nextCode = generateOfferCode(getTargetOfferCodeLength(form.redemptionCode));
     setForm((prev) => ({ ...prev, redemptionCode: nextCode }));
@@ -594,7 +737,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       errs.shortDescription = `Short description must be ${DESCRIPTION_MAX_WORDS} words or fewer`;
     if (countWords(form.description) > DESCRIPTION_MAX_WORDS)
       errs.description = `Description must be ${DESCRIPTION_MAX_WORDS} words or fewer`;
-    if (offerKind !== "EVERGREEN" && kindLocked(offerKind))
+    if (kindLocked(offerKind))
       errs.offerKind = EVERGREEN_REQUIRED_MESSAGE;
     if (!form.offerType) errs.offerType = "Offer type is required";
 
@@ -636,13 +779,21 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       }
     }
 
-    if (form.redemptionType === "ONLINE_CODE") {
-      if (!form.bookingUrl.trim()) errs.bookingUrl = "Booking URL is required";
-      else if (!/^https?:\/\/\S+$/i.test(form.bookingUrl.trim()))
-        errs.bookingUrl = "Enter a valid URL starting with http:// or https://";
+    if (usesBranches && !form.allBranches && form.branchIds.length === 0)
+      errs.branches = BRANCHES_REQUIRED_MESSAGE;
+    if (missingBranchesMsg) errs.channel = missingBranchesMsg;
+
+    if (hasOnlineCode) {
+      if (!form.bookingUrl.trim()) errs.bookingUrl = "Booking link is required";
+      else if (!/^https?:\/\/[^\s.]+\.\S+$/i.test(normalizeUrl(form.bookingUrl)))
+        errs.bookingUrl = "Enter a valid link, e.g. yourwebsite.com/offer";
       if (!form.redemptionCode.trim()) errs.redemptionCode = "Offer code is required";
-      else if (!/^[A-Za-z0-9]{6,30}$/.test(form.redemptionCode.trim()))
-        errs.redemptionCode = "Offer code must be between 6 and 30 letters or numbers.";
+      else if (
+        !new RegExp(`^[A-Z0-9]{${OFFER_CODE_MIN_LENGTH},${OFFER_CODE_MAX_LENGTH}}$`).test(
+          form.redemptionCode.trim(),
+        )
+      )
+        errs.redemptionCode = OFFER_CODE_INVALID_MESSAGE;
     }
 
     if (!form.startDate.trim()) errs.startDate = "Start date is required";
@@ -669,8 +820,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         errs.maxRedemptions = "Must be a whole number greater than 0";
     }
 
-    if (form.repeatAfterHours && !(Number(form.repeatAfterHours) > 0))
-      errs.repeatAfterHours = "Must be a positive number of hours";
+    if (!frequency) errs.repeatAfterHours = "Choose how often employees can use this offer";
 
     const selectedDays = form.daysOfWeek.split(",").filter(Boolean);
     if (selectedDays.length === 0) {
@@ -684,16 +834,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       }
     }
 
+    // The "Please fix N fields" banner at the top of the form shows the summary.
     setErrors(errs);
-    const count = Object.keys(errs).length;
-    if (count > 0) {
-      showToast({
-        type: "error",
-        title: `Please fix ${count} field${count > 1 ? "s" : ""} before submitting`,
-        description: Object.values(errs)[0],
-      });
-    }
-    return count === 0;
+    return Object.keys(errs).length === 0;
   };
 
   const buildBody = (saveAsDraft = false): Record<string, unknown> => ({
@@ -732,12 +875,17 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     submissionNotes: form.submissionNotes || null,
     replacementReason: isReplacement ? form.replacementReason || null : null,
     saveAsDraft,
-    redemptionType: form.redemptionType || null,
-    // Don't send stale code/URL left over from a previously selected redemption type.
-    ...(form.redemptionType !== "ONLINE_CODE" ? { redemptionCode: null } : {}),
+    redemptionType: channelRedemptionType(form.channel),
+    channel: form.channel,
+    allBranches: usesBranches ? form.allBranches : false,
+    branchIds: usesBranches && !form.allBranches ? form.branchIds : [],
+    // Don't send stale code/URL left over from a previously selected channel.
+    ...(!hasOnlineCode ? { redemptionCode: null } : {}),
     bookingUrl:
-      form.redemptionType === "ONLINE_CODE" || form.redemptionType === "BOOKING_LINK"
-        ? form.bookingUrl || null
+      hasOnlineCode
+        ? form.bookingUrl.trim()
+          ? normalizeUrl(form.bookingUrl)
+          : null
         : null,
     qrCodeUrl: form.qrCodeUrl || null,
     ...(isReplacement && currentLiveOffer
@@ -823,7 +971,13 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submittingRef.current) return;
-    if (!validate()) return;
+    if (!validate()) {
+      // Errors may sit inside "More options"; make sure they're visible.
+      requestAnimationFrame(() =>
+        summaryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+      return;
+    }
 
     submittingRef.current = true;
     setPendingAction("submit");
@@ -1068,81 +1222,81 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
           .filter((u): u is string => !!u),
       [pendingImages],
     );
-  const labelClass = "text-sm font-medium";
   const inputClass = "w-full";
+  const textareaClass =
+    "flex min-h-[80px] w-full rounded-md border bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring";
+  const selectClass =
+    "flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring";
+  /** Red border for a field with an error; normal border otherwise. */
+  const borderFor = (message?: string) =>
+    message ? "border-destructive focus-visible:ring-destructive" : "border-input";
+  const ErrorText = ({ message }: { message?: string }) =>
+    message ? <p className="mt-1 text-xs text-destructive">{message}</p> : null;
+  const HintText = ({ children }: { children: React.ReactNode }) => (
+    <p className="mt-1 text-xs text-muted-foreground">{children}</p>
+  );
+
+  const errorKeys = Object.keys(errors);
+  const errorNames = Array.from(
+    new Set(errorKeys.map((k) => FIELD_NAMES[k] ?? k)),
+  );
+  const summaryText = errorNames.length
+    ? `${joinNames(errorNames).replace(/^./, (c) => c.toUpperCase())} need${
+        errorNames.length === 1 ? "s" : ""
+      } attention.`
+    : "";
+
+  const pageTitle = isReplacement ? "Replace offer" : isEdit ? "Edit offer" : "Create offer";
+  const pageSubtitle = isReplacement
+    ? "Your current offer stays live until the replacement is approved."
+    : isEdit
+      ? "Update your offer details"
+      : "Fill in the essentials, then submit for review.";
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      {/* Header */}
+      <div className="flex items-start gap-3">
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          onClick={() => router.push(fallbackRoute)}
+          className="mt-1"
+          onClick={() => (onCancel ? onCancel() : router.push(fallbackRoute))}
+          aria-label="Back to offers"
         >
           <ArrowLeft className="h-5 w-5" />
         </Button>
-
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            {isReplacement
-              ? "Replace My Offer"
-              : isEdit
-                ? "Edit Offer"
-                : "Create Offer"}
-          </h1>
-
-          <p className="mt-1 text-sm text-muted-foreground">
-            {isReplacement
-              ? "Submit a replacement offer for review. Your current offer stays live until approved."
-              : isEdit
-                ? "Update your offer details"
-                : "Create a new discount offer"}
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight">{pageTitle}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{pageSubtitle}</p>
         </div>
+      </div>
+
+      {/* Error summary */}
+      <div ref={summaryRef} className="scroll-mt-4">
+        {errorKeys.length > 0 && (
+          <div
+            role="alert"
+            className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3"
+          >
+            <p className="text-sm font-semibold text-destructive">
+              Please fix {errorKeys.length} field{errorKeys.length > 1 ? "s" : ""}
+            </p>
+            <p className="mt-0.5 text-sm text-destructive/90">{summaryText}</p>
+          </div>
+        )}
       </div>
 
       {isReplacement && currentLiveOffer && (
         <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
           <CardContent className="p-4 text-sm">
             <p className="font-medium">
-              Replacing:
-              <span className="text-blue-600">{currentLiveOffer.title}</span>
+              Replacing: <span className="text-blue-600">{currentLiveOffer.title}</span>
             </p>
-
-            <p className="text-muted-foreground mt-1">
+            <p className="mt-1 text-muted-foreground">
               Your current live offer will remain visible to employees until the
               replacement is approved.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {isReplacement && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Replacement Details</CardTitle>
-          </CardHeader>
-
-          <CardContent>
-            <FieldLabel
-              htmlFor="replacementReason"
-              info="Only visible to the admin team. Explain what changed (e.g. better discount, new menu) so the replacement can be approved faster."
-            >
-              Reason for replacement
-            </FieldLabel>
-
-            <textarea
-              id="replacementReason"
-              className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              value={form.replacementReason}
-              onChange={set("replacementReason")}
-              placeholder="Why are you replacing your current offer? (shown to admins during review)"
-              maxLength={1000}
-            />
-
-            <p className="mt-1 text-xs text-muted-foreground">
-              {form.replacementReason.length}/1000
             </p>
           </CardContent>
         </Card>
@@ -1152,7 +1306,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/20">
           <CardContent className="p-4 text-sm">
             <p className="font-medium">Business category not set</p>
-            <p className="text-muted-foreground mt-1">
+            <p className="mt-1 text-muted-foreground">
               Your business category is not set. Please contact support. You
               can still save a draft, but the offer cannot be submitted until a
               category is assigned.
@@ -1161,10 +1315,35 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         </Card>
       )}
 
+        {isReplacement && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Replacement details</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <FieldLabel
+                htmlFor="replacementReason"
+                info="Only visible to the admin team. Explain what changed (e.g. better discount, new menu) so the replacement can be approved faster."
+              >
+                Reason for replacement
+              </FieldLabel>
+              <textarea
+                id="replacementReason"
+                className={`${textareaClass} border-input`}
+                value={form.replacementReason}
+                onChange={set("replacementReason")}
+                placeholder="Why are you replacing your current offer? (shown to admins during review)"
+                maxLength={1000}
+              />
+              <HintText>{form.replacementReason.length}/1000</HintText>
+            </CardContent>
+          </Card>
+        )}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)] lg:items-start">
         {/* Left column — form fields */}
         <div className="min-w-0 space-y-6">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6" noValidate>
             <Card>
               <CardHeader>
                 <CardTitle>Offer Details</CardTitle>
@@ -1175,1048 +1354,800 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                   <FieldLabel
                     required
                     info={
-                      <ul className="list-disc space-y-1 pl-4">
-                        <li><b>Evergreen</b> — always-on offer, dates set {FOREVER_YEARS} years from the start. Only one live at a time.</li>
-                        <li><b>Flash</b> — short, up to {FLASH_MAX_DAYS} days. Needs a live Evergreen offer.</li>
-                        <li><b>Regular</b> — a normal dated offer. Needs a live Evergreen offer.</li>
-                      </ul>
+                <ul className="list-disc space-y-1 pl-4">
+                  <li>
+                    <b>Evergreen</b> — always-on, one per branch. Starts when we
+                    approve it and has no end date.
+                  </li>
+                  <li>
+                    <b>Flash</b> — up to {FLASH_MAX_DAYS} days, only while your
+                    evergreen offer is live.
+                  </li>
+                  <li>
+                    <b>Regular</b> — a normal dated offer. Needs a live
+                    evergreen offer.
+                  </li>
+                </ul>
                     }
                   >
                     What kind of offer are you creating?
                   </FieldLabel>
-                  <div className="mt-2 grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-3 lg:max-w-3xl">
+              {(
+                [
+                  { kind: "EVERGREEN", label: "Evergreen offer", hint: "Always-on, one per branch" },
+                  {
+                    kind: "FLASH",
+                    label: "Flash offer",
+                    hint: `Up to ${FLASH_MAX_DAYS} days, only while your evergreen is live`,
+                  },
+                  { kind: "REGULAR", label: "Regular offer", hint: "Normal start and end dates" },
+                ] as const
+              ).map(({ kind, label, hint }) => {
+                const locked = kindLocked(kind);
+                const active = offerKind === kind;
+                return (
+                  <button
+                    key={kind}
+                    type="button"
+                    disabled={locked || liveForeverLoading}
+                    onClick={() => selectOfferKind(kind)}
+                    aria-pressed={active}
+                    className={`rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      active
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : errors.offerKind
+                          ? "border-destructive"
+                          : "hover:bg-muted/50"
+                    }`}
+                  >
+                    <span className="block text-sm font-medium">{label}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {locked ? "Requires a live Evergreen offer" : hint}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {!liveForeverLoading && !hasLiveForever && (
+              <HintText>
+                You don&apos;t have a live evergreen offer yet. Create one first —
+                Flash and Regular offers unlock once it&apos;s live.
+              </HintText>
+            )}
+            {!liveForeverLoading && hasLiveForever && !isEdit && !isReplacement && (
+              <HintText>You already have an evergreen offer. Use Replace to change it.</HintText>
+            )}
+            <ErrorText message={errors.offerKind || errors.isForever} />
+                </div>
+
+              <div>
+                <FieldLabel
+                  htmlFor="title"
+                  required
+                  info={`The headline employees see on the offer card. Lead with the benefit, e.g. “20% off all main courses”. 5–${TITLE_MAX_CHARS} characters.`}
+                >
+                  Title
+                </FieldLabel>
+                <Input
+                  id="title"
+                  className={`${inputClass} ${borderFor(errors.title)}`}
+                  value={form.title}
+                  onChange={set("title")}
+                  placeholder="e.g. 20% off all menu items"
+                  maxLength={TITLE_MAX_CHARS}
+                  aria-invalid={!!errors.title}
+                />
+                {errors.title ? (
+                  <ErrorText message={errors.title} />
+                ) : (
+                  <HintText>
+                    {form.title.length}/{TITLE_MAX_CHARS}
+                  </HintText>
+                )}
+              </div>
+
+              <div>
+                <FieldLabel
+                  htmlFor="description"
+                  info="Full details shown on the offer page: what's included, what's excluded, and anything that makes the offer stand out."
+                >
+                  Description
+                </FieldLabel>
+                <textarea
+                  id="description"
+                  className={`${textareaClass} ${borderFor(errors.description)}`}
+                  value={form.description}
+                  onChange={set("description")}
+                  placeholder="Tell employees about the offer"
+                />
+                {errors.description ? (
+                  <ErrorText message={errors.description} />
+                ) : (
+                  <HintText>
+                    {countWords(form.description)}/{DESCRIPTION_MAX_WORDS} words
+                  </HintText>
+                )}
+              </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <FieldLabel
+                  htmlFor="category"
+                  info="Set automatically from your business profile and can't be changed per offer. Contact support if it's wrong."
+                >
+                  Category
+                </FieldLabel>
+                <Input
+                  id="category"
+                  className={`${inputClass} md:max-w-md`}
+                  value={categoryLoading ? "Loading..." : (merchantCategory?.name ?? "Not set")}
+                  readOnly
+                  disabled
+                />
+                <ErrorText message={errors.categoryId} />
+              </div>
+
+              <div>
+                <FieldLabel
+                  htmlFor="offerType"
+                  required
+                  info={
+                    <ul className="list-disc space-y-1 pl-4">
+                      <li><b>Flat amount</b> — a fixed € amount off (e.g. €10 off).</li>
+                      <li><b>Percentage</b> — a % off the bill, capped by the maximum discount.</li>
+                      <li><b>Buy X Get Y</b> — buy a quantity, get items free.</li>
+                    </ul>
+                  }
+                >
+                  Discount type
+                </FieldLabel>
+                <select
+                  id="offerType"
+                  name="offerType"
+                  className={`${selectClass} ${borderFor(errors.offerType)}`}
+                  value={form.offerType}
+                  onChange={set("offerType")}
+                >
+                  <option value="PERCENTAGE">Percentage</option>
+                  <option value="FLAT">Flat amount (€)</option>
+                  <option value="BUY_X_GET_Y">Buy X Get Y</option>
+                </select>
+                <ErrorText message={errors.offerType} />
+              </div>
+                </div>
+
+            {/* Channel + Branches */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <FieldLabel
+                  required
+                  info={
+                    <ul className="list-disc space-y-1 pl-4">
+                      <li><b>In-store</b> — employee shows a virtual card at your branch; verified automatically.</li>
+                      <li><b>Online</b> — employee gets your promo code to use on your website.</li>
+                      <li><b>Both</b> — the offer works in your branches and online.</li>
+                    </ul>
+                  }
+                >
+                  Channel
+                </FieldLabel>
+                <div
+                  role="radiogroup"
+                  aria-label="Channel"
+                  className="inline-flex rounded-md border border-input p-0.5"
+                >
+                  {OFFER_CHANNELS.map((c) => {
+                    const active = form.channel === c.value;
+                    return (
+                      <button
+                        key={c.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => setChannel(c.value)}
+                        className={`rounded px-4 py-1.5 text-sm transition-colors ${
+                          active
+                            ? "bg-primary/10 font-medium text-primary"
+                            : "text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {c.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {missingBranchesMsg && (
+                  <div
+                    role="alert"
+                    className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+                  >
+                    {missingBranchesMsg}{" "}
+                    <a href="/merchant/branches" className="font-medium underline">
+                      Manage branches
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {usesBranches && (
+                <div>
+                  <FieldLabel
+                    required
+                    info="Which of your in-store branches accept this offer. Choose all branches, or pick at least one."
+                  >
+                    Branches
+                  </FieldLabel>
+                  <div
+                    role="radiogroup"
+                    aria-label="Branches"
+                    className={`inline-flex rounded-md border p-0.5 ${
+                      errors.branches ? "border-destructive" : "border-input"
+                    }`}
+                  >
                     {(
                       [
-                        { kind: "EVERGREEN", label: "Evergreen Offer", hint: "Always-on, one live at a time" },
-                        { kind: "FLASH", label: "Flash Offer", hint: `Up to ${FLASH_MAX_DAYS} days` },
-                        { kind: "REGULAR", label: "Regular Offer", hint: "Normal start and end dates" },
+                        { all: true, label: "All branches" },
+                        { all: false, label: "Choose branches" },
                       ] as const
-                    ).map(({ kind, label, hint }) => {
-                      const locked = kindLocked(kind);
-                      const active = offerKind === kind;
+                    ).map((o) => {
+                      const active = form.allBranches === o.all;
                       return (
                         <button
-                          key={kind}
+                          key={o.label}
                           type="button"
-                          disabled={locked || liveForeverLoading}
-                          onClick={() => selectOfferKind(kind)}
-                          aria-pressed={active}
-                          className={`rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                            active ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-muted/50"
+                          role="radio"
+                          aria-checked={active}
+                          onClick={() => setAllBranches(o.all)}
+                          disabled={!o.all && isAdmin}
+                          className={`rounded px-4 py-1.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                            active
+                              ? "bg-primary/10 font-medium text-primary"
+                              : "text-foreground hover:bg-muted"
                           }`}
                         >
-                          <span className="block text-sm font-medium">{label}</span>
-                          <span className="block text-xs text-muted-foreground">
-                            {locked ? "Requires a live Evergreen offer" : hint}
-                          </span>
+                          {o.label}
                         </button>
                       );
                     })}
                   </div>
-                  {!liveForeverLoading && !hasLiveForever && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      You don&apos;t have a live Evergreen offer yet. Create one first —
-                      Flash and Regular offers unlock once it&apos;s live.
-                    </p>
-                  )}
-                  {(errors.offerKind || errors.isForever) && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.offerKind || errors.isForever}
-                    </p>
-                  )}
-                </div>
 
-                <div>
-                  <FieldLabel
-                    htmlFor="title"
-                    required
-                    info={`The headline employees see on the offer card. Lead with the benefit, e.g. “20% off all main courses”. 5–${TITLE_MAX_CHARS} characters.`}
-                  >
-                    Title
-                  </FieldLabel>
-
-                  <Input
-                    id="title"
-                    className={inputClass}
-                    value={form.title}
-                    onChange={set("title")}
-                    placeholder="e.g. 20% Off All Menu Items"
-                    maxLength={TITLE_MAX_CHARS}
-                  />
-
-                  {errors.title ? (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.title}
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {form.title.length}/{TITLE_MAX_CHARS}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  {/* <FieldLabel
-                    htmlFor="shortDescription"
-                    info="One-line summary shown under the title in offer lists. Keep it scannable."
-                  >
-                    Short Description
-                  </FieldLabel> */}
-
-                  <Input
-                    id="shortDescription"
-                    className={inputClass}
-                    value={form.shortDescription}
-                    onChange={set("shortDescription")}
-          
-                    style={{ display: "none" }}
-                  />
-                  {/* {errors.shortDescription ? (
-                    <p className="mt-1 text-xs text-destructive">{errors.shortDescription}</p>
-                  ) : (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {countWords(form.shortDescription)}/{DESCRIPTION_MAX_WORDS} words
-                    </p>
-                  )} */}
-                </div>
-
-                <div>
-                  <FieldLabel
-                    htmlFor="description"
-                    info="Full details shown on the offer page: what's included, what's excluded, and anything that makes the offer stand out."
-                  >
-                    Description
-                  </FieldLabel>
-
-                  <textarea
-                    id="description"
-                    className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    value={form.description}
-                    onChange={set("description")}
-                    placeholder={`Full offer description (max ${DESCRIPTION_MAX_WORDS} words)`}
-                  />
-                  {errors.description ? (
-                    <p className="mt-1 text-xs text-destructive">{errors.description}</p>
-                  ) : (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {countWords(form.description)}/{DESCRIPTION_MAX_WORDS} words
-                    </p>
-                  )}
-                </div>
-                
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {/* <div>
-                    <FieldLabel info="Request a highlighted placement in the app. Cannot be combined with Exclusive — turning one on turns the other off. Final placement is decided during review.">
-                      Featured Offer
-                    </FieldLabel>
-                    <div className="mt-2">
-                      <button
-                        type="button"
-                        onClick={toggleBoolean("isFeatured")}
-                        className={`
-                          rounded-full px-3 py-1.5 text-xs font-medium transition-colors
-                          ${
-                            form.isFeatured
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-muted-foreground hover:bg-muted/80"
-                          }
-                        `}
-                      >
-                        {form.isFeatured ? "Featured" : "Not Featured"}
-                      </button>
-                    </div>
-                  </div> */}
-
-                  {/* <div>
-                    <FieldLabel info="Mark this as only available through this platform (not offered to the general public). Cannot be combined with Featured.">
-                      Exclusive Offer
-                    </FieldLabel>
-                    <div className="mt-2">
-                      <button
-                        type="button"
-                        onClick={toggleBoolean("isExclusive")}
-                        className={`
-                          rounded-full px-3 py-1.5 text-xs font-medium transition-colors
-                          ${
-                            form.isExclusive
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-muted-foreground hover:bg-muted/80"
-                          }
-                        `}
-                      >
-                        {form.isExclusive ? "Exclusive" : "Not Exclusive"}
-                      </button>
-                    </div>
-                  </div> */}
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <FieldLabel
-                      htmlFor="category"
-                      info="Set automatically from your business profile and can't be changed per offer. Contact support if it's wrong."
-                    >
-                      Category
-                    </FieldLabel>
-
-                    <Input
-                      id="category"
-                      name="category"
-                      className={inputClass}
-                      value={
-                        categoryLoading
-                          ? "Loading..."
-                          : (merchantCategory?.name ?? "Not set")
-                      }
-                      readOnly
-                      disabled
-                    />
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Based on your business category
-                    </p>
-                  </div>
-
-                  <div>
-                    <FieldLabel
-                      htmlFor="offerType"
-                      required
-                      info={
-                        <ul className="list-disc space-y-1 pl-4">
-                          <li><b>Flat Amount</b> — a fixed amount off (e.g. 10 off).</li>
-                          <li><b>Percentage</b> — a % off the bill, optionally capped.</li>
-                          <li><b>Buy X Get Y</b> — buy a quantity, get items free.</li>
-                        </ul>
-                      }
-                    >
-                      Offer Type
-                    </FieldLabel>
-
-                    <select
-                      id="offerType"
-                      name="offerType"
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                      value={form.offerType}
-                      onChange={set("offerType")}
-                    >
-                      <option value="FLAT">Flat Amount</option>
-                      <option value="PERCENTAGE">Percentage</option>
-
-                      <option value="BUY_X_GET_Y">Buy X Get Y</option>
-                    </select>
-                  </div>
-                </div>
-                {/* Redemption Type Selection */}
-                <div>
-                  <FieldLabel
-                    htmlFor="redemptionType"
-                    required
-                    info={
-                      <ul className="list-disc space-y-1 pl-4">
-                        <li><b>Online Code</b> — employee gets your code and uses it on your website/booking page.</li>
-                        <li><b>Virtual Card</b> — employee shows a card in-store; redemption is verified automatically.</li>
-                      </ul>
-                    }
-                  >
-                    Redemption Type
-                  </FieldLabel>
-
-                  <select
-                    id="redemptionType"
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                    value={form.redemptionType}
-                    onChange={set("redemptionType")}
-                    name="redemptionType"
-                  >
-                    {/* <option value="IN_STORE_QR">In-Store QR Code</option> */}
-                    <option value="ONLINE_CODE">Online Code</option>
-
-                     {/*<option value="BOOKING_LINK">Booking Link</option> */}
-                    <option value="VIRTUAL_CARD_AUTO_VERIFY">
-                      Virtual Card (Auto Verify)
-                    </option>
-                  </select>
-
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {form.redemptionType === "ONLINE_CODE" &&
-                      "Employee gets a code to enter on merchant website"}
-
-                    {form.redemptionType === "BOOKING_LINK" &&
-                      "Employee is redirected to merchant booking page"}
-
-                    {form.redemptionType === "IN_STORE_QR" &&
-                      "Employee shows QR code at merchant location"}
-
-                    {form.redemptionType === "VIRTUAL_CARD_AUTO_VERIFY" &&
-                      "Employee shows a virtual card at the counter; redemption is verified automatically"}
-                  </p>
-                </div>
-                {/* Redemption Type Specific Fields */}
-
-                {form.redemptionType === "ONLINE_CODE" && (
-                  <Card className="bg-muted/30">
-                    <CardHeader>
-                      <CardTitle className="text-sm">
-                        Online Code Configuration
-                      </CardTitle>
-                    </CardHeader>
-
-                    <CardContent className="space-y-4">
-                      <div>
-                        <FieldLabel
-                          htmlFor="bookingUrl"
-                          required
-                          info="The page where employees enter the offer code — usually your checkout or booking page. Must start with http:// or https://."
-                        >
-                          Booking URL
-                        </FieldLabel>
-
-                        <Input
-                          id="bookingUrl"
-                          className={inputClass}
-                          value={form.bookingUrl}
-                          onChange={set("bookingUrl")}
-                          placeholder="https://merchant-website.com/offer"
-                          type="url"
-                        />
-
-                        {errors.bookingUrl ? (
-                          <p className="mt-1 text-xs text-destructive">{errors.bookingUrl}</p>
-                        ) : (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Where employees will be directed to use their code
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <FieldLabel
-                          htmlFor="redemptionCode"
-                          required
-                          info="The discount code employees enter at checkout. It must already be set up in your own checkout system. Use Generate for a random code, then create the same code on your side."
-                        >
-                          Offer Code
-                        </FieldLabel>
-
-                        <div className="flex gap-2">
-                          <Input
-                            id="redemptionCode"
-                            className={`${inputClass} flex-1`}
-                            value={form.redemptionCode}
-                            onChange={set("redemptionCode")}
-                            placeholder="e.g. SAVE10CODE24"
-                            minLength={OFFER_CODE_MIN_LENGTH}
-                            maxLength={OFFER_CODE_MAX_LENGTH}
-                          />
-
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={handleGenerateOfferCode}
-                            className="shrink-0"
-                          >
-                            <Sparkles className="mr-1 h-4 w-4" />
-                            Generate
-                          </Button>
-                        </div>
-
-                        {errors.redemptionCode ? (
-                          <p className="mt-1 text-xs text-destructive">{errors.redemptionCode}</p>
-                        ) : (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            6–30 character alphanumeric code employees enter at checkout.
-                          </p>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {form.redemptionType === "BOOKING_LINK" && (
-                  <Card className="bg-muted/30">
-                    <CardHeader>
-                      <CardTitle className="text-sm">
-                        Booking Link Configuration
-                      </CardTitle>
-                    </CardHeader>
-
-                    <CardContent>
-                      <div>
-                        <FieldLabel required info="Direct link to your booking system where the offer applies.">
-                          Booking URL
-                        </FieldLabel>
-
-                        <Input
-                          className={inputClass}
-                          value={form.bookingUrl}
-                          onChange={set("bookingUrl")}
-                          placeholder="https://booking-system.com/offers/..."
-                          type="url"
-                        />
-
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Direct link to merchant booking system
+                  {!form.allBranches && (
+                    <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-md border border-input p-2">
+                      {branchesLoading ? (
+                        <p className="text-xs text-muted-foreground">Loading branches…</p>
+                      ) : branchesError ? (
+                        <p className="text-xs text-destructive">Couldn&apos;t load your branches. Refresh and try again.</p>
+                      ) : branchOptions.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          You have no in-store branches yet. Add one under Branches.
                         </p>
-                      </div>
-                    </CardContent>
-                  </Card>
+                      ) : (
+                        branchOptions.map((b) => (
+                          <label
+                            key={b.id}
+                            className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50"
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-primary"
+                              checked={form.branchIds.includes(b.id)}
+                              onChange={() => toggleBranch(b.id)}
+                            />
+                            <span>{b.name}</span>
+                            {b.city && <span className="text-xs text-muted-foreground">· {b.city}</span>}
+                            {b.isPrimary && <span className="text-xs text-muted-foreground">(main)</span>}
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  {errors.branches ? (
+                    <ErrorText message={errors.branches} />
+                  ) : !form.allBranches && form.branchIds.length > 0 ? (
+                    <HintText>
+                      {form.branchIds.length} branch{form.branchIds.length > 1 ? "es" : ""} chosen
+                    </HintText>
+                  ) : form.allBranches ? (
+                    <HintText>Every in-store branch, including ones you add later</HintText>
+                  ) : null}
+                </div>
+              )}
+            </div>
+
+            {/* How employees redeem */}
+            <div className="space-y-3">
+              <p className="text-sm font-medium">How employees redeem</p>
+              <div className="grid gap-4 md:grid-cols-3">
+                {usesBranches && (
+                  <div>
+                    <FieldLabel
+                      htmlFor="inStoreMethod"
+                      info="In-store, the employee shows a virtual card with their name, company and a unique code to your staff. The redemption is verified automatically — no confirmation needed on your side."
+                    >
+                      In-store
+                    </FieldLabel>
+                    <Input id="inStoreMethod" className={inputClass} value="Virtual card" readOnly disabled />
+                  </div>
                 )}
 
-                {form.redemptionType === "IN_STORE_QR" && (
-                  <Card className="bg-muted/30">
-                    <CardHeader>
-                      <CardTitle className="text-sm">
-                        In-Store QR Configuration
-                      </CardTitle>
-                    </CardHeader>
-
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">
-                        A unique QR code will be generated for this offer.
-                        Employees will scan it at the merchant location to
-                        receive their redemption code.
-                      </p>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {form.redemptionType === "VIRTUAL_CARD_AUTO_VERIFY" && (
-                  <Card className="bg-muted/30">
-                    <CardHeader>
-                      <CardTitle className="text-sm">
-                        Virtual Card Configuration
-                      </CardTitle>
-                    </CardHeader>
-
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">
-                        On redeem, the employee gets a virtual card with their
-                        name, company and a unique code to show your staff. The
-                        redemption is verified automatically — no confirmation
-                        is needed on your side.
-                      </p>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {form.offerType === "FLAT" && (
-                  <div className="grid gap-4 sm:grid-cols-2">
+                {hasOnlineCode && (
+                  <>
                     <div>
                       <FieldLabel
-                        htmlFor="discountValue"
+                        htmlFor="redemptionCode"
                         required
-                        info="The fixed amount taken off the bill, e.g. 10 means 10 off. Enter this first — it unlocks Minimum Spend. Must be greater than 0, with up to 2 decimal places."
+                        info="The discount code employees enter at checkout. It must already be set up in your own checkout system. Use Generate for a random code, then create the same code on your side."
                       >
-                        Discount Amount
+                        Promo code
                       </FieldLabel>
-
-                      <Input
-                        id="discountValue"
-                        className={inputClass}
-                        type="number"
-                        inputMode="decimal"
-                        min={0.01}
-                        step="0.01"
-                        value={form.discountValue}
-                        onKeyDown={blockNonMoneyKeys}
-                        onChange={(e) =>
-                          handleLinkedFieldChange(
-                            "discountValue",
-                            e.target.value,
-                          )
-                        }
-                        placeholder="e.g. 10"
-                        aria-invalid={!!flatError("discountValue")}
-                      />
-
-                      {flatError("discountValue") && (
-                        <p className="mt-1 text-xs text-destructive">
-                          {flatError("discountValue")}
-                        </p>
+                      <div className="flex gap-2">
+                        <Input
+                          id="redemptionCode"
+                          className={`${inputClass} flex-1 ${borderFor(errors.redemptionCode)}`}
+                          value={form.redemptionCode}
+                          onChange={(e) => {
+                            // Codes are stored uppercase; strip anything that isn't a letter or digit.
+                            e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+                            set("redemptionCode")(e);
+                          }}
+                          placeholder="e.g. SAVE10"
+                          maxLength={OFFER_CODE_MAX_LENGTH}
+                          aria-invalid={!!errors.redemptionCode}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleGenerateOfferCode}
+                          className="h-9 shrink-0"
+                        >
+                          <Sparkles className="mr-1 h-4 w-4" />
+                          Generate
+                        </Button>
+                      </div>
+                      {errors.redemptionCode ? (
+                        <ErrorText message={errors.redemptionCode} />
+                      ) : (
+                        <HintText>
+                          {OFFER_CODE_MIN_LENGTH} to {OFFER_CODE_MAX_LENGTH} letters and numbers
+                        </HintText>
                       )}
                     </div>
 
                     <div>
                       <FieldLabel
-                        htmlFor="minimumSpendFlat"
+                        htmlFor="bookingUrl"
                         required
-                        info="The bill must reach this amount before the discount applies. Must be strictly greater than the Discount Amount, so the discount is always below 100% (e.g. 10 off a 50 minimum = 20%)."
+                        info="The page where employees enter the promo code — usually your checkout or booking page."
                       >
-                        Minimum Spend
+                        Booking link
                       </FieldLabel>
-
                       <Input
-                        id="minimumSpendFlat"
-                        className={inputClass}
-                        type="number"
-                        inputMode="decimal"
-                        min={0.01}
-                        step="0.01"
-                        value={form.minimumSpend}
-                        onKeyDown={blockNonMoneyKeys}
-                        onChange={(e) =>
-                          handleLinkedFieldChange("minimumSpend", e.target.value)
-                        }
-                        disabled={!flatDiscountValid}
-                        placeholder={
-                          flatDiscountValid
-                            ? "Must be more than the discount"
-                            : "Enter a discount amount first"
-                        }
-                        aria-invalid={!!flatError("minimumSpend")}
+                        id="bookingUrl"
+                        className={`${inputClass} ${borderFor(errors.bookingUrl)}`}
+                        value={form.bookingUrl}
+                        onChange={set("bookingUrl")}
+                        placeholder="yourwebsite.com/offer"
+                        inputMode="url"
+                        aria-invalid={!!errors.bookingUrl}
                       />
-
-                      {flatDiscountValid && flatError("minimumSpend") ? (
-                        <p className="mt-1 text-xs text-destructive">
-                          {flatError("minimumSpend")}
-                        </p>
-                      ) : flatPercent !== null && flatPercent < 100 ? (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Effective discount: {flatPercent.toFixed(2)}% of the minimum spend
-                        </p>
-                      ) : !flatDiscountValid ? (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Enter a valid discount amount to unlock this field.
-                        </p>
-                      ) : null}
+                      {errors.bookingUrl ? (
+                        <ErrorText message={errors.bookingUrl} />
+                      ) : (
+                        <HintText>We add https:// for you</HintText>
+                      )}
                     </div>
-                  </div>
+                  </>
                 )}
+              </div>
+            </div>
 
-                {showStrength &&
-                  form.offerType === "FLAT" &&
-                  form.discountValue &&
-                  Number(form.discountValue) > 0 && (
-                    <OfferStrengthIndicator
-                      discountValue={Number(form.discountValue)}
-                      offerType={form.offerType}
-                      categoryId={merchantCategory?.slug ?? null}
-                      minimumSpend={
-                        form.minimumSpend
-                          ? Number(form.minimumSpend)
-                          : undefined
-                      }
-                      discountMax={
-                        form.discountMax ? Number(form.discountMax) : undefined
-                      }
+                <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                {form.offerType === "FLAT" && (
+                  <>
+                    <FieldLabel
+                      htmlFor="discountValue"
+                      required
+                      info="The fixed € amount taken off the bill, e.g. 10 means €10 off. Must be greater than 0, with up to 2 decimal places."
+                    >
+                      Discount
+                    </FieldLabel>
+                    <Input
+                      id="discountValue"
+                      className={`${inputClass} ${borderFor(flatError("discountValue"))}`}
+                      type="number"
+                      inputMode="decimal"
+                      min={0.01}
+                      step="0.01"
+                      value={form.discountValue}
+                      onKeyDown={blockNonMoneyKeys}
+                      onChange={(e) => handleLinkedFieldChange("discountValue", e.target.value)}
+                      placeholder="€ e.g. 10"
+                      aria-invalid={!!flatError("discountValue")}
                     />
-                  )}
-
+                    <ErrorText message={flatError("discountValue")} />
+                  </>
+                )}
                 {form.offerType === "PERCENTAGE" && (
                   <>
-                    <div className="grid gap-4 sm:grid-cols-3">
-                      <div>
-                        <FieldLabel
-                          htmlFor="discountPercent"
-                          required
-                          info={`Percentage taken off the bill, between ${PERCENT_MIN}% and ${PERCENT_MAX}% (up to 2 decimals). Enter this first — it unlocks Minimum Spend.`}
-                        >
-                          Discount %
-                        </FieldLabel>
-
-                        <Input
-                          id="discountPercent"
-                          className={inputClass}
-                          type="number"
-                          inputMode="decimal"
-                          min={PERCENT_MIN}
-                          max={PERCENT_MAX}
-                          step="0.01"
-                          value={form.discountPercent}
-                          onKeyDown={blockNonMoneyKeys}
-                          onChange={(e) =>
-                            handleLinkedFieldChange(
-                              "discountPercent",
-                              e.target.value,
-                            )
-                          }
-                          placeholder="e.g. 20"
-                          aria-invalid={!!pctError("discountPercent")}
-                        />
-
-                        {pctError("discountPercent") && (
-                          <p className="mt-1 text-xs text-destructive">
-                            {pctError("discountPercent")}
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <FieldLabel
-                          htmlFor="minimumSpendPct"
-                          required
-                          info="The bill must reach this amount before the discount applies. Unlocks once Discount % is valid."
-                        >
-                          Minimum Spend
-                        </FieldLabel>
-
-                        <Input
-                          id="minimumSpendPct"
-                          className={inputClass}
-                          type="number"
-                          inputMode="decimal"
-                          min={0.01}
-                          step="0.01"
-                          value={form.minimumSpend}
-                          onKeyDown={blockNonMoneyKeys}
-                          onChange={(e) =>
-                            handleLinkedFieldChange(
-                              "minimumSpend",
-                              e.target.value,
-                            )
-                          }
-                          disabled={!pctValid}
-                          placeholder={pctValid ? "e.g. 50" : "Enter Discount % first"}
-                          aria-invalid={!!pctError("minimumSpend")}
-                        />
-
-                        {pctValid && pctError("minimumSpend") && (
-                          <p className="mt-1 text-xs text-destructive">
-                            {pctError("minimumSpend")}
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <FieldLabel
-                          htmlFor="discountMax"
-                          required
-                          info="The most an employee can save per redemption. Auto-filled as Minimum Spend × Discount % — you can raise it, but it must stay below the Minimum Spend and can't be lower than the auto-filled value. Clear it to go back to auto."
-                        >
-                          Maximum Discount
-                        </FieldLabel>
-
-                        <Input
-                          id="discountMax"
-                          className={inputClass}
-                          type="number"
-                          inputMode="decimal"
-                          min={0.01}
-                          step="0.01"
-                          value={form.discountMax}
-                          onKeyDown={blockNonMoneyKeys}
-                          onChange={(e) =>
-                            handleLinkedFieldChange(
-                              "discountMax",
-                              e.target.value,
-                            )
-                          }
-                          disabled={!pctMinSpendValid}
-                          placeholder={pctMinSpendValid ? "Cap amount" : "Enter Minimum Spend first"}
-                          aria-invalid={!!pctError("discountMax")}
-                        />
-
-                        {pctMinSpendValid && pctError("discountMax") ? (
-                          <p className="mt-1 text-xs text-destructive">
-                            {pctError("discountMax")}
-                          </p>
-                        ) : pctMinSpendValid ? (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Allowed: {suggestedPercentMax(form.discountPercent, form.minimumSpend)} up to below {Number(form.minimumSpend).toFixed(2)}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {showStrength &&
-                      form.discountPercent &&
-                      Number(form.discountPercent) > 0 && (
-                        <OfferStrengthIndicator
-                          discountValue={Number(form.discountPercent)}
-                          offerType={form.offerType}
-                          categoryId={merchantCategory?.slug ?? null}
-                          minimumSpend={
-                            form.minimumSpend
-                              ? Number(form.minimumSpend)
-                              : undefined
-                          }
-                          discountMax={
-                            form.discountMax
-                              ? Number(form.discountMax)
-                              : undefined
-                          }
-                        />
-                      )}
-
-                    {form.minimumSpend &&
-                      form.discountMax &&
-                      form.maxRedemptions && (
-                        <div className="rounded-lg border bg-muted/50 p-3 space-y-1">
-                          <h4 className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-                            Campaign Liability Estimate
-                            <InfoTip>
-                              The most this offer could cost you if every
-                              redemption hits the maximum discount. Actual cost
-                              is usually lower.
-                            </InfoTip>
-                          </h4>
-
-                          <p className="text-sm font-medium">
-                            Total potential payout:{" "}
-                            {(
-                              Number(form.discountMax) *
-                              Number(form.maxRedemptions)
-                            ).toLocaleString("en-GB", {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </p>
-
-                          <p className="text-xs text-muted-foreground">
-                            Based on {form.maxRedemptions} max redemptions ×{" "}
-                            {Number(form.discountMax).toFixed(2)} max discount
-                          </p>
-                        </div>
-                      )}
+                    <FieldLabel
+                      htmlFor="discountPercent"
+                      required
+                      info={`Percentage taken off the bill, between ${PERCENT_MIN}% and ${PERCENT_MAX}% (up to 2 decimals).`}
+                    >
+                      Discount
+                    </FieldLabel>
+                    <Input
+                      id="discountPercent"
+                      className={`${inputClass} ${borderFor(pctError("discountPercent"))}`}
+                      type="number"
+                      inputMode="decimal"
+                      min={PERCENT_MIN}
+                      max={PERCENT_MAX}
+                      step="0.01"
+                      value={form.discountPercent}
+                      onKeyDown={blockNonMoneyKeys}
+                      onChange={(e) => handleLinkedFieldChange("discountPercent", e.target.value)}
+                      placeholder="% e.g. 20"
+                      aria-invalid={!!pctError("discountPercent")}
+                    />
+                    <ErrorText message={pctError("discountPercent")} />
                   </>
                 )}
-
                 {form.offerType === "BUY_X_GET_Y" && (
                   <>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <FieldLabel required info="How many items the employee must buy, e.g. 2 in “Buy 2 Get 1”.">
-                          Buy Quantity
-                        </FieldLabel>
-
-                        <Input
-                          className={inputClass}
-                          type="number"
-                          value={form.buyQuantity}
-                          onChange={set("buyQuantity")}
-                          placeholder="e.g. 2"
-                        />
-
-                        {errors.buyQuantity && (
-                          <p className="mt-1 text-xs text-destructive">
-                            {errors.buyQuantity}
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <FieldLabel required info="The item (or item group) that must be bought, e.g. “Large pizza”.">
-                          Buy Item
-                        </FieldLabel>
-
-                        <Input
-                          className={inputClass}
-                          value={form.buyItem}
-                          onChange={set("buyItem")}
-                          placeholder="e.g. Pizza"
-                        />
-
-                        {errors.buyItem && (
-                          <p className="mt-1 text-xs text-destructive">
-                            {errors.buyItem}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <FieldLabel required info="How many items are given free per qualifying purchase, e.g. 1 in “Buy 2 Get 1”.">
-                          Get Quantity
-                        </FieldLabel>
-
-                        <Input
-                          className={inputClass}
-                          type="number"
-                          value={form.getQuantity}
-                          onChange={set("getQuantity")}
-                          placeholder="e.g. 1"
-                        />
-
-                        {errors.getQuantity && (
-                          <p className="mt-1 text-xs text-destructive">
-                            {errors.getQuantity}
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <FieldLabel required info="The item given free. Can be the same as the Buy Item or different, e.g. “Soft drink”.">
-                          Free Item
-                        </FieldLabel>
-
-                        <Input
-                          className={inputClass}
-                          value={form.freeItem}
-                          onChange={set("freeItem")}
-                          placeholder="e.g. Pizza"
-                        />
-
-                        {errors.freeItem && (
-                          <p className="mt-1 text-xs text-destructive">
-                            {errors.freeItem}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <FieldLabel info="Optional cap on free items per redemption, so repeated qualifying purchases in one visit don't multiply the free items.">
-                          Maximum Free Items
-                        </FieldLabel>
-
-                        <Input
-                          className={inputClass}
-                          type="number"
-                          value={form.maxFreeItems}
-                          onChange={set("maxFreeItems")}
-                          placeholder="Cap on free items"
-                        />
-
-                        {errors.maxFreeItems && (
-                          <p className="mt-1 text-xs text-destructive">
-                            {errors.maxFreeItems}
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <FieldLabel info="Optional. The bill must reach this amount before the free items apply.">
-                          Minimum Spend
-                        </FieldLabel>
-
-                        <Input
-                          className={inputClass}
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={form.minimumSpend}
-                          onChange={set("minimumSpend")}
-                          placeholder="Minimum order amount"
-                        />
-
-                        {errors.minimumSpend && (
-                          <p className="mt-1 text-xs text-destructive">
-                            {errors.minimumSpend}
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                    <FieldLabel
+                      htmlFor="buyQuantity"
+                      required
+                      info="How many items the employee must buy, e.g. 2 in “Buy 2 Get 1”."
+                    >
+                      Buy quantity
+                    </FieldLabel>
+                    <Input
+                      id="buyQuantity"
+                      className={`${inputClass} ${borderFor(errors.buyQuantity)}`}
+                      type="number"
+                      value={form.buyQuantity}
+                      onChange={set("buyQuantity")}
+                      placeholder="e.g. 2"
+                    />
+                    <ErrorText message={errors.buyQuantity} />
                   </>
                 )}
+              </div>
 
-                <div>
-                  <FieldLabel
-                    htmlFor="maxRedemptions"
-                    info="Total number of times this offer can be redeemed across all employees. Once reached, the offer stops being available. Leave empty for unlimited."
-                  >
-                    Max Redemptions
-                  </FieldLabel>
-
-                  <Input
-                    id="maxRedemptions"
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={form.maxRedemptions}
-                    onChange={set("maxRedemptions")}
-                    placeholder="Unlimited if empty"
-                  />
-                  {errors.maxRedemptions && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.maxRedemptions}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <FieldLabel
-                    htmlFor="repeatAfterHours"
-                    info="How long an employee must wait before redeeming this offer again. E.g. 24 = once per day, 168 = once per week. Leave empty to allow only one redemption per employee."
-                  >
-                    Repeat after
-                  </FieldLabel>
-
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {[1, 2, 3, 7, 14, 30].map((d) => {
-                      const active = Number(form.repeatAfterHours) === d * 24;
-                      return (
-                        <button
-                          key={d}
-                          type="button"
-                          onClick={() => setRepeatHours(active ? "" : String(d * 24))}
-                          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                            active
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-muted-foreground hover:bg-muted/80"
-                          }`}
-                        >
-                          {d === 1 ? "1 day" : d === 7 ? "1 week" : d === 30 ? "30 days" : `${d} days`}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-2 grid grid-cols-2 gap-3">
-                    <div>
-                      <label htmlFor="repeatAfterDays" className="text-xs text-muted-foreground">
-                        Days
-                      </label>
-                      <Input
-                        id="repeatAfterDays"
-                        placeholder="e.g. 1"
-                        className={inputClass}
-                        type="number"
-                        min={1}
-                        step={1}
-                        onKeyDown={blockNonMoneyKeys}
-                        value={repeatDays}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setRepeatDays(v);
-                          const d = Number(v);
-                          setRepeatHours(v && d > 0 ? String(Math.round(d * 24)) : "", false);
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="repeatAfterHours" className="text-xs text-muted-foreground">
-                        Hours (auto-filled, editable)
-                      </label>
-                      <Input
-                        id="repeatAfterHours"
-                        placeholder="e.g. 24"
-                        className={inputClass}
-                        type="number"
-                        min={1}
-                        onKeyDown={blockNonMoneyKeys}
-                        value={form.repeatAfterHours}
-                        onChange={(e) => setRepeatHours(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {Number(form.repeatAfterHours) > 0
-                      ? `Employees can redeem again every ${formatRepeat(Number(form.repeatAfterHours))}.`
-                      : "Leave empty for one redemption per employee"}
-                  </p>
-
-                  {errors.repeatAfterHours && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.repeatAfterHours}
-                    </p>
-                  )}
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
+                  {(form.offerType === "FLAT" || form.offerType === "PERCENTAGE") && (
                   <div>
                     <FieldLabel
-                      htmlFor="startDate"
+                      htmlFor="minimumSpend"
                       required
-                      info="When the offer goes live, in your local time. The offer only appears after it's approved, even if this date has passed."
+                      info={
+                        form.offerType === "FLAT"
+                          ? "The bill must reach this € amount before the discount applies. Must be more than the discount, so it stays below 100%."
+                          : "The bill must reach this € amount before the discount applies. Unlocks once the discount % is valid."
+                      }
                     >
-                      Start Date
+                      Minimum spend
                     </FieldLabel>
+                    {form.offerType === "FLAT" ? (
+                      <>
+                        <Input
+                          id="minimumSpend"
+                          className={`${inputClass} ${borderFor(flatDiscountValid ? flatError("minimumSpend") : undefined)}`}
+                          type="number"
+                          inputMode="decimal"
+                          min={0.01}
+                          step="0.01"
+                          value={form.minimumSpend}
+                          onKeyDown={blockNonMoneyKeys}
+                          onChange={(e) => handleLinkedFieldChange("minimumSpend", e.target.value)}
+                          disabled={!flatDiscountValid}
+                          placeholder={flatDiscountValid ? "€ must be more than the discount" : "Enter a discount first"}
+                          aria-invalid={!!flatError("minimumSpend")}
+                        />
+                        {flatDiscountValid && flatError("minimumSpend") ? (
+                          <ErrorText message={flatError("minimumSpend")} />
+                        ) : flatPercent !== null && flatPercent < 100 ? (
+                          <HintText>Effective discount: {flatPercent.toFixed(2)}% of the minimum spend</HintText>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <Input
+                          id="minimumSpend"
+                          className={`${inputClass} ${borderFor(pctValid ? pctError("minimumSpend") : undefined)}`}
+                          type="number"
+                          inputMode="decimal"
+                          min={0.01}
+                          step="0.01"
+                          value={form.minimumSpend}
+                          onKeyDown={blockNonMoneyKeys}
+                          onChange={(e) => handleLinkedFieldChange("minimumSpend", e.target.value)}
+                          disabled={!pctValid}
+                          placeholder={pctValid ? "€ e.g. 50" : "Enter a discount first"}
+                          aria-invalid={!!pctError("minimumSpend")}
+                        />
+                        {pctValid && <ErrorText message={pctError("minimumSpend")} />}
+                      </>
+                    )}
+                  </div>
+                  )}
 
+                  {form.offerType === "PERCENTAGE" && (
+                    <div>
+                      <FieldLabel
+                        htmlFor="discountMax"
+                        required
+                        info="The most an employee can save per redemption, in €. Auto-filled as Minimum spend × Discount % — you can raise it, but it must stay below the minimum spend. Clear it to go back to auto."
+                      >
+                        Maximum discount
+                      </FieldLabel>
+                      <Input
+                        id="discountMax"
+                        className={`${inputClass} ${borderFor(pctMinSpendValid ? pctError("discountMax") : undefined)}`}
+                        type="number"
+                        inputMode="decimal"
+                        min={0.01}
+                        step="0.01"
+                        value={form.discountMax}
+                        onKeyDown={blockNonMoneyKeys}
+                        onChange={(e) => handleLinkedFieldChange("discountMax", e.target.value)}
+                        disabled={!pctMinSpendValid}
+                        placeholder={pctMinSpendValid ? "€ cap amount" : "Enter minimum spend first"}
+                        aria-invalid={!!pctError("discountMax")}
+                      />
+                      {pctMinSpendValid && pctError("discountMax") ? (
+                        <ErrorText message={pctError("discountMax")} />
+                      ) : pctMinSpendValid ? (
+                        <HintText>
+                          Allowed: €{suggestedPercentMax(form.discountPercent, form.minimumSpend)} up to below €
+                          {Number(form.minimumSpend).toFixed(2)}
+                        </HintText>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+
+            {form.offerType === "BUY_X_GET_Y" && (
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <FieldLabel required info="The item (or item group) that must be bought, e.g. “Large pizza”.">
+                    Buy item
+                  </FieldLabel>
+                  <Input
+                    className={`${inputClass} ${borderFor(errors.buyItem)}`}
+                    value={form.buyItem}
+                    onChange={set("buyItem")}
+                    placeholder="e.g. Pizza"
+                  />
+                  <ErrorText message={errors.buyItem} />
+                </div>
+                <div>
+                  <FieldLabel required info="How many items are given free per qualifying purchase, e.g. 1 in “Buy 2 Get 1”.">
+                    Get quantity
+                  </FieldLabel>
+                  <Input
+                    className={`${inputClass} ${borderFor(errors.getQuantity)}`}
+                    type="number"
+                    value={form.getQuantity}
+                    onChange={set("getQuantity")}
+                    placeholder="e.g. 1"
+                  />
+                  <ErrorText message={errors.getQuantity} />
+                </div>
+                <div>
+                  <FieldLabel required info="The item given free. Can be the same as the Buy item or different, e.g. “Soft drink”.">
+                    Free item
+                  </FieldLabel>
+                  <Input
+                    className={`${inputClass} ${borderFor(errors.freeItem)}`}
+                    value={form.freeItem}
+                    onChange={set("freeItem")}
+                    placeholder="e.g. Pizza"
+                  />
+                  <ErrorText message={errors.freeItem} />
+                </div>
+              </div>
+            )}
+
+              {form.offerType === "BUY_X_GET_Y" && (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <FieldLabel info="Optional cap on free items per redemption, so repeated qualifying purchases in one visit don't multiply the free items.">
+                      Maximum free items
+                    </FieldLabel>
+                    <Input
+                      className={`${inputClass} ${borderFor(errors.maxFreeItems)}`}
+                      type="number"
+                      value={form.maxFreeItems}
+                      onChange={set("maxFreeItems")}
+                      placeholder="Optional, empty means no limit"
+                    />
+                    <ErrorText message={errors.maxFreeItems} />
+                  </div>
+                  <div>
+                    <FieldLabel info="Optional. The bill must reach this € amount before the free items apply.">
+                      Minimum spend
+                    </FieldLabel>
+                    <Input
+                      className={`${inputClass} ${borderFor(errors.minimumSpend)}`}
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={form.minimumSpend}
+                      onChange={set("minimumSpend")}
+                      placeholder="Optional, empty means no limit"
+                    />
+                    <ErrorText message={errors.minimumSpend} />
+                  </div>
+                </div>
+              )}
+
+            {showStrength &&
+              ((form.offerType === "FLAT" && Number(form.discountValue) > 0) ||
+                (form.offerType === "PERCENTAGE" && Number(form.discountPercent) > 0)) && (
+                <OfferStrengthIndicator
+                  discountValue={Number(
+                    form.offerType === "PERCENTAGE" ? form.discountPercent : form.discountValue,
+                  )}
+                  offerType={form.offerType}
+                  categoryId={merchantCategory?.slug ?? null}
+                  minimumSpend={form.minimumSpend ? Number(form.minimumSpend) : undefined}
+                  discountMax={form.discountMax ? Number(form.discountMax) : undefined}
+                />
+              )}
+
+            {/* Frequency */}
+            <div className="md:max-w-md">
+              <FieldLabel
+                htmlFor="frequency"
+                required
+                info="How often each employee can use this offer. Once a day, Once a week, Once a month or Unlimited."
+              >
+                Frequency
+              </FieldLabel>
+              <select
+                id="frequency"
+                name="frequency"
+                className={`${selectClass} ${borderFor(errors.repeatAfterHours)}`}
+                value={frequency ?? ""}
+                onChange={(e) => setFrequency(e.target.value as OfferFrequency)}
+              >
+                {!frequency && (
+                  <option value="" disabled>
+                    Choose how often
+                  </option>
+                )}
+                {OFFER_FREQUENCY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              {errors.repeatAfterHours ? (
+                <ErrorText message={errors.repeatAfterHours} />
+              ) : (
+                <HintText>
+                  How often each employee can use this offer. Once a day, Once a
+                  week, Once a month or Unlimited.
+                </HintText>
+              )}
+              <ErrorText message={errors.maxRedemptions} />
+            </div>
+
+            {/* Dates */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <FieldLabel
+                  htmlFor="startDate"
+                  required={!form.isForever}
+                  info={
+                    form.isForever
+                      ? "Evergreen offers go live as soon as we approve them."
+                      : "When the offer goes live, in Cyprus time. The offer only appears after it's approved, even if this date has passed."
+                  }
+                >
+                  Start date
+                </FieldLabel>
+                {form.isForever ? (
+                  <>
+                    <Input id="startDate" className={inputClass} value="On approval" readOnly disabled />
+                    <HintText>Evergreen offers start when we approve them</HintText>
+                  </>
+                ) : (
+                  <>
                     <Input
                       id="startDate"
-                      className={inputClass}
+                      className={`${inputClass} ${borderFor(errors.startDate)}`}
                       type="datetime-local"
                       value={form.startDate}
                       onChange={set("startDate")}
                     />
+                    <ErrorText message={errors.startDate} />
+                  </>
+                )}
+              </div>
 
-                    {errors.startDate && (
-                      <p className="mt-1 text-xs text-destructive">
-                        {errors.startDate}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Evergreen end date is auto-set from the start date, so the field is hidden. */}
-                  <div className={form.isForever ? "hidden" : undefined}>
-                    <FieldLabel
-                      htmlFor="endDate"
-                      required
-                      info="When the offer stops being available, in your local time. Must be after the start date. Flash offers must end within a few days of the start."
-                    >
-                      End Date
-                    </FieldLabel>
-
-                    <Input
-                      id="endDate"
-                      className={inputClass}
-                      type="datetime-local"
-                      value={form.endDate}
-                      onChange={set("endDate")}
-                      min={form.startDate || undefined}
-                      max={form.isFlash ? flashMaxEndLocal(form.startDate) || undefined : undefined}
-                    />
-                    {form.isFlash && form.startDate && !errors.endDate && (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Flash offers must end within {FLASH_MAX_DAYS} days of the start date
-                      </p>
-                    )}
-
-                    {errors.endDate && (
-                      <p className="mt-1 text-xs text-destructive">
-                        {errors.endDate}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {/* Days of Week */}
+              {/* Evergreen offers have no end date. */}
+              {!form.isForever && (
                 <div>
                   <FieldLabel
+                    htmlFor="endDate"
                     required
-                    info="Days of the week the offer can be redeemed. Deselect days you don't want it used, e.g. busy weekends."
+                    info={`When the offer stops being available, in Cyprus time. Flash offers must end within ${FLASH_MAX_DAYS} days of the start.`}
                   >
-                    Available Days
+                    End date
                   </FieldLabel>
+                  <Input
+                    id="endDate"
+                    className={`${inputClass} ${borderFor(errors.endDate)}`}
+                    type="datetime-local"
+                    value={form.endDate}
+                    onChange={set("endDate")}
+                    min={form.startDate || undefined}
+                    max={form.isFlash ? flashMaxEndLocal(form.startDate) || undefined : undefined}
+                  />
+                  {errors.endDate ? (
+                    <ErrorText message={errors.endDate} />
+                  ) : form.isFlash && form.startDate ? (
+                    <HintText>Flash offers must end within {FLASH_MAX_DAYS} days of the start date</HintText>
+                  ) : null}
+                </div>
+              )}
+            </div>
+            {form.isForever && (
+              <p className="-mt-3 text-xs text-muted-foreground">
+                Evergreen offers have no end date. Dates use DD/MM/YYYY, Cyprus time.
+              </p>
+            )}
 
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {DAYS_OF_WEEK.map((day) => {
-                      const selected = form.daysOfWeek
-                        .split(",")
-                        .map((s) => s.trim())
-                        .includes(String(day.value));
-                      return (
-                        <button
-                          key={day.value}
-                          type="button"
-                          onClick={() => toggleDay(day.value)}
-                          className={`
-                            rounded-full px-3 py-1.5 text-xs font-medium transition-colors
-                            ${
-                              selected
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-muted text-muted-foreground hover:bg-muted/80"
-                            }
-                          `}
-                        >
-                          {day.short}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <p className="mt-1 text-xs text-muted-foreground">
+              <div>
+                <FieldLabel
+                  required
+                  info="Days of the week the offer can be redeemed. Deselect days you don't want it used, e.g. busy weekends."
+                >
+                  Available days
+                </FieldLabel>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {DAYS_OF_WEEK.map((day) => {
+                    const selected = form.daysOfWeek
+                      .split(",")
+                      .map((s) => s.trim())
+                      .includes(String(day.value));
+                    return (
+                      <button
+                        key={day.value}
+                        type="button"
+                        onClick={() => toggleDay(day.value)}
+                        aria-pressed={selected}
+                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                          selected
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        }`}
+                      >
+                        {day.short}
+                      </button>
+                    );
+                  })}
+                </div>
+                {errors.daysOfWeek ? (
+                  <ErrorText message={errors.daysOfWeek} />
+                ) : (
+                  <HintText>
                     {(() => {
                       const sel = form.daysOfWeek.split(",").filter(Boolean);
                       if (sel.length === 7) return "Every day";
                       return sel
-                        .map(
-                          (s) =>
-                            DAYS_OF_WEEK.find((d) => d.value === Number(s))
-                              ?.short,
-                        )
+                        .map((s) => DAYS_OF_WEEK.find((d) => d.value === Number(s))?.short)
                         .join(" • ");
                     })()}
-                  </p>
-
-                  {errors.daysOfWeek && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.daysOfWeek}
-                    </p>
-                  )}
-                </div>
+                  </HintText>
+                )}
+              </div>
               </CardContent>
             </Card>
 
@@ -2233,19 +2164,18 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
               </CardHeader>
 
               <CardContent className="space-y-4">
-                <OfferImageUploader
-                  uploadMode="deferred"
-                  onFilesSelected={handleFilesSelected}
-                  disabled={false}
-                  currentCount={pendingImages.length}
-                />
-
-                <OfferImageGallery
-                  images={pendingImages}
-                  onRemove={handleRemoveImage}
-                  onMoveUp={handleMoveUp}
-                  onMoveDown={handleMoveDown}
-                />
+                  <OfferImageUploader
+                    uploadMode="deferred"
+                    onFilesSelected={handleFilesSelected}
+                    disabled={false}
+                    currentCount={pendingImages.length}
+                  />
+                  <OfferImageGallery
+                    images={pendingImages}
+                    onRemove={handleRemoveImage}
+                    onMoveUp={handleMoveUp}
+                    onMoveDown={handleMoveDown}
+                  />
               </CardContent>
             </Card>
 
@@ -2255,134 +2185,109 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
               </CardHeader>
 
               <CardContent className="space-y-4">
-                <div>
-                  <FieldLabel
-                    htmlFor="redemptionInstructions"
-                    info="Step-by-step guidance shown to employees, e.g. “Enter the code at checkout” or “Show the card before ordering”."
-                  >
-                    Redemption Instructions
-                  </FieldLabel>
+              <div>
+                <FieldLabel
+                  htmlFor="redemptionInstructions"
+                  info="Step-by-step guidance shown to employees, e.g. “Enter the code at checkout” or “Show the card before ordering”."
+                >
+                  Redemption instructions
+                </FieldLabel>
+                <textarea
+                  id="redemptionInstructions"
+                  className={`${textareaClass} border-input`}
+                  value={form.redemptionInstructions}
+                  onChange={set("redemptionInstructions")}
+                  placeholder="Optional. How employees redeem this offer"
+                />
+              </div>
 
-                  <textarea
-                    id="redemptionInstructions"
-                    className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    value={form.redemptionInstructions}
-                    onChange={set("redemptionInstructions")}
-                    placeholder="Instructions for redeeming this offer"
-                  />
-                </div>
+              <div>
+                <FieldLabel
+                  htmlFor="termsAndConditions"
+                  required
+                  info="Rules employees must follow, e.g. “Valid Mon to Fri only”, “Not valid with other offers”. Write exclusions here."
+                >
+                  Terms and conditions
+                </FieldLabel>
+                <textarea
+                  id="termsAndConditions"
+                  className={`${textareaClass} ${borderFor(errors.termsAndConditions)}`}
+                  value={form.termsAndConditions}
+                  onChange={set("termsAndConditions")}
+                  placeholder="e.g. valid Mon to Fri only, excludes chairs"
+                />
+                {errors.termsAndConditions ? (
+                  <ErrorText message={errors.termsAndConditions} />
+                ) : (
+                  <HintText>Write exclusions here.</HintText>
+                )}
+              </div>
 
-                <div>
-                  <FieldLabel
-                    htmlFor="termsAndConditions"
-                    required
-                    info="Rules employees must follow, e.g. “Not valid with other offers”, “Dine-in only”, “One per table”. Required to submit."
-                  >
-                    Terms & Conditions
-                  </FieldLabel>
-
-                  <textarea
-                    id="termsAndConditions"
-                    className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    value={form.termsAndConditions}
-                    onChange={set("termsAndConditions")}
-                    placeholder="Terms and conditions"
-                  />
-
-                  {errors.termsAndConditions && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.termsAndConditions}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <FieldLabel
-                    htmlFor="submissionNotes"
-                    info="Private notes for the review team only — employees never see this."
-                  >
-                    Submission Notes
-                  </FieldLabel>
-
-                  <textarea
-                    id="submissionNotes"
-                    className="flex min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    value={form.submissionNotes}
-                    onChange={set("submissionNotes")}
-                    placeholder="Any notes for the review team"
-                  />
-                </div>
+              <div>
+                <FieldLabel
+                  htmlFor="submissionNotes"
+                  info="Private notes for the review team only — employees never see this."
+                >
+                  Notes for the review team
+                </FieldLabel>
+                <textarea
+                  id="submissionNotes"
+                  className={`${textareaClass} min-h-[60px] border-input`}
+                  value={form.submissionNotes}
+                  onChange={set("submissionNotes")}
+                  placeholder="Optional"
+                />
+              </div>
               </CardContent>
             </Card>
-            {/* Action buttons */}
-            <div className="flex items-center gap-3">
-              {isReplacement || (!isEdit && !offerId) ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleSaveDraft}
-                    disabled={isBusy || hasFlatErrors}
-                  >
-                    {pendingAction === "draft" ? (
-                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="mr-1 h-4 w-4" />
-                    )}
-                    Save as Draft
-                  </Button>
 
-                  <Button
-                    type="submit"
-                    disabled={isBusy || categoryLoading || missingCategory || hasFlatErrors}
-                    title={missingCategory ? "Your business category must be set before submitting" : undefined}
-                  >
-                    {pendingAction === "submit" ? (
-                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="mr-1 h-4 w-4" />
-                    )}
+        {/* Actions */}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => (onCancel ? onCancel() : router.push(fallbackRoute))}
+          >
+            Cancel
+          </Button>
 
-                    {pendingAction === "submit"
-                      ? "Submitting..."
-                      : isReplacement
-                        ? "Submit Replacement"
-                        : "Submit for Review"}
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button
-                    type="submit"
-                    disabled={isBusy || categoryLoading || missingCategory || hasFlatErrors}
-                  >
-                    {pendingAction === "submit" ? (
-                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="mr-1 h-4 w-4" />
-                    )}
-
-                    {pendingAction === "submit" ? "Saving..." : "Save Changes"}
-                  </Button>
-                </>
-              )}
-
+          {isReplacement || !isEdit ? (
+            <>
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => {
-                  if (onCancel) {
-                    onCancel();
-                  } else {
-                    router.push(fallbackRoute);
-                  }
-                }}
+                onClick={handleSaveDraft}
+                disabled={isBusy || hasFlatErrors}
               >
-                Cancel
+                {pendingAction === "draft" && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                Save as draft
               </Button>
-            </div>
+              <Button
+                type="submit"
+                disabled={isBusy || categoryLoading || missingCategory || hasFlatErrors}
+                title={missingCategory ? "Your business category must be set before submitting" : undefined}
+              >
+                {pendingAction === "submit" && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                {pendingAction === "submit"
+                  ? "Submitting..."
+                  : isReplacement
+                    ? "Submit replacement"
+                    : "Submit for review"}
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="submit"
+              disabled={isBusy || categoryLoading || missingCategory || hasFlatErrors}
+            >
+              {pendingAction === "submit" && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              {pendingAction === "submit" ? "Saving..." : "Save changes"}
+            </Button>
+          )}
+        </div>
           </form>
         </div>
+
         {/* Right column — preview panel */}
         <div className="min-w-0 space-y-6 lg:self-stretch">
           <OfferBannerInfo imageUrls={form.imageUrls} />
@@ -2409,26 +2314,25 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
               </CardHeader>
 
               <CardContent className="bg-gradient-to-br from-background via-muted/20 to-muted/40 p-6">
-                <OfferMobilePreview
-                  title={form.title}
-                  shortDescription={form.shortDescription}
-                  description={form.description}
-                  discountValue={
-                    form.offerType === "PERCENTAGE"
-                      ? form.discountPercent
-                      : form.discountValue
-                  }
-                  offerType={form.offerType}
-                  startDate={form.startDate}
-                  endDate={form.endDate}
-                  imageUrls={previewImageUrls}
-                  isFeatured={form.isFeatured}
-                  isExclusive={form.isExclusive}
-                  merchantName="Your Business"
-                  categoryName={categoryName}
-                  redemptionType={form.redemptionType}
-                  minSpend={form.minimumSpend}
-                />
+              <OfferMobilePreview
+                title={form.title}
+                shortDescription={form.shortDescription}
+                description={form.description}
+                discountValue={
+                  form.offerType === "PERCENTAGE" ? form.discountPercent : form.discountValue
+                }
+                offerType={form.offerType}
+                startDate={form.startDate}
+                endDate={form.endDate}
+                imageUrls={previewImageUrls}
+                isFeatured={form.isFeatured}
+                isExclusive={form.isExclusive}
+                merchantName="Your Business"
+                categoryName={categoryName}
+                redemptionType={form.redemptionType}
+                channel={form.channel}
+                minSpend={form.minimumSpend}
+              />
               </CardContent>
             </Card>
           </div>
@@ -2440,8 +2344,8 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         title="Replace your live Evergreen offer?"
         message={`Only one Evergreen offer can be live per account. Your current Evergreen offer${
           evergreenConfirm?.title ? ` "${evergreenConfirm.title}"` : ""
-        } will become inactive and this new offer will go LIVE immediately.`}
-        confirmLabel="Yes, make this live"
+        } will become inactive once this new offer is approved by admin and goes LIVE.`}
+        confirmLabel="Yes, submit for approval"
         variant="default"
         loading={pendingAction === "submit"}
         onCancel={() => setEvergreenConfirm(null)}

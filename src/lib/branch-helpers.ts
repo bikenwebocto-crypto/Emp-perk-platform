@@ -123,6 +123,7 @@ export interface BranchValidationInput {
   branchType?: BranchType
   isNationwide?: boolean
   deliveryRadiusKm?: number | null
+  websiteUrl?: string | null
 }
 
 export interface BranchValidationResult {
@@ -139,8 +140,20 @@ export function validateBranchInput(input: BranchValidationInput, partial = fals
     }
   }
 
+  if (input.websiteUrl) {
+    let ok = false
+    try {
+      const u = new URL(input.websiteUrl)
+      ok = u.protocol === 'http:' || u.protocol === 'https:'
+    } catch {}
+    if (!ok) errors.websiteUrl = 'Website URL must start with http:// or https://'
+  }
+
+  const isDelivery =
+    input.branchType === 'ONLINE' && (input.isNationwide === true || (input.deliveryRadiusKm ?? 0) > 0)
+
   if (input.branchType === 'ONLINE') {
-    if (input.isNationwide === true || (input.deliveryRadiusKm ?? 0) > 0) {
+    if (isDelivery) {
       if (!input.isNationwide && (!input.deliveryRadiusKm || input.deliveryRadiusKm <= 0)) {
         errors.deliveryRadiusKm = 'Delivery radius is required for delivery merchants'
       }
@@ -153,32 +166,37 @@ export function validateBranchInput(input: BranchValidationInput, partial = fals
         }
       }
     }
-  } else {
+  }
+
+  // In-store branches and online delivery branches both need a physical base
+  // location (delivery uses it to measure the radius). Pure digital does not.
+  if (input.branchType !== 'ONLINE' || isDelivery) {
+    const kind = isDelivery ? 'delivery branches' : 'in-store branches'
     if (!partial || input.addressLine1 !== undefined) {
       if (!input.addressLine1 || input.addressLine1.trim().length < 2) {
-        errors.addressLine1 = 'Address is required for in-store branches'
+        errors.addressLine1 = `Address is required for ${kind}`
       }
     }
     if (!partial || input.city !== undefined) {
       if (!input.city || input.city.trim().length < 2) {
-        errors.city = 'City is required for in-store branches'
+        errors.city = `City is required for ${kind}`
       }
     }
     if (!partial || input.country !== undefined) {
       if (!input.country || input.country.trim().length < 2) {
-        errors.country = 'Country is required for in-store branches'
+        errors.country = `Country is required for ${kind}`
       }
     }
     if (!partial || input.latitude !== undefined) {
       if (input.latitude === null || input.latitude === undefined) {
-        errors.latitude = 'Latitude is required for in-store branches'
+        errors.latitude = `Latitude is required for ${kind}`
       } else if (!isLatitudeValid(input.latitude)) {
         errors.latitude = 'Latitude must be between -90 and 90'
       }
     }
     if (!partial || input.longitude !== undefined) {
       if (input.longitude === null || input.longitude === undefined) {
-        errors.longitude = 'Longitude is required for in-store branches'
+        errors.longitude = `Longitude is required for ${kind}`
       } else if (!isLongitudeValid(input.longitude)) {
         errors.longitude = 'Longitude must be between -180 and 180'
       }

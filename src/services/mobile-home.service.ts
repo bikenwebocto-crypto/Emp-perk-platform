@@ -31,6 +31,7 @@
 //     breaking the wire format.
 
 import { prisma } from '@/lib/prisma'
+import { redemptionResponseFields, type OfferChannel } from '@/lib/offers/channel'
 import { haversineKm, branchCoordinate } from '@/lib/distance'
 import { safeQuery } from '@/lib/prisma/safe-query'
 
@@ -81,6 +82,10 @@ export interface MobileHomeOffer {
   isExclusive: boolean
   distance: number | null
   redemptionType: string | null
+  /** IN_STORE | ONLINE | BOTH */
+  channel: OfferChannel | null
+  /** e.g. ["ONLINE_CODE", "VIRTUAL_CARD_AUTO_VERIFY"] for Both */
+  redemptionTypes: string[]
   offerCode: string | null
   bookingUrl: string | null
   qrCodeUrl: string | null
@@ -195,6 +200,7 @@ const offerSelect = {
   redemption: {
     select: {
       redemptionType: true,
+      redemptionTypes: true,
       configuration: true,
     },
   },
@@ -233,6 +239,7 @@ function mapOffer(
     } | null
     redemption: {
       redemptionType: string | null
+      redemptionTypes?: string[] | null
       configuration: Record<string, unknown> | unknown
     } | null
     merchant: {
@@ -267,6 +274,7 @@ function mapOffer(
     isExclusive: o.isExclusive,
     distance,
     redemptionType: o.redemption?.redemptionType ?? null,
+    ...redemptionResponseFields(o.redemption),
     offerCode: redemptionConfig.code as string ?? null,
     bookingUrl: redemptionConfig.bookingUrl as string ?? null,
     qrCodeUrl: redemptionConfig.qrCodeUrl as string ?? null,

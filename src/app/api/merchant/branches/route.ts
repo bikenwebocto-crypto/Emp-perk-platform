@@ -158,9 +158,11 @@ export async function POST(request: NextRequest) {
       wheelchairAccess,
       landmark,
       description,
+      websiteUrl,
     } = body
 
     const validation = validateBranchInput({
+      websiteUrl,
       name,
       addressLine1,
       city,
@@ -233,6 +235,7 @@ export async function POST(request: NextRequest) {
         wheelchairAccess: Boolean(wheelchairAccess),
         landmark: landmark ?? null,
         description: description ?? null,
+        websiteUrl: typeof websiteUrl === 'string' && websiteUrl.trim() ? websiteUrl.trim() : null,
         status: 'ACTIVE',
         isActive: true,
       },

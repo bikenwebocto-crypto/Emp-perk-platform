@@ -4,8 +4,51 @@ import { createAuditLog } from "@/services/audit-log.service";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { getEntityKindFromReferenceType } from "@/lib/action-queue-types";
 import { ensureOfferQRCode } from "@/lib/offer-qr";
-import { isEvergreenRange } from "@/lib/offers/evergreen";
+import { branchSelectionFromConfig, channelUsesBranches } from "@/lib/offers/channel";
+import { findLiveEvergreen, isEvergreenOffer, isEvergreenRange } from "@/lib/offers/evergreen";
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins, publishBusinessToCompanyAdmins, publishBusinessToAllEmployees } from '@/services/business-notification.service';
+
+/**
+ * Attach the in-store branches an offer's card can be used at, so the review
+ * screen can list them. allBranches → every active In-store branch of the merchant.
+ */
+async function withRedemptionBranches<
+  T extends { merchantId: string; redemption: { redemptionType: string | null; configuration: unknown } | null } | null,
+>(offer: T) {
+  if (!offer) return offer;
+  const selection = branchSelectionFromConfig(
+    offer.redemption?.redemptionType,
+    offer.redemption?.configuration,
+  );
+  if (!channelUsesBranches(selection.channel)) {
+    return { ...offer, redemptionChannel: selection.channel, redemptionBranches: [] };
+  }
+  const redemptionBranches = await prisma.merchantBranch.findMany({
+    where: {
+      merchantId: offer.merchantId,
+      deletedAt: null,
+      branchType: "IN_STORE",
+      ...(selection.allBranches ? { isActive: true } : { id: { in: selection.branchIds } }),
+    },
+    select: {
+      id: true,
+      name: true,
+      addressLine1: true,
+      addressLine2: true,
+      city: true,
+      postalCode: true,
+      phone: true,
+      isActive: true,
+    },
+    orderBy: { name: "asc" },
+  });
+  return {
+    ...offer,
+    redemptionChannel: selection.channel,
+    redemptionAllBranches: selection.allBranches,
+    redemptionBranches,
+  };
+}
 
 function unauthorized() {
   return NextResponse.json(
@@ -150,12 +193,12 @@ async function loadEntity(queueItem: {
           });
 
           return {
-            ...offer,
+            ...(await withRedemptionBranches(offer)),
             currentOffer,
           };
         }
 
-        return offer;
+        return withRedemptionBranches(offer);
       }
 
     if (kind === "MERCHANT_OFFER") {
@@ -212,9 +255,9 @@ async function loadEntity(queueItem: {
           redemption: { select: { redemptionType: true, configuration: true } },
         },
       });
-      return { ...offer, currentOffer };
+      return { ...(await withRedemptionBranches(offer)), currentOffer };
     }
-    return offer;
+    return withRedemptionBranches(offer);
   }
 
   if (kind === "MERCHANT") {
@@ -290,9 +333,32 @@ export async function GET(
       },
     });
 
+    // For the approve popup: the LIVE Evergreen this approval would deactivate.
+    let liveEvergreen: { id: string; title: string } | null = null;
+    const offerEntity = entity as any;
+    if (
+      isOfferQueue(queueItem.type) &&
+      offerEntity?.id &&
+      offerEntity?.merchantId &&
+      isEvergreenOffer(offerEntity)
+    ) {
+      const live = await prisma.merchantOffer.findMany({
+        where: {
+          merchantId: offerEntity.merchantId,
+          deletedAt: null,
+          status: "LIVE",
+          endDate: { gt: new Date() },
+          id: { not: offerEntity.id },
+        },
+        select: { id: true, title: true, isForever: true, isFlash: true, startDate: true, endDate: true },
+      });
+      const found = findLiveEvergreen(live);
+      liveEvergreen = found ? { id: found.id, title: found.title } : null;
+    }
+
     return NextResponse.json({
       success: true,
-      data: { queueItem, entity, auditLogs },
+      data: { queueItem, entity, auditLogs, liveEvergreen },
     });
   } catch (error) {
     return internalError(error);
@@ -589,7 +655,9 @@ async function performApprove(queueItem: any, adminId: string, now: Date) {
        * First offer approval
        */
       case "FIRST_OFFER_APPROVAL": {
-        const offerId = meta.offerId ?? queueItem.referenceId;
+        // Replacement submissions store the offer as `newOfferId`; referenceId
+        // is the merchant id for these items, so it is only a last resort.
+        const offerId = meta.offerId ?? meta.newOfferId ?? queueItem.referenceId;
 
         console.log(`[FIRST_OFFER_APPROVAL] Starting offer approval...`);
         console.log(`[FIRST_OFFER_APPROVAL] Offer ID: ${offerId}`);
@@ -611,7 +679,25 @@ async function performApprove(queueItem: any, adminId: string, now: Date) {
           merchantId: offer.merchantId,
         });
 
+        let replacedEvergreen: { id: string; title: string } | null = null;
         await prisma.$transaction(async (tx) => {
+          // One LIVE Evergreen per merchant: approving a new Evergreen
+          // deactivates the current one in this same transaction.
+          if (isEvergreenOffer(offer)) {
+            await tx.$queryRaw`SELECT id FROM "merchants" WHERE id = ${offer.merchantId} FOR UPDATE`;
+            const live = await tx.merchantOffer.findMany({
+              where: {
+                merchantId: offer.merchantId,
+                deletedAt: null,
+                status: "LIVE",
+                endDate: { gt: now },
+                id: { not: offer.id },
+              },
+              select: { id: true, title: true, isForever: true, isFlash: true, startDate: true, endDate: true },
+            });
+            replacedEvergreen = findLiveEvergreen(live);
+          }
+
           await validateMerchantOfferApproval(
             tx,
             offer.merchantId,
@@ -621,7 +707,22 @@ async function performApprove(queueItem: any, adminId: string, now: Date) {
               startDate: offer.startDate,
               endDate: offer.endDate,
             },
+            {
+              isReplacement: !!replacedEvergreen,
+              replacementTargetId: replacedEvergreen?.id ?? null,
+            },
           );
+
+          if (replacedEvergreen) {
+            await tx.merchantOffer.update({
+              where: { id: replacedEvergreen.id },
+              data: { status: "REPLACED" },
+            });
+            await tx.offerReplacementRequest.updateMany({
+              where: { newOfferId: offer.id, status: { in: ["PENDING", "AWAITING_APPROVAL"] } },
+              data: { status: "APPROVED", adminId, reviewedAt: now },
+            });
+          }
 
           await tx.merchantOffer.update({
             where: { id: offer.id },
@@ -676,6 +777,21 @@ async function performApprove(queueItem: any, adminId: string, now: Date) {
           referenceId: offer.id,
           metadata: { approvedBy: adminId },
         });
+
+        const replaced = replacedEvergreen as { id: string; title: string } | null;
+        if (replaced) {
+          await publishBusinessNotification({
+            type: 'OFFER_REPLACED',
+            title: `Evergreen offer replaced: ${replaced.title}`,
+            message: `Your Evergreen offer "${offer.title}" is now live. Your previous Evergreen offer "${replaced.title}" is now inactive.`,
+            priority: 'HIGH',
+            recipients: [{ role: 'merchant', id: offer.merchantId }],
+            channels: channels('IN_APP', 'PUSH'),
+            referenceType: 'merchant_offer',
+            referenceId: offer.id,
+            metadata: { replacedOfferId: replaced.id, approvedBy: adminId },
+          });
+        }
 
         // Event: New Offer Published — broadcast to all active employees.
         // Individual employees can opt out via notification preferences.

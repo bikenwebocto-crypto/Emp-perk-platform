@@ -5,6 +5,15 @@ import { Prisma } from "@prisma/client";
 import { clampOfferCodeLength, generateUniqueOfferCode, isValidOfferCode } from '@/lib/offer-code';
 import { isEvergreenRange } from '@/lib/offers/evergreen';
 import {
+  branchSelectionFromConfig,
+  channelRedemptionType,
+  channelRedemptionTypes,
+  parseBranchSelection,
+  withBranchSelection,
+  withChannelDetails,
+} from '@/lib/offers/channel';
+import { validateBranchSelection } from '@/lib/offers/channel.server';
+import {
   firstFlatDiscountError,
   firstPercentDiscountError,
   isFlatOfferType,
@@ -145,6 +154,10 @@ export async function GET(
       data: {
         ...offer,
         repeatAfterHours: getRepeatAfterHours(offer.redemption?.configuration),
+        ...branchSelectionFromConfig(
+          offer.redemption?.redemptionType,
+          offer.redemption?.configuration,
+        ),
         adminRemarks,
       },
     });
@@ -176,7 +189,19 @@ export async function PATCH(
     }
 
     if (typeof body.redemptionCode === 'string' && body.redemptionCode.trim() && !isValidOfferCode(body.redemptionCode.trim())) {
-      return badRequest("Offer code must be between 6 and 30 letters or numbers.");
+      return badRequest("3 to 13 letters and numbers");
+    }
+
+    // Channel (In-store / Online / Both) + branches; the channel decides redemptionType.
+    const branchSelection = parseBranchSelection(body);
+    if (!branchSelection.ok) return badRequest(branchSelection.error);
+    if (branchSelection.value) {
+      body.redemptionType = channelRedemptionType(branchSelection.value.channel);
+      const branchError = await validateBranchSelection(merchant.id, branchSelection.value, {
+        // Offers already in review must stay complete; drafts may be partial.
+        forSubmit: existing.status === "AWAITING_APPROVAL",
+      });
+      if (branchError) return badRequest(branchError);
     }
 
     // Validate the flat discount against the values that will actually be stored
@@ -312,12 +337,16 @@ export async function PATCH(
         body.bookingUrl !== undefined ||
         body.maxRedemptions !== undefined ||
         body.daysOfWeek !== undefined ||
-        repeatAfterHours.value !== undefined
+        repeatAfterHours.value !== undefined ||
+        branchSelection.value !== undefined
       ) {
         const config = (existing.redemption?.configuration as Record<string, unknown>) ?? {};
         let redemptionConfig: Record<string, unknown> = {
           ...config,
         };
+        if (branchSelection.value) {
+          redemptionConfig = withBranchSelection(redemptionConfig, branchSelection.value);
+        }
         if (repeatAfterHours.value !== undefined) {
           redemptionConfig = withRepeatAfterHours(redemptionConfig, repeatAfterHours.value);
         }
@@ -363,11 +392,17 @@ export async function PATCH(
           });
         }
 
+        redemptionConfig = withChannelDetails(redemptionConfig);
+        const redemptionTypes = branchSelection.value
+          ? channelRedemptionTypes(branchSelection.value.channel)
+          : undefined;
+
         await tx.offerRedemption.upsert({
           where: { offerId: id },
           create: {
             offerId: id,
             redemptionType: body.redemptionType ?? null,
+            redemptionTypes: redemptionTypes ?? (body.redemptionType ? [body.redemptionType] : []),
             configuration: Object.keys(redemptionConfig).length > 0 ? (redemptionConfig as any) : null,
             maxRedemptions: body.maxRedemptions ?? null,
             currentRedemptions: 0,
@@ -375,6 +410,7 @@ export async function PATCH(
           },
           update: {
             ...(body.redemptionType !== undefined && { redemptionType: body.redemptionType }),
+            ...(redemptionTypes && { redemptionTypes }),
             ...(Object.keys(redemptionConfig).length > 0 && { configuration: (redemptionConfig as any) }),
             // Clearing the last key must still be written.
             ...(repeatAfterHours.value !== undefined && Object.keys(redemptionConfig).length === 0 && {

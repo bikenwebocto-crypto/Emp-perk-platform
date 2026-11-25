@@ -1,9 +1,10 @@
 'use client'
 
+import { branchSetupStatus, countActiveBranches } from "@/lib/offers/channel"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { skipToken, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { cn } from '@/utils/cn'
 import { merchantDashboardKeys } from '@/hooks/queries/use-merchants'
 import { useNewLeadCount } from '@/hooks/queries/use-leads'
@@ -160,6 +161,23 @@ function usePrefetchRegistry(queryClient: QueryClient): Record<string, PrefetchE
 
 type PrefetchEntry = () => void
 
+// Same rule as the merchant dashboard: missing an active In-store or Online branch → 'branch',
+// no live offer → 'offer', otherwise onboarding is done.
+async function fetchMerchantOnboardingStep(): Promise<'branch' | 'offer' | null> {
+  const [branchesRes, analyticsRes] = await Promise.all([
+    fetch('/api/merchant/branches?status=active', { cache: 'no-store' }),
+    fetch('/api/merchant/analytics/summary', { cache: 'no-store' }),
+  ])
+  const branchesJson = branchesRes.ok ? await branchesRes.json() : null
+  const setup = branchSetupStatus(
+    countActiveBranches(Array.isArray(branchesJson?.data) ? branchesJson.data : []),
+  )
+  if (!setup.complete) return 'branch'
+  const analyticsJson = analyticsRes.ok ? await analyticsRes.json() : null
+  const liveOffers: number = analyticsJson?.data?.summary?.liveOffers ?? 0
+  return liveOffers === 0 ? 'offer' : null
+}
+
 export function Sidebar({ userType, userName, userEmail, adminRole, companyName, branding, avatarUrl }: SidebarProps) {
   const pathname = usePathname()
   const isAdmin = userType === 'admin'
@@ -194,8 +212,28 @@ export function Sidebar({ userType, userName, userEmail, adminRole, companyName,
         return count ? { ...item, badge: count > 99 ? '99+' : count } : item
       })
   }, [userType, isAdmin, adminRole, newLeadCount, counts])
-  const router = useRouter()
+  // Merchant onboarding guide: highlight Branches until one is active, then
+  // Offers until one is live. Own lightweight query, re-checked on every
+  // navigation so it clears as soon as a branch/offer goes active.
+  const isMerchant = userType === 'merchant'
   const queryClient = useQueryClient()
+  const { data: onboardingStep, refetch: refetchOnboarding } = useQuery({
+    queryKey: ['merchant-onboarding-step'],
+    queryFn: isMerchant ? fetchMerchantOnboardingStep : skipToken,
+    staleTime: 0,
+  })
+  useEffect(() => {
+    if (!isMerchant) return
+    void refetchOnboarding()
+    // Also mark the cached dashboard stale so its "Getting started" view
+    // doesn't linger for up to a minute after a branch/offer change.
+    void queryClient.invalidateQueries({ queryKey: ['merchant-dashboard'], refetchType: 'none' })
+  }, [pathname, isMerchant, refetchOnboarding, queryClient])
+  const highlightHref =
+    userType === 'merchant'
+      ? onboardingStep === 'offer' ? '/merchant/offers' : onboardingStep === 'branch' ? '/merchant/branches' : null
+      : null
+  const router = useRouter()
   const prefetchRegistry = usePrefetchRegistry(queryClient)
   const [navigatingTo, setNavigatingTo] = useState<string | null>(null)
   const displayName = userName
@@ -284,7 +322,10 @@ export function Sidebar({ userType, userName, userEmail, adminRole, companyName,
                 <Link
                   href={item.href}
                   onClick={() => handleNavClick(item.href)}
-                  className={cn('flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors')}
+                  className={cn(
+                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                    highlightHref === item.href && !isActive && 'animate-pulse ring-2 ring-blue-500 ring-offset-1',
+                  )}
                   style={isActive
                     ? { backgroundColor: `hsl(var(--sidebar-active-bg) / 0.1)`, color: `hsl(var(--sidebar-active-text))` }
                     : { color: `hsl(var(--sidebar-text-muted))` }
@@ -305,6 +346,9 @@ export function Sidebar({ userType, userName, userEmail, adminRole, companyName,
                 >
                   <item.icon className="h-4 w-4 shrink-0" />
                   <span className="flex-1 truncate">{item.label}</span>
+                  {highlightHref === item.href && !isLoading && (
+                    <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-medium text-white">Start here</span>
+                  )}
                   {isLoading && (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: `hsl(var(--sidebar-active-text))` }} />
                   )}

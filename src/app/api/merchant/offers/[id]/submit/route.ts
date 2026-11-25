@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
+import {
+  branchSelectionFromConfig,
+  channelRedemptionType,
+  channelRedemptionTypes,
+  MISSING_BRANCHES_CODE,
+  parseBranchSelection,
+  withBranchSelection,
+  withChannelDetails,
+} from "@/lib/offers/channel";
+import { requiredBranchesError, validateBranchSelection } from "@/lib/offers/channel.server";
 import { getMerchantFromSession } from "@/lib/merchant-session";
 import { createAuditLog } from "@/services/audit-log.service";
 import { validateFlashWindow } from "@/lib/offers/flash";
@@ -151,7 +161,7 @@ function runQualityChecks(body: any): {
     if (!redemptionCode) {
       errors.redemptionCode = "Offer code is required";
     } else if (!isValidOfferCode(redemptionCode)) {
-      errors.redemptionCode = "Offer code must be between 6 and 30 letters or numbers.";
+      errors.redemptionCode = "3 to 13 letters and numbers";
     }
   }
   const flashError = validateFlashWindow(body.isFlash, body.startDate, body.endDate);
@@ -436,6 +446,39 @@ export async function POST(
       );
     }
 
+    // Channel (In-store / Online / Both) + branches; the channel decides redemptionType.
+    const branchSelection = parseBranchSelection(body);
+    if (!branchSelection.ok) {
+      return NextResponse.json(
+        { success: false, error: { code: "VALIDATION", message: branchSelection.error } },
+        { status: 400 },
+      );
+    }
+    if (branchSelection.value) {
+      body.redemptionType = channelRedemptionType(branchSelection.value.channel);
+      const branchError = await validateBranchSelection(offer.merchantId, branchSelection.value, {
+        forSubmit: true,
+      });
+      if (branchError) {
+        return NextResponse.json(
+          { success: false, error: { code: "VALIDATION", message: branchError, field: "branches" } },
+          { status: 400 },
+        );
+      }
+    }
+
+    // In-store and Both need an active In-store branch; Online needs no branch.
+    const submitChannel =
+      branchSelection.value?.channel ??
+      branchSelectionFromConfig(offer.redemption?.redemptionType, offer.redemption?.configuration).channel;
+    const missingBranches = await requiredBranchesError(offer.merchantId, submitChannel);
+    if (missingBranches) {
+      return NextResponse.json(
+        { success: false, error: { code: MISSING_BRANCHES_CODE, message: missingBranches, field: "channel" } },
+        { status: 400 },
+      );
+    }
+
     const pricingConfig =
       (offer.pricing?.configuration as Record<string, unknown>) ?? {};
 
@@ -708,11 +751,14 @@ export async function POST(
           body.bookingUrl !== undefined ||
           body.maxRedemptions !== undefined ||
           body.daysOfWeek !== undefined ||
-          repeatAfterHours.value !== undefined
+          repeatAfterHours.value !== undefined ||
+          branchSelection.value !== undefined
         ) {
           const config =
             (offer.redemption?.configuration as Record<string, unknown>) ?? {};
           let newRedemptionConfig: Record<string, unknown> = { ...config };
+          if (branchSelection.value)
+            newRedemptionConfig = withBranchSelection(newRedemptionConfig, branchSelection.value);
           if (repeatAfterHours.value !== undefined)
             newRedemptionConfig = withRepeatAfterHours(
               newRedemptionConfig,
@@ -724,12 +770,18 @@ export async function POST(
             newRedemptionConfig.instructions = body.redemptionInstructions;
           if (body.bookingUrl !== undefined)
             newRedemptionConfig.bookingUrl = body.bookingUrl;
+          newRedemptionConfig = withChannelDetails(newRedemptionConfig);
+          const redemptionTypes = branchSelection.value
+            ? channelRedemptionTypes(branchSelection.value.channel)
+            : undefined;
 
           await tx.offerRedemption.upsert({
             where: { offerId: id },
             create: {
               offerId: id,
               redemptionType: body.redemptionType ?? null,
+              redemptionTypes:
+                redemptionTypes ?? (body.redemptionType ? [body.redemptionType] : []),
               configuration:
                 Object.keys(newRedemptionConfig).length > 0
                   ? (newRedemptionConfig as any)
@@ -742,6 +794,7 @@ export async function POST(
               ...(body.redemptionType !== undefined && {
                 redemptionType: body.redemptionType,
               }),
+              ...(redemptionTypes && { redemptionTypes }),
               ...(Object.keys(newRedemptionConfig).length > 0 && {
                 configuration: newRedemptionConfig as any,
               }),

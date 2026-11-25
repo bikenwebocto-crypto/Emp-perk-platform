@@ -7,6 +7,11 @@ import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 import { isEvergreenRange } from '@/lib/offers/evergreen'
 import { recordOfferView } from '@/lib/offers/record-offer-view'
+import {
+  branchSelectionFromConfig,
+  channelUsesBranches,
+  redemptionResponseFields,
+} from '@/lib/offers/channel'
 
 // GET /api/mobile/offers/[id]
 //
@@ -29,7 +34,9 @@ export async function GET(
       include: {
         content: { select: { description: true, shortDescription: true, termsAndConditions: true, imageUrls: true } },
         pricing: { select: { configuration: true } },
-        redemption: { select: { redemptionType: true, configuration: true, daysOfWeek: true } },
+        redemption: {
+          select: { redemptionType: true, redemptionTypes: true, configuration: true, daysOfWeek: true },
+        },
         capacity: { select: { maxRedemptions: true, redeemedCount: true } },
         analytics: { select: { viewCount: true, clickCount: true, saveCount: true } },
         merchant: {
@@ -94,6 +101,22 @@ export async function GET(
 
     const pricingConfig = (offer.pricing?.configuration as Record<string, unknown>) ?? {}
     const redemptionConfig = (offer.redemption?.configuration as Record<string, unknown>) ?? {}
+    const selection = branchSelectionFromConfig(
+      offer.redemption?.redemptionType,
+      offer.redemption?.configuration,
+    )
+    const inStore = channelUsesBranches(selection.channel)
+    // Only the branches where this offer's in-store card can be used:
+    //   allBranches → every active In-store branch; otherwise the chosen ones.
+    //   Online-only offers → none (redeemed on the merchant's website).
+    const chosenIds = new Set(selection.branchIds)
+    const offerBranches = inStore
+      ? offer.merchant.branches.filter(
+          (b) =>
+            b.branchType === 'IN_STORE' &&
+            (selection.allBranches ? b.isActive : chosenIds.has(b.id)),
+        )
+      : []
     const now = new Date()
     const status = effectiveOfferStatus(offer.status, offer.endDate, now)
     const redeemState = getRedeemState(
@@ -122,6 +145,9 @@ export async function GET(
         minimumSpend: pricingConfig.minimumSpend ?? null,
         discountMax: pricingConfig.maximumDiscount ?? null,
         redemptionType: offer.redemption?.redemptionType ?? null,
+        ...redemptionResponseFields(offer.redemption),
+        allBranches: inStore ? selection.allBranches : false,
+        branchIds: offerBranches.map((b) => b.id),
         maxRedemptions: offer.capacity?.maxRedemptions ?? null,
         currentRedemptions: offer.capacity?.redeemedCount ?? 0,
         daysOfWeek: offer.redemption?.daysOfWeek ?? null,
@@ -135,7 +161,7 @@ export async function GET(
         evergreen: isEvergreenRange(offer.startDate, offer.endDate),
         isFeatured: offer.isFeatured,
         isExclusive: offer.isExclusive,
-        merchant: offer.merchant,
+        merchant: { ...offer.merchant, branches: offerBranches },
         redemptionCount: offer._count.redemptions,
         analytics: offer.analytics ?? { viewCount: 0, clickCount: 0, saveCount: 0 },
         isVisible: visibility.visible,

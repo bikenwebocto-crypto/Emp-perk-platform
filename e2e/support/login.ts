@@ -17,11 +17,11 @@ export async function loginViaUi(page: Page, user: TestUser, expectedRole?: stri
   await page.goto('/login')
   await page.getByRole('heading').first().waitFor({ state: 'visible' }).catch(() => {})
 
-  const emailInput = page.locator('input[name="email"]').first()
+  const emailInput = page.locator('#login-email, input[name="email"]').first()
   await emailInput.waitFor({ state: 'attached', timeout: 15_000 })
   await emailInput.fill(user.email)
 
-  const passwordInput = page.locator('input[name="password"]').first()
+  const passwordInput = page.locator('#login-password, input[name="password"]').first()
   await passwordInput.fill(user.password)
 
   const submit = page.locator('button[type="submit"]').first()
@@ -41,9 +41,9 @@ export async function loginViaUiAndCapture(page: Page, user: TestUser): Promise<
 
 export async function expectLoginErrorForUnmapped(page: Page, user: TestUser): Promise<void> {
   await page.goto('/login')
-  await page.locator('input[name="email"]').first().waitFor({ state: 'attached', timeout: 15_000 })
-  await page.locator('input[name="email"]').first().fill(user.email)
-  await page.locator('input[name="password"]').first().fill(user.password)
+  await page.locator('#login-email, input[name="email"]').first().waitFor({ state: 'attached', timeout: 15_000 })
+  await page.locator('#login-email, input[name="email"]').first().fill(user.email)
+  await page.locator('#login-password, input[name="password"]').first().fill(user.password)
   await page.locator('button[type="submit"]').first().click()
   // Not mapped -> error box, stays on /login for up to 30s.
   await expect(page).toHaveURL(new RegExp(`${BASE_URL}/login`), { timeout: 30_000 })

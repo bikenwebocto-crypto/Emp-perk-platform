@@ -44,6 +44,7 @@ export default function EditBranchPage({ params }: { params: Promise<{ id: strin
       wheelchairAccess: Boolean(branch.wheelchairAccess),
       landmark: branch.landmark ?? '',
       description: branch.description ?? '',
+      websiteUrl: branch.websiteUrl ?? '',
       status: branch.status ?? 'ACTIVE',
     }
   }, [branch])

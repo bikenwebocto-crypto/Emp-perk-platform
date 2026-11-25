@@ -64,7 +64,7 @@ export function evaluateOfferVisibility(o: OfferRow, now: Date): VisibilityResul
   if (o.merchant.deletedAt) return { visible: false, reason: 'Merchant no longer exists' }
   const hasActiveBranch = o.merchant.branches.some((b) => b.isActive && b.status === 'ACTIVE')
   const hasOnlineBranch = o.merchant.branches.some(
-    (b) => b.branchType === 'ONLINE' && b.status === 'ACTIVE',
+    (b) => b.branchType === 'ONLINE' && b.isActive && b.status === 'ACTIVE',
   )
   if (!hasActiveBranch && !hasOnlineBranch) {
     return { visible: false, reason: 'Merchant has no active branches' }

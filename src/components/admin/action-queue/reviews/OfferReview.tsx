@@ -20,6 +20,92 @@ function formatDate(d?: string | Date | null) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+const CHANNEL_LABEL: Record<string, string> = {
+  IN_STORE: 'In-store',
+  ONLINE: 'Online',
+  BOTH: 'Both (Online + In-store)',
+}
+
+const TYPE_LABEL: Record<string, string> = {
+  ONLINE_CODE: 'Online code',
+  VIRTUAL_CARD_AUTO_VERIFY: 'In-store card',
+  BOOKING_LINK: 'Booking link',
+  IN_STORE_QR: 'In-store QR',
+}
+
+function RedemptionDetails({ offer }: { offer: any }) {
+  const redemption = offer.redemption
+  if (!redemption) return null
+  const cfg = (redemption.configuration ?? {}) as Record<string, any>
+  const channel: string | undefined = offer.redemptionChannel ?? cfg.channel
+  const types: string[] =
+    Array.isArray(redemption.redemptionTypes) && redemption.redemptionTypes.length > 0
+      ? redemption.redemptionTypes
+      : redemption.redemptionType
+        ? [redemption.redemptionType]
+        : []
+  const hasOnline = channel ? channel !== 'IN_STORE' : types.includes('ONLINE_CODE')
+  const hasInStore = channel ? channel !== 'ONLINE' : types.includes('VIRTUAL_CARD_AUTO_VERIFY')
+  const online = (cfg.online ?? cfg) as Record<string, any>
+  const branches: any[] = offer.redemptionBranches ?? []
+
+  return (
+    <div className="space-y-3 rounded-md border p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="font-medium">Redemption</p>
+        {channel && (
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+            {CHANNEL_LABEL[channel] ?? channel}
+          </span>
+        )}
+        {types.map((t) => (
+          <span key={t} className="rounded-full bg-muted px-2 py-0.5 text-xs">
+            {TYPE_LABEL[t] ?? t}
+          </span>
+        ))}
+      </div>
+
+      <div className={`grid gap-3 ${hasOnline && hasInStore ? 'sm:grid-cols-2' : ''}`}>
+        {hasOnline && (
+          <div className="rounded-md bg-muted/30 p-2">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Online</p>
+            <p><span className="text-muted-foreground">Code: </span><span className="font-mono">{online.code || '—'}</span></p>
+            <p className="break-all">
+              <span className="text-muted-foreground">Website: </span>
+              {online.bookingUrl ? (
+                <a href={online.bookingUrl} target="_blank" rel="noreferrer" className="text-primary underline">{online.bookingUrl}</a>
+              ) : '—'}
+            </p>
+            {online.instructions && <p className="text-xs text-muted-foreground">{online.instructions}</p>}
+          </div>
+        )}
+        {hasInStore && (
+          <div className="rounded-md bg-muted/30 p-2">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">
+              In-store card {offer.redemptionAllBranches ? '· all branches' : `· ${branches.length} selected branch${branches.length === 1 ? '' : 'es'}`}
+            </p>
+            {branches.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No active in-store branches</p>
+            ) : (
+              <ul className="space-y-1">
+                {branches.map((b) => (
+                  <li key={b.id} className="text-xs">
+                    <span className="font-medium">{b.name}</span>
+                    {!b.isActive && <span className="ml-1 text-destructive">(inactive)</span>}
+                    <span className="block text-muted-foreground">
+                      {[b.addressLine1, b.addressLine2, b.city, b.postalCode].filter(Boolean).join(', ')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function OfferReview({ entity }: ReviewComponentProps) {
   if (!entity) return null
 
@@ -94,6 +180,8 @@ export function OfferReview({ entity }: ReviewComponentProps) {
               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">Exclusive</span>
             )}
           </div>
+
+          <RedemptionDetails offer={entity} />
 
           {content?.termsAndConditions && (
             <div>
