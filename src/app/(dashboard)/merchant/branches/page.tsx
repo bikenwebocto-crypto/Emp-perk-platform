@@ -159,11 +159,7 @@ const hasFilter =
           <Link href="/merchant/branches/new">
             <Button size="sm" variant="outline">
               <Plus className="mr-1 h-4 w-4" />
-              {branchSetup.missing.length === 1 && branchSetup.missing[0] === 'ONLINE'
-                ? 'Add Online branch'
-                : branchSetup.missing.length === 1
-                  ? 'Add In-store branch'
-                  : 'Add branch'}
+              {branchSetup.missing.length === 1 ? 'Add In-store branch' : 'Add branch'}
             </Button>
           </Link>
         </div>
