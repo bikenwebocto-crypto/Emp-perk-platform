@@ -35,6 +35,33 @@ export interface PublishNotificationOptions {
   referenceType?: string
   referenceId?: string
   metadata?: Record<string, unknown>
+  /** Extra detail shown in the email body only (e.g. a rejection reason). */
+  emailDetail?: string | null
+  /** Call-to-action link in the email. Relative paths use NEXT_PUBLIC_APP_URL. */
+  actionUrl?: string
+  actionLabel?: string
+}
+
+export interface EmailDeliveryFailure {
+  role: RecipientRole
+  recipientId: string
+  email: string | null
+  reason: string
+}
+
+export interface EmailDeliverySummary {
+  /** EMAIL was requested for this notification. */
+  requested: boolean
+  attempted: number
+  sent: number
+  failed: EmailDeliveryFailure[]
+  /** EMAIL was requested but nobody could receive it (no recipients / all opted out). */
+  noRecipients: boolean
+}
+
+export interface PublishResult {
+  notifications: NotificationEvent[]
+  email: EmailDeliverySummary
 }
 
 // ============================================================
@@ -62,6 +89,14 @@ class NotificationServiceClass {
    * This is the single entry point for all notification creation.
    */
   async publish(options: PublishNotificationOptions): Promise<NotificationEvent[]> {
+    return (await this.publishDetailed(options)).notifications
+  }
+
+  /**
+   * Same as publish, but waits for email delivery and reports which emails
+   * failed, so callers can tell the admin an email was not delivered.
+   */
+  async publishDetailed(options: PublishNotificationOptions): Promise<PublishResult> {
     const {
       type,
       recipients,
@@ -74,7 +109,22 @@ class NotificationServiceClass {
       metadata,
     } = options
 
-    if (!recipients.length) return []
+    const emailRequested = channels.includes('EMAIL')
+    const emailSummary: EmailDeliverySummary = {
+      requested: emailRequested,
+      attempted: 0,
+      sent: 0,
+      failed: [],
+      noRecipients: false,
+    }
+
+    if (!recipients.length) {
+      if (emailRequested) {
+        emailSummary.noRecipients = true
+        console.warn('[NotificationService] Email requested but there are no recipients', { type, title, referenceType, referenceId })
+      }
+      return { notifications: [], email: emailSummary }
+    }
 
     const createdNotifications: NotificationEvent[] = []
 
@@ -180,11 +230,25 @@ class NotificationServiceClass {
         })
     }
 
-    // Dispatch emails asynchronously (non-blocking)
+    // Emails are awaited so failures can be reported back to the caller.
     if (emailRecipients.length) {
-      this.dispatchEmails(createdNotifications, emailRecipients).catch((err) => {
+      try {
+        const result = await this.dispatchEmails(createdNotifications, emailRecipients, options)
+        emailSummary.attempted = result.attempted
+        emailSummary.sent = result.sent
+        emailSummary.failed = result.failed
+      } catch (err) {
         console.error('[NotificationService] Email dispatch failed:', err)
-      })
+        emailSummary.attempted = emailRecipients.length
+        emailSummary.failed = emailRecipients.map((r) => ({
+          role: r.role,
+          recipientId: r.id,
+          email: null,
+          reason: err instanceof Error ? err.message : String(err),
+        }))
+      }
+    } else if (emailRequested) {
+      emailSummary.noRecipients = true
     }
 
     // No SMS provider is configured; record intent so delivery is auditable.
@@ -197,7 +261,20 @@ class NotificationServiceClass {
       )
     }
 
-    return createdNotifications
+    return { notifications: createdNotifications, email: emailSummary }
+  }
+
+  async adminRecipients(): Promise<Recipient[]> {
+    const admins = await prisma.adminUser.findMany({ where: { isActive: true }, select: { id: true } })
+    return admins.map((a) => ({ role: 'admin', id: a.id }))
+  }
+
+  async companyAdminRecipients(companyId: string): Promise<Recipient[]> {
+    const admins = await prisma.companyAdmin.findMany({
+      where: { companyId, isActive: true },
+      select: { id: true },
+    })
+    return admins.map((a) => ({ role: 'company_admin', id: a.id }))
   }
 
   /**
@@ -487,50 +564,64 @@ class NotificationServiceClass {
 
   private async dispatchEmails(
     notifications: NotificationEvent[],
-    recipients: Recipient[]
-  ): Promise<void> {
+    recipients: Recipient[],
+    options: Pick<PublishNotificationOptions, 'emailDetail' | 'actionUrl' | 'actionLabel'>
+  ): Promise<{ attempted: number; sent: number; failed: EmailDeliveryFailure[] }> {
     // Deduplicate recipients
     const uniqueRecipients = [...new Map(recipients.map((r) => [`${r.role}:${r.id}`, r])).values()]
 
-    const delivered: string[] = []
-    const failed: string[] = []
+    let sent = 0
+    const failures: EmailDeliveryFailure[] = []
 
     for (const recipient of uniqueRecipients) {
       const notification = notifications.find((n) => {
         const fkField = this.getForeignKeyField(recipient.role)
         return (n as any)[fkField] === recipient.id
       })
-      if (!notification) continue
-
-      // Look up email
-      const email = await this.lookupEmail(recipient)
-      if (!email) {
-        failed.push(notification.id)
+      if (!notification) {
+        failures.push({ role: recipient.role, recipientId: recipient.id, email: null, reason: 'Notification record was not created' })
         continue
       }
 
+      const email = await this.lookupEmail(recipient)
+      if (!email) {
+        const reason = 'No email address on the linked account'
+        console.error('[NotificationService] Email not delivered', { recipient, notificationId: notification.id, reason })
+        failures.push({ role: recipient.role, recipientId: recipient.id, email: null, reason })
+        await this.updateDeliveryStatus([notification.id], 'EMAIL', 'FAILED', reason)
+        continue
+      }
+
+      let reason: string | null = null
       try {
-        // Send email
-        await emailService.sendEmail({
+        // sendEmail returns { success: false } instead of throwing, so check it.
+        const result = await emailService.sendEmail({
           to: email,
           subject: notification.title,
-          html: this.buildEmailHtml(notification),
+          html: this.buildEmailHtml(notification, options),
         })
-
-        delivered.push(notification.id)
-
-        // Mark the event as delivered for backward compatibility
-        await prisma.notificationEvent.update({
-          where: { id: notification.id },
-          data: { deliveredAt: new Date() },
-        })
-      } catch {
-        failed.push(notification.id)
+        if (!result.success) reason = result.error ??'Email provider rejected the message'
+      } catch (err) {
+        reason = err instanceof Error ? err.message : String(err)
       }
+
+      if (reason) {
+        console.error('[NotificationService] Email not delivered', { recipient, email, notificationId: notification.id, reason })
+        failures.push({ role: recipient.role, recipientId: recipient.id, email, reason })
+        await this.updateDeliveryStatus([notification.id], 'EMAIL', 'FAILED', reason.slice(0, 500))
+        continue
+      }
+
+      sent++
+      await this.updateDeliveryStatus([notification.id], 'EMAIL', 'DELIVERED')
+      // Mark the event as delivered for backward compatibility
+      await prisma.notificationEvent.update({
+        where: { id: notification.id },
+        data: { deliveredAt: new Date() },
+      })
     }
 
-    await this.updateDeliveryStatus(delivered, 'EMAIL', 'DELIVERED')
-    await this.updateDeliveryStatus(failed, 'EMAIL', 'FAILED', 'Email send failed')
+    return { attempted: uniqueRecipients.length, sent, failed: failures }
   }
 
   private async lookupEmail(recipient: Recipient): Promise<string | null> {
@@ -564,15 +655,30 @@ class NotificationServiceClass {
     return map[role]
   }
 
-  private buildEmailHtml(notification: NotificationEvent): string {
+  private buildEmailHtml(
+    notification: NotificationEvent,
+    options: Pick<PublishNotificationOptions, 'emailDetail' | 'actionUrl' | 'actionLabel'> = {}
+  ): string {
+    const esc = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/+$/, '')
+    const actionHref = options.actionUrl
+      ? /^https?:\/\//.test(options.actionUrl)
+        ? options.actionUrl
+        : appUrl
+          ? `${appUrl}${options.actionUrl.startsWith('/') ? '' : '/'}${options.actionUrl}`
+          : null
+      : null
     return `
       <!DOCTYPE html>
       <html>
       <head><meta charset="utf-8"></head>
       <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="background: #f8fafc; border-radius: 8px; padding: 24px; border: 1px solid #e2e8f0;">
-          <h2 style="color: #1e293b; margin: 0 0 12px;">${notification.title}</h2>
-          ${notification.body ? `<p style="color: #475569; line-height: 1.6; margin: 0;">${notification.body}</p>` : ''}
+          <h2 style="color: #1e293b; margin: 0 0 12px;">${esc(notification.title)}</h2>
+          ${notification.body ? `<p style="color: #475569; line-height: 1.6; margin: 0;">${esc(notification.body)}</p>` : ''}
+          ${options.emailDetail ? `<p style="color: #1e293b; line-height: 1.6; margin: 12px 0 0; padding: 12px; background: #fff; border-left: 3px solid #f59e0b;">${esc(options.emailDetail)}</p>` : ''}
+          ${actionHref ? `<p style="margin: 20px 0 0;"><a href="${esc(actionHref)}" style="display: inline-block; background: #1e293b; color: #fff; text-decoration: none; padding: 10px 18px; border-radius: 6px;">${esc(options.actionLabel ?? 'Sign in')}</a></p>` : ''}
           <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;">
           <p style="color: #94a3b8; font-size: 12px; margin: 0;">
             Priority: ${notification.priority} · ${new Date(notification.createdAt).toLocaleDateString()}

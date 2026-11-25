@@ -7,6 +7,7 @@ import { createPerfTimer } from "@/lib/perf";
 import {
   BUSINESS_NOTIFICATION_TEMPLATES,
   channels,
+  collectEmailWarnings,
   publishBusinessNotification,
 } from "@/services/business-notification.service";
 
@@ -247,11 +248,16 @@ export async function POST(request: NextRequest) {
               priority: "HIGH" as const,
             }
           : null;
+    let emailWarnings: string[] = [];
     if (template) {
-      await publishBusinessNotification({
+      // ON-12: merchant approval is in-app only; rejection still emails the reason.
+      emailWarnings = collectEmailWarnings(await publishBusinessNotification({
         ...template,
         recipients: [{ role: "merchant", id: merchant.id }],
-        channels: channels("IN_APP", "PUSH", "EMAIL"),
+        channels:
+          status === "ACTIVE"
+            ? channels("IN_APP", "PUSH")
+            : channels("IN_APP", "PUSH", "EMAIL"),
         referenceType: "merchant",
         referenceId: merchant.id,
         metadata: {
@@ -259,7 +265,8 @@ export async function POST(request: NextRequest) {
           status,
           rejectionReason: rejectionReason ?? null,
         },
-      });
+        emailDetail: rejectionReason ? `Reason: ${rejectionReason}` : null,
+      }));
     }
 
     timer.section("Serialization");
@@ -269,6 +276,7 @@ export async function POST(request: NextRequest) {
       success: true,
       data: merchant,
       message: `Merchant ${status.toLowerCase()} successfully`,
+      emailWarnings,
     });
   } catch (error: any) {
     timer.end();

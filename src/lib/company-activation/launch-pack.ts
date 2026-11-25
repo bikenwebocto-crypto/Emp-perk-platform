@@ -7,6 +7,7 @@
 import { prisma } from '@/lib/prisma'
 import { createAuditLog } from '@/services/audit-log.service'
 import { NotificationService } from '@/services/notification.service'
+import { emailWarningFor } from '@/services/business-notification.service'
 
 export async function sendLaunchPack(companyId: string, profileId: string) {
   const company = await prisma.company.findUnique({
@@ -30,19 +31,23 @@ export async function sendLaunchPack(companyId: string, profileId: string) {
   })
 
   // Send welcome notifications to company admins
+  // This is the single activation email for company admins (callers must not
+  // send a separate "company approved" email on first activation).
   const adminIds = company.companyAdmins.map((a) => a.id)
-  if (adminIds.length > 0) {
-    await NotificationService.publish({
-      type: 'LAUNCH_PACK',
-      recipients: adminIds.map((id) => ({ role: 'company_admin', id })),
-      title: `Welcome to ${company.name} on the platform`,
-      message: `Your account is ready. Sign in to manage your team and start exploring offers.`,
-      priority: 'NORMAL',
-      channels: ['IN_APP', 'EMAIL'],
-      referenceType: 'launch_pack',
-      referenceId: companyId,
-    })
+  const options = {
+    type: 'LAUNCH_PACK' as const,
+    recipients: adminIds.map((id) => ({ role: 'company_admin' as const, id })),
+    title: `Welcome to ${company.name} on the platform`,
+    message: `Your account is ready. Sign in to manage your team and start exploring offers.`,
+    priority: 'NORMAL' as const,
+    channels: ['IN_APP' as const, 'EMAIL' as const],
+    referenceType: 'launch_pack',
+    referenceId: companyId,
+    actionUrl: '/login',
+    actionLabel: 'Sign in',
   }
+  const { email } = await NotificationService.publishDetailed(options)
+  const emailWarning = emailWarningFor(email, options.title)
 
   // Send to all active employees
   await NotificationService.publishToEmployees(companyId, {
@@ -57,6 +62,7 @@ export async function sendLaunchPack(companyId: string, profileId: string) {
 
   return {
     adminCount: adminIds.length,
+    emailWarning,
   }
 }
 

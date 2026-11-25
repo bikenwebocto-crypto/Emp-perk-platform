@@ -24,6 +24,7 @@ import { Badge } from '@/components/ui/badge'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { showToast } from '@/hooks/use-toast'
+import { showEmailWarnings } from '@/lib/email-warnings.client'
 import { ReviewHeader } from '@/components/admin/action-queue/ReviewHeader'
 import { OfferPreviewSection } from '@/components/merchant/offers/OfferPreviewSection'
 import {
@@ -190,6 +191,7 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
         const json = await res.json()
         if (!res.ok) throw new Error(json?.error?.message ?? 'Action failed')
         showToast({ type: 'success', title: json?.message ?? 'Action completed' })
+        showEmailWarnings(json)
         setEditMode(false)
         setEdits({})
         setShowRejectDialog(false)

@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { showEmailWarnings } from '@/lib/email-warnings.client';
 import { leadKeys } from './use-leads';
 
 export const companyKeys = {
@@ -109,7 +110,8 @@ export function useUpdateCompanyDetail() {
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to update company');
       return json;
     },
-    onSuccess: () => {
+    onSuccess: (json) => {
+      showEmailWarnings(json);
       queryClient.invalidateQueries({ queryKey: companyKeys.lists() });
       queryClient.invalidateQueries({ queryKey: companyKeys.details() });
     },

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { showToast } from '@/hooks/use-toast'
+import { showEmailWarnings } from '@/lib/email-warnings.client'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { Building2, Save, MapPin, Globe, Phone, Mail, Image as ImageIcon, AlertCircle, Lock, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 import { ImageUploader } from '@/components/shared/ImageUploader'
@@ -101,6 +102,7 @@ export default function MerchantProfilePage() {
       } else {
         showToast({ type: 'success', title: 'Profile updated' })
       }
+      showEmailWarnings(json)
     },
     onError: (e: any) => {
       showToast({ type: 'error', title: 'Update failed', description: e?.message })

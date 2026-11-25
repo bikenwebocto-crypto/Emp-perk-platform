@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { getMerchantFromSession } from '@/lib/merchant-session'
 import { createAuditLog } from '@/services/audit-log.service';
+import { channels, collectEmailWarnings, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
 
 function unauthorized() {
   return NextResponse.json(
@@ -102,9 +103,35 @@ export async function POST(
       console.error('Audit log failed (non-fatal):', auditError);
     }
 
+    const merchantOutcome = await publishBusinessNotification({
+      type: 'OFFER_EXPIRED',
+      title: `Offer revoked: ${offer.title}`,
+      message: 'Your offer has been revoked and is no longer visible to employees.',
+      priority: 'HIGH',
+      recipients: [{ role: 'merchant', id: merchant.id }],
+      channels: channels('IN_APP', 'PUSH', 'EMAIL'),
+      referenceType: 'merchant_offer',
+      referenceId: id,
+      metadata: { reason: reason.trim(), previousStatus: offer.status },
+      emailDetail: `Reason: ${reason.trim()}`,
+      actionUrl: `/merchant/offers/${id}`,
+      actionLabel: 'View offer',
+    });
+    await publishBusinessToAdmins({
+      type: 'OFFER_EXPIRED',
+      title: `Offer revoked by merchant: ${offer.title}`,
+      message: `Reason: ${reason.trim()}`,
+      priority: 'NORMAL',
+      channels: channels('IN_APP'),
+      referenceType: 'merchant_offer',
+      referenceId: id,
+      metadata: { merchantId: merchant.id, reason: reason.trim() },
+    });
+
     return NextResponse.json({
       success: true,
       message: "Offer revoked successfully",
+      emailWarnings: collectEmailWarnings(merchantOutcome),
     });
   } catch (error) {
     return internalError(error);

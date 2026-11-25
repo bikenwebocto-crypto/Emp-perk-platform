@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { showEmailWarnings } from '@/lib/email-warnings.client';
 import type {
   MerchantDashboardFilters,
   MerchantDashboardResponse,
@@ -372,7 +373,8 @@ export function useSuspendMerchant() {
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to suspend merchant')
       return json
     },
-    onSuccess: () => {
+    onSuccess: (json) => {
+      showEmailWarnings(json)
       queryClient.invalidateQueries({ queryKey: merchantDashboardKeys.all })
       queryClient.invalidateQueries({ queryKey: merchantKeys.lists() })
     },
@@ -392,7 +394,8 @@ export function useActivateMerchant() {
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to activate merchant')
       return json
     },
-    onSuccess: () => {
+    onSuccess: (json) => {
+      showEmailWarnings(json)
       queryClient.invalidateQueries({ queryKey: merchantDashboardKeys.all })
       queryClient.invalidateQueries({ queryKey: merchantKeys.lists() })
     },
@@ -412,7 +415,8 @@ export function usePauseMerchant() {
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to pause merchant')
       return json
     },
-    onSuccess: () => {
+    onSuccess: (json) => {
+      showEmailWarnings(json)
       queryClient.invalidateQueries({ queryKey: merchantDashboardKeys.all })
       queryClient.invalidateQueries({ queryKey: merchantKeys.lists() })
     },

@@ -31,7 +31,12 @@
       "Bash(node -e \"const c=require\\('./postman/offers-redemptions.postman_collection.json'\\);let n=0;c.item.forEach\\(f=>n+=f.item.length\\);console.log\\(n,'requests'\\);console.log\\(c.item[0].item[0].event[0].script.exec.slice\\(0,4\\).join\\('\\\\n'\\)\\)\")",
       "Bash(git diff *)",
       "Bash(node --env-file=.env /c/Users/Admin/AppData/Local/Temp/claude/be6a8a0796ed7525/db5955fa-d6f3-4f05-829b-9b4aae206f71/scratchpad/q.cjs)",
-      "Bash(node --env-file=.env -e 'const{PrismaClient}=require\\('\\\\''./node_modules/@prisma/client'\\\\''\\);const p=new PrismaClient\\(\\);p.$queryRawUnsafe\\('\\\\''select migration_name, finished_at from _prisma_migrations order by finished_at desc limit 4'\\\\''\\).then\\(r=>console.log\\(r\\)\\).finally\\(\\(\\)=>p.$disconnect\\(\\)\\)')"
+      "Bash(node --env-file=.env -e 'const{PrismaClient}=require\\('\\\\''./node_modules/@prisma/client'\\\\''\\);const p=new PrismaClient\\(\\);p.$queryRawUnsafe\\('\\\\''select migration_name, finished_at from _prisma_migrations order by finished_at desc limit 4'\\\\''\\).then\\(r=>console.log\\(r\\)\\).finally\\(\\(\\)=>p.$disconnect\\(\\)\\)')",
+      "PowerShell($o = npx tsc --noEmit -p . 2>&1 | Out-String; $o.Length; \\($o -split \"`n\" | Select-Object -First 40\\) -join \"`n\")",
+      "PowerShell(npx vitest run src/services src/lib/offers 2>&1)",
+      "PowerShell(npx vitest run tests/unit/offers/flat-discount-api.spec.ts 2>&1)",
+      "PowerShell(git stash push -q -- src/services src/app/api src/lib/company-activation src/hooks src/lib/email-warnings.client.ts \"src/app/\\(dashboard\\)\")",
+      "PowerShell(git stash pop -q)"
     ]
   }
 }

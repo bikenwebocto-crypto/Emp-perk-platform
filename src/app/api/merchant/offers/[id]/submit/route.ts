@@ -33,11 +33,12 @@ import {
   shouldAutoActivateEvergreen,
   validateMerchantForeverOfferPolicy,
 } from "@/lib/offers/evergreen";
-import { notifyEvergreenLive } from "@/lib/offers/evergreen-notifications";
+import { notifyEvergreenBroadcast, notifyEvergreenMerchant } from "@/lib/offers/evergreen-notifications";
 import { ensureOfferQRCode } from "@/lib/offer-qr";
 import {
   BUSINESS_NOTIFICATION_TEMPLATES,
   channels,
+  collectEmailWarnings,
   publishBusinessNotification,
   publishBusinessToAdmins,
 } from "@/services/business-notification.service";
@@ -239,13 +240,8 @@ async function firePostSubmitSideEffects(params: {
           data: { status: "SKIPPED", completedAt: new Date() },
         });
       }
-      await notifyEvergreenLive({
-        offerId: finalOfferId,
-        title: finalOfferTitle,
-        merchantId,
-        replacedOfferId,
-        replacedOfferTitle,
-      });
+      // The merchant notice was already sent (awaited) before the response.
+      await notifyEvergreenBroadcast({ offerId: finalOfferId, title: finalOfferTitle, merchantId });
       await createAuditLog({
         actorType: "merchant",
         actorId: merchantId,
@@ -900,6 +896,18 @@ export async function POST(
 
     // ── Step 3: build the response NOW. Everything below this point is
     // side-effect work the client doesn't need to wait on.
+    // Evergreen go-live: the merchant notice (and first-time email) is awaited
+    // so a failed email can be reported back as `emailWarnings`.
+    const emailWarnings = autoActivate
+      ? collectEmailWarnings(await notifyEvergreenMerchant({
+          offerId: finalOffer.id,
+          title: finalOffer.title,
+          merchantId: offer.merchantId,
+          replacedOfferId: replacedEvergreen.replacedOfferId,
+          replacedOfferTitle: replacedEvergreen.replacedOfferTitle,
+        }))
+      : [];
+
     const response = NextResponse.json({
       success: true,
       data: finalOffer,
@@ -907,6 +915,7 @@ export async function POST(
       validationErrors: qcResult.errors,
       autoActivated: autoActivate,
       ...(autoActivate ? { message: EVERGREEN_LIVE_MESSAGE } : {}),
+      emailWarnings,
     });
 
     // ── Step 4: fire notifications + audit log WITHOUT awaiting.

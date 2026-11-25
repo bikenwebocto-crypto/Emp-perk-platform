@@ -3,24 +3,25 @@ import {
   channels,
   publishBusinessNotification,
   publishBusinessToAllEmployees,
+  type EmailOutcome,
 } from '@/services/business-notification.service';
 
 /**
- * Notifications for an Evergreen offer that went LIVE without admin approval:
- *  - merchant: confirmation (and, if it took over, that the old one is inactive)
- *  - all users: "New offer" broadcast — same event the admin approval path sends
- * Each publish swallows its own errors, so one failure never blocks the other.
+ * Merchant notice for an Evergreen offer that went LIVE without admin approval
+ * (and, if it took over, that the old one is inactive). The first go-live is
+ * also emailed. Awaited by the route so an email failure can be shown to the
+ * merchant via `emailWarnings`. Never throws.
  */
-export async function notifyEvergreenLive(params: {
+export async function notifyEvergreenMerchant(params: {
   offerId: string;
   title: string;
   merchantId: string;
   replacedOfferId?: string | null;
   replacedOfferTitle?: string | null;
-}): Promise<void> {
+}): Promise<EmailOutcome> {
   const { offerId, title, merchantId, replacedOfferId = null, replacedOfferTitle = null } = params;
 
-  await publishBusinessNotification({
+  return publishBusinessNotification({
     type: 'OFFER_APPROVED',
     title: `Offer live: ${title}`,
     message: replacedOfferId
@@ -30,14 +31,26 @@ export async function notifyEvergreenLive(params: {
       : 'Your Evergreen offer is now live.',
     priority: 'HIGH',
     recipients: [{ role: 'merchant', id: merchantId }],
-    channels: channels('IN_APP', 'PUSH'),
+    // Email only on the first go-live; a replacement keeps in-app + push.
+    channels: replacedOfferId ? channels('IN_APP', 'PUSH') : channels('IN_APP', 'PUSH', 'EMAIL'),
     referenceType: 'merchant_offer',
     referenceId: offerId,
     metadata: { autoActivated: true, replacedOfferId },
+    actionUrl: `/merchant/offers/${offerId}`,
+    actionLabel: 'View offer',
   });
+}
 
-  // Event: New Offer Published — broadcast to all active users.
-  // Individual users can opt out via notification preferences.
+/**
+ * Event: New Offer Published — broadcast to all active users (same event the
+ * admin approval path sends). Runs after the response; swallows its errors.
+ */
+export async function notifyEvergreenBroadcast(params: {
+  offerId: string;
+  title: string;
+  merchantId: string;
+}): Promise<void> {
+  const { offerId, title, merchantId } = params;
   await publishBusinessToAllEmployees({
     ...BUSINESS_NOTIFICATION_TEMPLATES.offerNowLive(title),
     channels: channels('IN_APP', 'PUSH'),

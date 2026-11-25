@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { getMerchantFromSession } from '@/lib/merchant-session'
 import { createAuditLog } from '@/services/audit-log.service'
+import { channels, collectEmailWarnings, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service'
 import { createPerfTimer } from '@/lib/perf'
 import { deleteImage } from '@/lib/upload/image'
 import { mergeSocialLinks, validateSocialLinks } from '@/lib/social-links'
@@ -163,6 +164,7 @@ export async function PATCH(request: NextRequest) {
     // Track old cover image for cleanup after successful DB update
     const oldCoverUrl = before.coverImageUrl
 
+    let changeRequestCreated = false
     await prisma.$transaction(async (tx) => {
       if (hasImmediateChanges) {
         timer.point('merchant.update (immediate fields)')
@@ -211,9 +213,36 @@ export async function PATCH(request: NextRequest) {
             changes: { before: beforeSnapshot, after: afterSnapshot } as any,
             metadata: { changeReason },
           })
+          changeRequestCreated = true
         }
       }
     })
+
+    let emailWarnings: string[] = []
+    if (changeRequestCreated) {
+      const fields = (APPROVAL_FIELDS as readonly string[]).filter((f) => f in afterSnapshot).join(', ')
+      emailWarnings = collectEmailWarnings(await publishBusinessNotification({
+        type: 'PROFILE_UPDATED',
+        title: `Profile change submitted: ${merchant.businessName}`,
+        message: 'We received your profile change request. It will be reviewed by our team and you will be notified of the outcome.',
+        priority: 'NORMAL',
+        recipients: [{ role: 'merchant', id: merchant.id }],
+        channels: channels('IN_APP', 'EMAIL'),
+        referenceType: 'merchant',
+        referenceId: merchant.id,
+        metadata: { fields, changeReason },
+        emailDetail: `Requested changes: ${fields}`,
+      }))
+      await publishBusinessToAdmins({
+        type: 'PROFILE_UPDATED',
+        title: `Profile change request: ${merchant.businessName}`,
+        message: `Requested changes: ${fields}`,
+        priority: 'NORMAL',
+        channels: channels('IN_APP'),
+        referenceType: 'merchant',
+        referenceId: merchant.id,
+      })
+    }
 
     // Clean up old images after successful DB update (immediate fields only)
     if (hasImmediateChanges && coverImageUrl !== undefined && oldCoverUrl && coverImageUrl !== oldCoverUrl) {
@@ -239,6 +268,7 @@ export async function PATCH(request: NextRequest) {
       message: hasApprovalChanges
         ? 'Profile updated. Sensitive changes are pending admin approval.'
         : 'Profile updated successfully.',
+      emailWarnings,
     })
   } catch (error) {
     timer.end()

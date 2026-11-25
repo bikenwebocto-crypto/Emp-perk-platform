@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { showEmailWarnings } from '@/lib/email-warnings.client';
 import { useCallback } from 'react';
 
 export const actionQueueKeys = {
@@ -72,7 +73,8 @@ export function useActionQueueAction(id: string) {
       if (!res.ok) throw new Error(json?.error?.message ?? 'Action failed');
       return json;
     },
-    onSuccess: () => {
+    onSuccess: (json) => {
+      showEmailWarnings(json);
       queryClient.invalidateQueries({ queryKey: actionQueueKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: actionQueueKeys.lists() });
     },

@@ -41,9 +41,9 @@ import {
   shouldAutoActivateEvergreen,
   validateMerchantForeverOfferPolicy,
 } from '@/lib/offers/evergreen';
-import { notifyEvergreenLive } from '@/lib/offers/evergreen-notifications';
+import { notifyEvergreenBroadcast, notifyEvergreenMerchant } from '@/lib/offers/evergreen-notifications';
 import { ensureOfferQRCode } from '@/lib/offer-qr';
-import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
+import { BUSINESS_NOTIFICATION_TEMPLATES, channels, collectEmailWarnings, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 import { offerStatusRank } from '@/lib/offers/status-order'
 
@@ -245,7 +245,8 @@ async function firePostCreateSideEffects(params: {
           console.error('[MERCHANT OFFERS POST] Evergreen QR generation failed:', err),
         );
       }
-      await notifyEvergreenLive({ offerId, title, merchantId, replacedOfferId, replacedOfferTitle });
+      // The merchant notice was already sent (awaited) before the response.
+      await notifyEvergreenBroadcast({ offerId, title, merchantId });
       await createAuditLog({
         actorType: 'merchant',
         actorId: merchantId,
@@ -938,6 +939,18 @@ export async function POST(request: NextRequest) {
 
     console.log('** Created offer with ID:', offer.id, 'Status:', offer.status);
 
+    // Evergreen go-live: the merchant notice (and first-time email) is awaited
+    // so a failed email can be reported back as `emailWarnings`.
+    const emailWarnings = autoActivate
+      ? collectEmailWarnings(await notifyEvergreenMerchant({
+          offerId: offer.id,
+          title,
+          merchantId: merchant.id,
+          replacedOfferId: replacedEvergreen.replacedOfferId,
+          replacedOfferTitle: replacedEvergreen.replacedOfferTitle,
+        }))
+      : [];
+
     // ── Step 2: build the response NOW. Everything below this point —
     // notifications, action queue items, replacement audit, offer-code
     // audit log, final audit log — is side-effect work the merchant does
@@ -950,6 +963,7 @@ export async function POST(request: NextRequest) {
         validationErrors: qcResult.errors,
         autoActivated: autoActivate,
         ...(autoActivate ? { message: EVERGREEN_LIVE_MESSAGE } : {}),
+        emailWarnings,
       },
       { status: 201 },
     );

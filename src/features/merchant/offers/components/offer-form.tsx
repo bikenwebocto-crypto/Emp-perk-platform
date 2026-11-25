@@ -1,6 +1,7 @@
 "use client";
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -1563,9 +1564,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
                   >
                     {missingBranchesMsg}{" "}
-                    <a href="/merchant/branches" className="font-medium underline">
+                    <Link href="/merchant/branches" className="font-medium underline">
                       Manage branches
-                    </a>
+                    </Link>
                   </div>
                 )}
               </div>

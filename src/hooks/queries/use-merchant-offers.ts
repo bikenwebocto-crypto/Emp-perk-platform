@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { showEmailWarnings } from '@/lib/email-warnings.client'
 
 const offerKeys = {
   all: ['merchant-offers'] as const,
@@ -86,7 +87,8 @@ export function useCreateMerchantOffer() {
       if (!res.ok) throw toApiError(json, 'Failed to create offer')
       return json
     },
-    onSuccess: () => {
+    onSuccess: (json) => {
+      showEmailWarnings(json)
       queryClient.invalidateQueries({ queryKey: offerKeys.lists() })
       queryClient.invalidateQueries({ queryKey: offerKeys.currentLive() })
     },
@@ -177,7 +179,8 @@ export function useRevokeMerchantOffer() {
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to revoke offer')
       return json
     },
-    onSuccess: () => {
+    onSuccess: (json) => {
+      showEmailWarnings(json)
       queryClient.invalidateQueries({ queryKey: offerKeys.lists() })
       queryClient.invalidateQueries({ queryKey: offerKeys.currentLive() })
       queryClient.invalidateQueries({ queryKey: offerKeys.details() })
@@ -207,7 +210,8 @@ export function useSubmitMerchantOffer() {
       if (!res.ok) throw toApiError(json, 'Failed to submit offer')
       return json
     },
-    onSuccess: () => {
+    onSuccess: (json) => {
+      showEmailWarnings(json)
       queryClient.invalidateQueries({ queryKey: offerKeys.lists() })
       queryClient.invalidateQueries({ queryKey: offerKeys.currentLive() })
     },

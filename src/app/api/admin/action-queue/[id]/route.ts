@@ -6,7 +6,7 @@ import { getEntityKindFromReferenceType } from "@/lib/action-queue-types";
 import { ensureOfferQRCode } from "@/lib/offer-qr";
 import { branchSelectionFromConfig, channelUsesBranches } from "@/lib/offers/channel";
 import { findLiveEvergreen, isEvergreenOffer, isEvergreenRange } from "@/lib/offers/evergreen";
-import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins, publishBusinessToCompanyAdmins, publishBusinessToAllEmployees } from '@/services/business-notification.service';
+import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins, publishBusinessToCompanyAdmins, publishBusinessToAllEmployees, collectEmailWarnings } from '@/services/business-notification.service';
 
 /**
  * Attach the in-store branches an offer's card can be used at, so the review
@@ -421,25 +421,26 @@ export async function POST(
     if (!user.profileId) return badRequest("Admin profile not found");
     const adminId = user.profileId;
     const now = new Date();
+    const emailWarnings: string[] = [];
 
     if (action === "APPROVE") {
       console.log("[ACTION-QUEUE POST] Action: APPROVE");
       try {
-        await performApprove(queueItem, adminId, now);
+        await performApprove(queueItem, adminId, now, emailWarnings);
       } catch (error) {
         if (error instanceof OfferApprovalValidationError) {
           return badRequest(error.message);
         }
         throw error;
       }
-      return NextResponse.json({ success: true, message: "Item approved" });
+      return NextResponse.json({ success: true, message: "Item approved", emailWarnings });
     }
 
     if (action === "REJECT") {
       if (!rejectionReason?.trim())
         return badRequest("Rejection reason is required");
-      await performReject(queueItem, adminId, rejectionReason.trim(), now);
-      return NextResponse.json({ success: true, message: "Item rejected" });
+      await performReject(queueItem, adminId, rejectionReason.trim(), now, emailWarnings);
+      return NextResponse.json({ success: true, message: "Item rejected", emailWarnings });
     }
 
     if (action === "REMARK") {
@@ -452,7 +453,7 @@ export async function POST(
       if (!edits || typeof edits !== "object")
         return badRequest("Edits object is required");
       try {
-        await performEditAndApprove(queueItem, adminId, edits, now);
+        await performEditAndApprove(queueItem, adminId, edits, now, emailWarnings);
       } catch (error) {
         if (error instanceof OfferApprovalValidationError) {
           return badRequest(error.message);
@@ -462,6 +463,7 @@ export async function POST(
       return NextResponse.json({
         success: true,
         message: "Item edited and approved",
+        emailWarnings,
       });
     }
 
@@ -577,7 +579,7 @@ async function validateMerchantOfferApproval(
   }
 }
 
-async function performApprove(queueItem: any, adminId: string, now: Date) {
+async function performApprove(queueItem: any, adminId: string, now: Date, emailWarnings: string[] = []) {
   console.log("========================================");
   console.log("🔍 APPROVE ACTION QUEUE - START");
   console.log("========================================");
@@ -769,14 +771,16 @@ async function performApprove(queueItem: any, adminId: string, now: Date) {
         });
         console.log(`[FIRST_OFFER_APPROVAL] ✅ Merchant updated to ACTIVE`);
 
-        await publishBusinessNotification({
+        emailWarnings.push(...collectEmailWarnings(await publishBusinessNotification({
           ...BUSINESS_NOTIFICATION_TEMPLATES.offerApproved(offer.title),
           recipients: [{ role: 'merchant', id: offer.merchantId }],
           channels: channels('IN_APP', 'PUSH', 'EMAIL'),
           referenceType: 'merchant_offer',
           referenceId: offer.id,
           metadata: { approvedBy: adminId },
-        });
+          actionUrl: `/merchant/offers/${offer.id}`,
+          actionLabel: 'View offer',
+        })));
 
         const replaced = replacedEvergreen as { id: string; title: string } | null;
         if (replaced) {
@@ -918,14 +922,16 @@ async function performApprove(queueItem: any, adminId: string, now: Date) {
           `[OFFER_REPLACEMENT] ✅ Replacement offer activated: ${newOffer.id}`,
         );
 
-        await publishBusinessNotification({
+        emailWarnings.push(...collectEmailWarnings(await publishBusinessNotification({
           ...BUSINESS_NOTIFICATION_TEMPLATES.offerApproved(newOffer.title),
           recipients: [{ role: 'merchant', id: newOffer.merchantId }],
           channels: channels('IN_APP', 'PUSH', 'EMAIL'),
           referenceType: 'merchant_offer',
           referenceId: newOffer.id,
           metadata: { replacedOfferId: oldOfferId ?? null, approvedBy: adminId },
-        });
+          actionUrl: `/merchant/offers/${newOffer.id}`,
+          actionLabel: 'View offer',
+        })));
         await publishBusinessToAdmins({
           type: 'OFFER_REPLACED',
           title: `Offer replaced: ${newOffer.title}`,
@@ -1273,6 +1279,7 @@ async function performReject(
   adminId: string,
   rejectionReason: string,
   now: Date,
+  emailWarnings: string[] = [],
 ) {
   // Offer queue items are always offers, whatever referenceType they were
   // created with (some replacement items carry referenceType "merchant", which
@@ -1329,14 +1336,17 @@ async function performReject(
         });
       });
       if (offer) {
-        await publishBusinessNotification({
+        emailWarnings.push(...collectEmailWarnings(await publishBusinessNotification({
           ...BUSINESS_NOTIFICATION_TEMPLATES.offerRejected(offer.title),
           recipients: [{ role: 'merchant', id: offer.merchantId }],
           channels: channels('IN_APP', 'PUSH', 'EMAIL'),
           referenceType: 'merchant_offer',
           referenceId: offer.id,
           metadata: { rejectedBy: adminId, rejectionReason },
-        });
+          emailDetail: rejectionReason ? `Reason: ${rejectionReason}` : null,
+          actionUrl: `/merchant/offers/${offer.id}`,
+          actionLabel: 'Review offer',
+        })));
       }
     }
   } else if (kind === "MERCHANT") {
@@ -1348,7 +1358,7 @@ async function performReject(
         where: { id: merchant.id },
         data: { status: "REJECTED", rejectionReason },
         });
-        await publishBusinessNotification({
+        emailWarnings.push(...collectEmailWarnings(await publishBusinessNotification({
           type: 'MERCHANT_REJECTED',
           title: `Merchant rejected: ${merchant.businessName}`,
           message: 'Your merchant registration was rejected. Review the provided reason for details.',
@@ -1358,14 +1368,15 @@ async function performReject(
           referenceType: 'merchant',
           referenceId: merchant.id,
           metadata: { rejectedBy: adminId, rejectionReason },
-        });
+          emailDetail: rejectionReason ? `Reason: ${rejectionReason}` : null,
+        })));
     }
   } else if (kind === "COMPANY") {
     await prisma.company.update({
       where: { id: queueItem.referenceId },
       data: { status: "SUSPENDED" },
     });
-    await publishBusinessToCompanyAdmins(queueItem.referenceId, {
+    emailWarnings.push(...collectEmailWarnings(await publishBusinessToCompanyAdmins(queueItem.referenceId, {
       type: 'COMPANY_DISABLED',
       title: 'Company access suspended',
       message: 'Your company account has been suspended. Contact support for details.',
@@ -1374,7 +1385,8 @@ async function performReject(
       referenceType: 'company',
       referenceId: queueItem.referenceId,
       metadata: { rejectedBy: adminId, rejectionReason },
-    });
+      emailDetail: rejectionReason ? `Reason: ${rejectionReason}` : null,
+    })));
   }
 
   await prisma.actionQueueItem.update({
@@ -1460,6 +1472,7 @@ async function performEditAndApprove(
   adminId: string,
   edits: Record<string, unknown>,
   now: Date,
+  emailWarnings: string[] = [],
 ) {
   const kind: EntityKind = getEntityKindFromReferenceType(
     queueItem.referenceType,
@@ -1558,5 +1571,5 @@ async function performEditAndApprove(
     changes: { edits, entityKind: kind } as any,
   });
 
-  await performApprove(queueItem, adminId, now);
+  await performApprove(queueItem, adminId, now, emailWarnings);
 }

@@ -7,7 +7,7 @@ import { derivePrimaryAdmin, ensurePrimaryAdmin, summarizeAdmins } from '@/lib/c
 import { createAuditLog, fromCurrentUser } from '@/services/audit-log.service';
 import { forbidden } from '@/lib/api-auth';
 import { getCompanyDetail } from '@/lib/company-detail/service';
-import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessToCompanyAdmins } from '@/services/business-notification.service';
+import { collectEmailWarnings, notifyCompanyStatusChange } from '@/services/business-notification.service';
 
 export async function GET(
   _request: NextRequest,
@@ -67,6 +67,8 @@ export async function PATCH(
         { status: 404 },
       );
     }
+
+    const emailWarnings: string[] = [];
 
     if (body.status) {
       const previousStatus = company.status;
@@ -132,31 +134,28 @@ export async function PATCH(
 
       // When activation succeeds, dispatch the launch pack to the
       // company admin + active employees.
-      if (body.status === 'ACTIVE' && previousStatus !== 'ACTIVE') {
+      // Launch pack (welcome + sign-in email) only on the first activation.
+      const firstActivation = body.status === 'ACTIVE' && previousStatus !== 'ACTIVE' && !company.approvedAt
+      if (firstActivation) {
         try {
-          if (user.profileId) await sendLaunchPack(id, user.profileId)
+          if (user.profileId) {
+            const pack = await sendLaunchPack(id, user.profileId)
+            if (pack.emailWarning) emailWarnings.push(pack.emailWarning)
+          }
         } catch (err) {
           console.error('Launch pack failed for company', id, err)
+          emailWarnings.push('The welcome (launch pack) email could not be sent. Check the server logs.')
         }
       }
 
-      if (body.status === 'ACTIVE' || body.status === 'SUSPENDED') {
-        const template = body.status === 'ACTIVE'
-          ? BUSINESS_NOTIFICATION_TEMPLATES.companyApproved(company.name)
-          : {
-              type: 'COMPANY_DISABLED' as const,
-              title: `Company access suspended: ${company.name}`,
-              message: 'Your company account has been suspended. Contact support for details.',
-              priority: 'HIGH' as const,
-            };
-        await publishBusinessToCompanyAdmins(id, {
-          ...template,
-          channels: channels('IN_APP', 'PUSH', 'EMAIL'),
-          referenceType: 'company',
-          referenceId: id,
-          metadata: { previousStatus, status: body.status, reason: body.reason ?? null },
-        });
-      }
+      emailWarnings.push(...collectEmailWarnings(await notifyCompanyStatusChange({
+        companyId: id,
+        companyName: company.name,
+        previousStatus,
+        status: body.status,
+        reason: body.reason ?? null,
+        firstActivation,
+      })))
     }
 
     if (body.adminNote !== undefined) {
@@ -236,7 +235,7 @@ export async function PATCH(
         }
       : null
 
-    return NextResponse.json({ success: true, data, message: 'Company updated successfully' });
+    return NextResponse.json({ success: true, data, message: 'Company updated successfully', emailWarnings });
   } catch (error) {
     console.error('Company update error:', error);
     return NextResponse.json(

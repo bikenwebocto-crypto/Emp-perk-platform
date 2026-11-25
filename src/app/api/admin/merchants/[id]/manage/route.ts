@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { createAuditLog, fromCurrentUser } from '@/services/audit-log.service'
-import { channels, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service'
+import { channels, collectEmailWarnings, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service'
 
 function unauthorized() {
   return NextResponse.json(
@@ -161,21 +161,39 @@ export async function PATCH(
       }),
     )
 
-    if (action === 'suspend' || action === 'activate') {
+    const emailWarnings: string[] = []
+    const statusChanged = updated.status !== existing.status
+    if (statusChanged && (action === 'suspend' || action === 'activate' || action === 'pause')) {
       const suspended = action === 'suspend'
-      await publishBusinessNotification({
-        type: suspended ? 'COMPANY_DISABLED' : 'MERCHANT_APPROVED',
-        title: suspended ? `Merchant suspended: ${existing.businessName}` : `Merchant reactivated: ${existing.businessName}`,
-        message: suspended
-          ? 'Your merchant account has been suspended. Contact support for details.'
-          : 'Your merchant account has been reactivated.',
-        priority: suspended ? 'URGENT' : 'HIGH',
+      const reason = typeof body?.reason === 'string' && body.reason.trim() ? body.reason.trim() : null
+      const content = {
+        suspend: {
+          title: `Merchant suspended: ${existing.businessName}`,
+          message: 'Your merchant account has been suspended. Your offers are no longer visible. Contact support for details.',
+          priority: 'URGENT' as const,
+        },
+        pause: {
+          title: `Merchant account paused: ${existing.businessName}`,
+          message: 'Your merchant account has been paused. Your offers are hidden from employees until it is reactivated. Contact support for details.',
+          priority: 'HIGH' as const,
+        },
+        activate: {
+          title: `Merchant reactivated: ${existing.businessName}`,
+          message: 'Your merchant account is active again. Sign in to manage your offers.',
+          priority: 'HIGH' as const,
+        },
+      }[action]
+      emailWarnings.push(...collectEmailWarnings(await publishBusinessNotification({
+        type: action === 'activate' ? 'SYSTEM' : 'COMPANY_DISABLED',
+        ...content,
         recipients: [{ role: 'merchant', id }],
         channels: channels('IN_APP', 'PUSH', 'EMAIL'),
         referenceType: 'merchant',
         referenceId: id,
-        metadata: { previousStatus: existing.status, status: updated.status, reason: body?.reason ?? null },
-      })
+        metadata: { previousStatus: existing.status, status: updated.status, reason },
+        emailDetail: reason ? `Reason: ${reason}` : null,
+        ...(action === 'activate' ? { actionUrl: '/login', actionLabel: 'Sign in' } : {}),
+      })))
       if (suspended) {
         await publishBusinessToAdmins({
           type: 'COMPANY_DISABLED',
@@ -194,6 +212,7 @@ export async function PATCH(
       success: true,
       data: updated,
       message: `Merchant ${action} updated successfully`,
+      emailWarnings,
     })
   } catch (error) {
     return internalError(error)

@@ -13,7 +13,7 @@ import { derivePrimaryAdmin, summarizeAdmins } from '@/lib/company-contact';
 import { createPerfTimer } from '@/lib/perf';
 import { cleanSocialLinks } from '@/lib/social-links';
 import type { CompanyStatus } from '@/types';
-import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessToAdmins, publishBusinessToCompanyAdmins } from '@/services/business-notification.service';
+import { channels, collectEmailWarnings, notifyCompanyStatusChange, publishBusinessToAdmins } from '@/services/business-notification.service';
 import { z } from 'zod';
 
 const submissionAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -476,37 +476,34 @@ export async function PATCH(request: NextRequest) {
       });
     }
 
-    if (status === 'ACTIVE' && previousStatus !== 'ACTIVE') {
+    const emailWarnings: string[] = []
+
+    // Launch pack (welcome + sign-in email) only on the first activation.
+    const firstActivation = status === 'ACTIVE' && previousStatus !== 'ACTIVE' && !existing.approvedAt
+    if (firstActivation) {
       timer.point('sendLaunchPack')
       try {
-        await sendLaunchPack(companyId, user.id)
+        const pack = await sendLaunchPack(companyId, user.id)
+        if (pack.emailWarning) emailWarnings.push(pack.emailWarning)
       } catch (err) {
         console.error('Launch pack failed for company', companyId, err)
+        emailWarnings.push('The welcome (launch pack) email could not be sent. Check the server logs.')
       }
     }
 
-    if (status === 'ACTIVE' || status === 'SUSPENDED') {
-      const template = status === 'ACTIVE'
-        ? BUSINESS_NOTIFICATION_TEMPLATES.companyApproved(company.name)
-        : {
-            type: 'SYSTEM' as const,
-            title: `Company application update: ${company.name}`,
-            message: 'Your company application was rejected. Contact support for details.',
-            priority: 'HIGH' as const,
-          };
-      await publishBusinessToCompanyAdmins(companyId, {
-        ...template,
-        channels: channels('IN_APP', 'PUSH', 'EMAIL'),
-        referenceType: 'company',
-        referenceId: companyId,
-        metadata: { previousStatus, status, reason: reason ?? null },
-      });
-    }
+    emailWarnings.push(...collectEmailWarnings(await notifyCompanyStatusChange({
+      companyId,
+      companyName: company.name,
+      previousStatus,
+      status,
+      reason: reason ?? null,
+      firstActivation,
+    })))
 
     timer.section('Serialization')
     timer.point('NextResponse.json')
     timer.end()
-    return NextResponse.json({ success: true, data: company, message: `Company ${status.toLowerCase()} successfully` });
+    return NextResponse.json({ success: true, data: company, message: `Company ${status.toLowerCase()} successfully`, emailWarnings });
   } catch (error: any) {
     timer.end()
     if (error?.name === 'ZodError') {
