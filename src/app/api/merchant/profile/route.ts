@@ -188,10 +188,41 @@ export async function PATCH(request: NextRequest) {
 
       if (hasApprovalChanges) {
         timer.point('actionQueueItem.findFirst')
-        const existing = await tx.actionQueueItem.findFirst({
+        // Branch-location requests share the PROFILE_EDIT_REQUEST type (they carry
+        // metadata.branchId) — they must not block a profile request.
+        const openItems = await tx.actionQueueItem.findMany({
           where: { referenceId: merchant.id, referenceType: 'merchant', type: 'PROFILE_EDIT_REQUEST', status: 'PENDING' },
+          orderBy: { createdAt: 'desc' },
         })
-        if (!existing) {
+        const existing = openItems.find((i) => !(i.metadata as Record<string, unknown> | null)?.branchId)
+
+        if (existing) {
+          // Merge the new request into the open one instead of dropping it.
+          const prev = (existing.metadata as Record<string, any> | null) ?? {}
+          const approvalFields = [
+            ...new Set([
+              ...((prev.approvalFields as string[] | undefined) ?? []),
+              ...(APPROVAL_FIELDS as readonly string[]).filter((f) => f in afterSnapshot),
+            ]),
+          ]
+          const requestedFields = { ...(prev.requestedFields ?? {}), ...afterSnapshot }
+          const originalValues = { ...beforeSnapshot, ...(prev.originalValues ?? {}) }
+          timer.point('actionQueueItem.update (merge into open request)')
+          await tx.actionQueueItem.update({
+            where: { id: existing.id },
+            data: {
+              description: `Merchant ${merchant.businessName} requested changes to: ${approvalFields.join(', ')}. Reason: ${changeReason}`,
+              metadata: { ...prev, requestedFields, originalValues, approvalFields, reason: changeReason } as any,
+            },
+          })
+          await createAuditLog({
+            actorType: 'merchant', actorId: merchant.id, action: 'PROFILE_CHANGE_REQUESTED',
+            entityType: 'merchant', entityId: merchant.id,
+            changes: { before: beforeSnapshot, after: afterSnapshot } as any,
+            metadata: { changeReason, mergedInto: existing.id },
+          })
+          changeRequestCreated = true
+        } else {
           timer.point('actionQueueItem.create')
           await tx.actionQueueItem.create({
             data: {

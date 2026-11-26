@@ -136,6 +136,7 @@ async function run(
       type: options.type,
       referenceType: options.referenceType,
       referenceId: options.referenceId,
+      reason: error instanceof Error ? error.message : String(error),
       error,
     })
     const requested = (options.channels ?? []).includes('EMAIL')

@@ -9,6 +9,7 @@ import type {
   NotificationEvent,
 } from '@prisma/client'
 import { PushService } from './push.service'
+import { escapeHtmlContent, renderTemplate } from '@/emails/renderer'
 
 // ============================================================
 // RECIPIENT TYPES
@@ -82,6 +83,9 @@ export interface NotificationPreferenceRecord {
 // ============================================================
 // NOTIFICATION SERVICE
 // ============================================================
+
+/** Same event for the same recipient within this window is treated as a double-submit. */
+const DUPLICATE_WINDOW_MS = 60_000
 
 class NotificationServiceClass {
   /**
@@ -173,6 +177,15 @@ class NotificationServiceClass {
         }
       }
     }
+    // Recipients skipped as duplicates have no new record: leave them out of
+    // push/email instead of sending again or reporting a false failure.
+    const hasRecord = (r: Recipient) => recipientToNotification.has(`${r.role}:${r.id}`)
+    const emailWantedBeforeDedup = emailRecipients.length > 0
+    for (const list of [pushRecipients, emailRecipients, smsRecipients]) {
+      const kept = list.filter(hasRecord)
+      list.splice(0, list.length, ...kept)
+    }
+
     const notificationIdsFor = (list: Recipient[]): string[] =>
       list
         .map((r) => recipientToNotification.get(`${r.role}:${r.id}`)?.id)
@@ -201,18 +214,26 @@ class NotificationServiceClass {
             ...result,
           })
           const ids = notificationIdsFor(pushRecipients)
-          const updated = await this.updateDeliveryStatus(
-            ids,
-            'PUSH',
-            result.successful > 0 ? 'DELIVERED' : 'FAILED',
-            result.successful > 0 ? undefined : result.errors?.[0]?.code
-          )
+          // No device tokens means the recipient never registered a mobile
+          // device: that is a skip, not a failure, and it needs a reason.
+          const pushStatus: NotificationDeliveryStatus =
+            result.successful > 0 ? 'DELIVERED' : result.attempted === 0 ? 'SKIPPED' : 'FAILED'
+          const pushError =
+            pushStatus === 'DELIVERED'
+              ? undefined
+              : pushStatus === 'SKIPPED'
+                ? 'No registered mobile device (no push token)'
+                : result.errors?.map((e) => `${e.code} x${e.count}`).join(', ') || 'Push provider reported failure without an error code'
+          if (pushStatus === 'FAILED') {
+            console.error('[NotificationService] Push not delivered', { type, title, reason: pushError })
+          }
+          const updated = await this.updateDeliveryStatus(ids, 'PUSH', pushStatus, pushError)
           console.log('[NotificationService] Mobile push delivered & delivery record synced', {
             type,
             title,
             successful: result.successful,
             failed: result.failed,
-            status: result.successful > 0 ? 'DELIVERED' : 'FAILED',
+            status: pushStatus,
             deliveryRecordsUpdated: updated.count,
           })
           if (result.failed > 0) {
@@ -238,7 +259,9 @@ class NotificationServiceClass {
         emailSummary.sent = result.sent
         emailSummary.failed = result.failed
       } catch (err) {
-        console.error('[NotificationService] Email dispatch failed:', err)
+        const reason = err instanceof Error ? err.message : String(err)
+        console.error('[NotificationService] Email dispatch failed', { type, title, reason, err })
+        await this.updateDeliveryStatus(notificationIdsFor(emailRecipients), 'EMAIL', 'FAILED', reason.slice(0, 500)).catch(() => {})
         emailSummary.attempted = emailRecipients.length
         emailSummary.failed = emailRecipients.map((r) => ({
           role: r.role,
@@ -247,8 +270,16 @@ class NotificationServiceClass {
           reason: err instanceof Error ? err.message : String(err),
         }))
       }
+    } else if (emailWantedBeforeDedup) {
+      // Every email recipient was a duplicate of an event sent moments ago:
+      // the email already went out, so this is not a failure.
     } else if (emailRequested) {
       emailSummary.noRecipients = true
+      console.warn('[NotificationService] Email not sent: every recipient has email notifications turned off', {
+        type,
+        title,
+        recipients,
+      })
     }
 
     // No SMS provider is configured; record intent so delivery is auditable.
@@ -445,10 +476,15 @@ class NotificationServiceClass {
 
     let targetIds = recipientsWithChannels
     if (data.referenceId) {
+      // Duplicate guard for double-submits/retries only. It must be time-boxed:
+      // the same event can legitimately repeat later (pause → reactivate →
+      // pause again yields an identical title), and an unbounded check
+      // silently dropped those notifications and their emails.
       const existing = await prisma.notificationEvent.findMany({
         where: {
           referenceId: data.referenceId,
           title: data.title,
+          createdAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
           AND: [
             { OR: [{ type: data.type }, { referenceType: data.type }] },
             { OR: recipientsWithChannels.map((id) => ({ [foreignKey]: id })) },
@@ -458,6 +494,14 @@ class NotificationServiceClass {
       })
       const existingIds = new Set(existing.map((row) => (row as any)[foreignKey]))
       targetIds = recipientsWithChannels.filter((id) => !existingIds.has(id))
+      if (existingIds.size) {
+        console.log('[NotificationService] Skipped duplicate notification (same event sent moments ago)', {
+          role,
+          title: data.title,
+          referenceId: data.referenceId,
+          skipped: [...existingIds],
+        })
+      }
     }
     if (!targetIds.length) return []
 
@@ -579,6 +623,7 @@ class NotificationServiceClass {
         return (n as any)[fkField] === recipient.id
       })
       if (!notification) {
+        console.error('[NotificationService] Email not delivered', { recipient, reason: 'Notification record was not created' })
         failures.push({ role: recipient.role, recipientId: recipient.id, email: null, reason: 'Notification record was not created' })
         continue
       }
@@ -659,8 +704,6 @@ class NotificationServiceClass {
     notification: NotificationEvent,
     options: Pick<PublishNotificationOptions, 'emailDetail' | 'actionUrl' | 'actionLabel'> = {}
   ): string {
-    const esc = (s: string) =>
-      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
     const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/+$/, '')
     const actionHref = options.actionUrl
       ? /^https?:\/\//.test(options.actionUrl)
@@ -669,24 +712,16 @@ class NotificationServiceClass {
           ? `${appUrl}${options.actionUrl.startsWith('/') ? '' : '/'}${options.actionUrl}`
           : null
       : null
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head><meta charset="utf-8"></head>
-      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background: #f8fafc; border-radius: 8px; padding: 24px; border: 1px solid #e2e8f0;">
-          <h2 style="color: #1e293b; margin: 0 0 12px;">${esc(notification.title)}</h2>
-          ${notification.body ? `<p style="color: #475569; line-height: 1.6; margin: 0;">${esc(notification.body)}</p>` : ''}
-          ${options.emailDetail ? `<p style="color: #1e293b; line-height: 1.6; margin: 12px 0 0; padding: 12px; background: #fff; border-left: 3px solid #f59e0b;">${esc(options.emailDetail)}</p>` : ''}
-          ${actionHref ? `<p style="margin: 20px 0 0;"><a href="${esc(actionHref)}" style="display: inline-block; background: #1e293b; color: #fff; text-decoration: none; padding: 10px 18px; border-radius: 6px;">${esc(options.actionLabel ?? 'Sign in')}</a></p>` : ''}
-          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;">
-          <p style="color: #94a3b8; font-size: 12px; margin: 0;">
-            Priority: ${notification.priority} · ${new Date(notification.createdAt).toLocaleDateString()}
-          </p>
-        </div>
-      </body>
-      </html>
+    const bodyHtml = `
+      ${notification.body ? `<p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">${escapeHtmlContent(notification.body)}</p>` : ''}
+      ${options.emailDetail ? `<table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; margin: 16px 0 24px 0;"><tr><td style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.6; padding: 16px; background-color: #F7F7F8; border-left: 3px solid #61549A; border-radius: 6px;">${escapeHtmlContent(options.emailDetail)}</td></tr></table>` : ''}
+      ${actionHref ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin: 24px 0;"><tr><td style="text-align: center;"><a href="${escapeHtmlContent(actionHref)}" style="display: inline-block; background-color: #61549A; color: #ffffff; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 6px;">${escapeHtmlContent(options.actionLabel ?? 'Sign in')}</a></td></tr></table>` : ''}
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 24px 0 0 0;">
+        Best regards,<br/>
+        <strong>The Perks &amp; More Team</strong>
+      </p>
     `
+    return renderTemplate(notification.title, bodyHtml)
   }
 
   private stringifyMetadata(metadata?: Record<string, unknown>): Record<string, string> {

@@ -1,4 +1,5 @@
 import { emailService } from '@/lib/email/email'
+import { renderTemplate } from '@/emails/renderer'
 import { OTP_TTL_MS } from './constants'
 
 // Recovery emails. The OTP is only ever placed in sendRecoveryOtp, which is
@@ -19,10 +20,13 @@ function appUrl(path: string): string {
 }
 
 function layout(title: string, body: string): string {
-  return `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#0f172a">
-<h2 style="font-size:20px">${esc(title)}</h2>${body}
-<p style="color:#64748b;font-size:12px;margin-top:24px">Perks &amp; More security. If you did not expect this email, contact support immediately.</p>
-</div>`
+  const bodyHtml = `
+    ${body}
+    <p style="color: #6b7280; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; margin: 24px 0 0 0;">
+      Perks &amp; More security. If you did not expect this email, contact support immediately.
+    </p>
+  `
+  return renderTemplate(title, bodyHtml)
 }
 
 async function send(to: string | string[], subject: string, html: string): Promise<boolean> {

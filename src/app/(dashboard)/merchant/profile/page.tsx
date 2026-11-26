@@ -17,9 +17,15 @@ import type { UploadImageOptions } from '@/lib/upload/image'
 import { BusinessOverview } from '@/components/shared/business-overview'
 import { SocialLinksInput } from '@/components/shared/social-links-input'
 import { ChangePasswordCard } from '@/components/shared/change-password-card'
+import {
+  useMerchantChangeRequests,
+  RequestedHint,
+  ChangeRequestHistory,
+} from '@/components/merchant/change-requests-card'
 import type { SocialLinks } from '@/lib/social-links'
 import { PhoneInput } from '@/components/ui/phone-input'
 import { isValidPhone } from '@/lib/phone'
+import { useCategories } from '@/hooks/queries/use-categories'
 
 interface Category {
   id: string
@@ -52,6 +58,65 @@ interface MerchantProfile {
   _count: { offers: number; branches: number; redemptions: number }
 }
 
+const SECTION = 'space-y-5 rounded-xl border bg-card p-6'
+const LABEL = 'mb-1.5 block text-sm font-medium'
+const LABEL_MUTED = 'text-xs text-muted-foreground'
+
+/** Dashed tile from the design: thumbnail + title + spec; click to pick a file. */
+function BrandTile({
+  title,
+  hint,
+  imageUrl,
+  accept,
+  maxBytes,
+  disabled,
+  onFile,
+}: {
+  title: string
+  hint: string
+  imageUrl: string | null
+  accept: string
+  maxBytes: number
+  disabled?: boolean
+  onFile: (f: DeferredFile | null) => void
+}) {
+  return (
+    <label
+      className={`flex items-center gap-4 rounded-lg border border-dashed p-4 transition-colors ${
+        disabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:bg-muted/40'
+      }`}
+    >
+      <input
+        type="file"
+        className="sr-only"
+        accept={accept}
+        disabled={disabled}
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          e.target.value = ''
+          if (!file) return
+          if (file.size > maxBytes) {
+            showToast({
+              type: 'error',
+              title: 'File too large',
+              description: `Maximum size is ${Math.round(maxBytes / 1024) >= 1024 ? `${maxBytes / 1024 / 1024} MB` : `${Math.round(maxBytes / 1024)} KB`}.`,
+            })
+            return
+          }
+          onFile({ file, previewUrl: URL.createObjectURL(file) })
+        }}
+      />
+      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-muted">
+        {imageUrl && <img src={imageUrl} alt="" className="h-full w-full object-cover" />}
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{title}</p>
+        <p className="whitespace-pre-line text-xs text-muted-foreground">{hint}</p>
+      </div>
+    </label>
+  )
+}
+
 async function fetchProfile(): Promise<MerchantProfile> {
   const res = await fetch('/api/merchant/profile')
   const json = await res.json()
@@ -65,6 +130,12 @@ export default function MerchantProfilePage() {
     queryKey: ['merchant-profile'],
     queryFn: fetchProfile,
   })
+
+  const { pending: pendingRequest, recent: recentRequests } = useMerchantChangeRequests()
+  const requested = pendingRequest?.requestedValues ?? {}
+  const { data: categories } = useCategories()
+  // Business name / category are shown as text; this reveals their inputs.
+  const [editingIdentity, setEditingIdentity] = useState(false)
 
   const [form, setForm] = useState<Partial<MerchantProfile> | null>(null)
   const [changeReason, setChangeReason] = useState('')
@@ -88,8 +159,11 @@ export default function MerchantProfilePage() {
     },
     onSuccess: (json) => {
       queryClient.invalidateQueries({ queryKey: ['merchant-profile'] })
+      queryClient.invalidateQueries({ queryKey: ['merchant-change-requests'] })
       setChangeReason('')
       setErrors({})
+      setForm(null)
+      setEditingIdentity(false)
       // Clear pending files after successful save
       setPendingLogoFile(null)
       setPendingCoverFile(null)
@@ -201,6 +275,11 @@ export default function MerchantProfilePage() {
       if (f === 'coverImageUrl' && uploadedCoverUrl) {
         b = uploadedCoverUrl
       }
+      // "We add https:// for you"
+      if (f === 'website' && typeof b === 'string') {
+        b = b.trim()
+        if (b && !/^https?:\/\//i.test(b)) b = `https://${b}`
+      }
 
       if (JSON.stringify(a ?? null) !== JSON.stringify(b ?? null)) {
         payload[f] = b
@@ -254,6 +333,10 @@ export default function MerchantProfilePage() {
   }
 
   const isPendingApproval = profile.status === 'PENDING' || profile.status === 'PAUSED'
+  const hasSensitiveDraft =
+    !!pendingLogoFile ||
+    (values.businessName ?? '') !== (profile.businessName ?? '') ||
+    (values.categoryId ?? null) !== (profile.categoryId ?? null)
 
   return (
     <div className="space-y-6">
@@ -335,241 +418,173 @@ export default function MerchantProfilePage() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* ─── Business Information ─── */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Building2 className="h-5 w-5" /> Business Information
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                  Business Name
-                </label>
+        {/* ─── Business information ─── */}
+        <section className={SECTION}>
+          <h3 className="text-lg font-semibold">Business information</h3>
+
+          <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2">
+            {/* Business name — needs admin approval */}
+            <div>
+              <p className={LABEL_MUTED}>Business name</p>
+              {editingIdentity ? (
                 <Input
+                  className="mt-1"
                   value={values.businessName ?? ''}
                   onChange={(e) => setField('businessName', e.target.value)}
                   readOnly={isPendingApproval}
                 />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Changing this requires admin approval.
-                </p>
-                {errors.businessName && <p className="mt-1 text-xs text-destructive">{errors.businessName}</p>}
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Email</label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={values.account?.email ?? ''}
-                    readOnly
-                    className="bg-muted/40 pl-9"
-                  />
-                </div>
-                <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-                  <Lock className="h-3.5 w-3.5" />
-                  Email is locked — linked to your account and cannot be changed.
-                </p>
-              </div>
+              ) : (
+                <p className="mt-0.5 text-sm font-medium">{profile.businessName}</p>
+              )}
+              {requested.businessName && <RequestedHint text={requested.businessName} />}
+              {errors.businessName && <p className="mt-1 text-xs text-destructive">{errors.businessName}</p>}
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                  Contact Name *
-                </label>
-                <Input
-                  value={values.contactName ?? ''}
-                  onChange={(e) => setField('contactName', e.target.value)}
-                />
-                {errors.contactName && <p className="mt-1 text-xs text-destructive">{errors.contactName}</p>}
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                  Contact Phone
-                </label>
-                <PhoneInput
-                  value={values.contactPhone ?? ''}
-                  onChange={(v) => setField('contactPhone', v)}
-                  invalid={!!errors.contactPhone}
-                  placeholder="99 123456"
-                />
-                {errors.contactPhone && <p className="mt-1 text-xs text-destructive">{errors.contactPhone}</p>}
-              </div>
-            </div>
-
+            {/* Category — needs admin approval */}
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Description
-              </label>
-              <textarea
-                rows={3}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={values.description ?? ''}
-                onChange={(e) => setField('description', e.target.value)}
-                placeholder="Tell employees about your business…"
+              <p className={LABEL_MUTED}>Category</p>
+              {editingIdentity ? (
+                <select
+                  className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={values.categoryId ?? ''}
+                  onChange={(e) => setField('categoryId', e.target.value || null)}
+                >
+                  <option value="">— No category —</option>
+                  {(categories ?? []).map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="mt-0.5 text-sm font-medium">{profile.category?.name ?? '—'}</p>
+              )}
+              {'categoryId' in requested && (
+                <RequestedHint text={pendingRequest?.requestedCategoryName ?? 'No category'} />
+              )}
+            </div>
+          </div>
+
+          {!editingIdentity && !isPendingApproval && (
+            <button
+              type="button"
+              onClick={() => setEditingIdentity(true)}
+              className="-mt-2 text-xs font-medium text-primary hover:underline"
+            >
+              Request a name or category change
+            </button>
+          )}
+
+          <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2">
+            <div>
+              <label className={LABEL}>Website</label>
+              <Input
+                value={values.website ?? ''}
+                onChange={(e) => setField('website', e.target.value)}
+                placeholder="example.com"
               />
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Website</label>
-              <div className="relative">
-                <Globe className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={values.website ?? ''}
-                  onChange={(e) => setField('website', e.target.value)}
-                  placeholder="https://example.com"
-                  className="pl-9"
-                />
-              </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">We add https:// for you</p>
               {errors.website && <p className="mt-1 text-xs text-destructive">{errors.website}</p>}
             </div>
-
             <div>
               <SocialLinksInput
                 value={values.socialLinks}
                 onChange={setSocialLink}
-                labelClassName="mb-1.5 block text-xs font-medium text-muted-foreground"
+                labelClassName={LABEL}
               />
               {errors.socialLinks && <p className="mt-1 text-xs text-destructive">{errors.socialLinks}</p>}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+
+          <div>
+            <label className={LABEL}>Description</label>
+            <Input
+              value={values.description ?? ''}
+              onChange={(e) => setField('description', e.target.value)}
+              placeholder="Tell employees about your business…"
+            />
+          </div>
+        </section>
+
+        {/* ─── Contact details ─── */}
+        <section className={SECTION}>
+          <div>
+            <h3 className="text-lg font-semibold">Contact details</h3>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Only Perks &amp; More sees this. It is not shown in the app.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className={LABEL}>Contact person</label>
+              <Input
+                value={values.contactName ?? ''}
+                onChange={(e) => setField('contactName', e.target.value)}
+              />
+              {errors.contactName && <p className="mt-1 text-xs text-destructive">{errors.contactName}</p>}
+            </div>
+            <div>
+              <label className={LABEL}>Contact email</label>
+              <Input value={values.account?.email ?? ''} readOnly title="Linked to your account and cannot be changed" />
+            </div>
+            <div>
+              <label className={LABEL}>Phone</label>
+              <PhoneInput
+                value={values.contactPhone ?? ''}
+                onChange={(v) => setField('contactPhone', v)}
+                invalid={!!errors.contactPhone}
+                placeholder="99 123456"
+              />
+              {errors.contactPhone && <p className="mt-1 text-xs text-destructive">{errors.contactPhone}</p>}
+            </div>
+          </div>
+        </section>
 
         {/* ─── Branding ─── */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <ImageIcon className="h-5 w-5" /> Branding
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-6 sm:grid-cols-2">
-              {/* Logo Upload — deferred mode */}
-              <div className="space-y-2">
-                <label className="block text-xs font-medium text-muted-foreground">
-                  Logo
-                </label>
-                <ImageUploader
-                  uploadMode="deferred"
-                  onFilesSelected={(files) => {
-                    setPendingLogoFile(files[0] ?? null)
-                  }}
-                  disabled={isPendingApproval}
-                  currentCount={values.logoUrl ? 1 : 0}
-                  uploadOptions={MERCHANT_LOGO_OPTIONS}
-                  acceptedTypes={['image/jpeg', 'image/png', 'image/svg+xml', 'image/webp']}
-                  maxFileSize={5 * 1024 * 1024}
-                  maxFiles={5}
-                  allowMultiple={false}
-                  placeholder="Drop logo here"
-                  showRemaining={false}
-                  currentImageUrl={pendingLogoFile ? null : (values.logoUrl ?? null)}
-                  previewClassName="h-20 w-20 rounded-full border-2 border-primary/20 object-cover shadow-sm"
-                  previewHint="512×512 · Square"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Changing this requires admin approval.
-                </p>
-                {errors.logoUrl && <p className="text-xs text-destructive">{errors.logoUrl}</p>}
-              </div>
-
-              {/* Cover Image Upload — deferred mode */}
-              <div className="space-y-2">
-                <label className="block text-xs font-medium text-muted-foreground">
-                  Cover Image
-                </label>
-                <ImageUploader
-                  uploadMode="deferred"
-                  onFilesSelected={(files) => {
-                    setPendingCoverFile(files[0] ?? null)
-                  }}
-                  disabled={false}
-                  currentCount={0}
-                  uploadOptions={MERCHANT_COVER_OPTIONS}
-                  acceptedTypes={['image/jpeg', 'image/png', 'image/webp']}
-                  maxFileSize={5 * 1024 * 1024}
-                  maxFiles={1}
-                  allowMultiple={false}
-                  placeholder="Drop cover image here"
-                  showRemaining={false}
-                  currentImageUrl={pendingCoverFile ? null : (values.coverImageUrl ?? null)}
-                  previewClassName="h-24 w-full rounded-lg border object-cover shadow-sm"
-                  previewHint="1200×400 · Landscape"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* ─── Headquarters Address ─── */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <MapPin className="h-5 w-5" /> Headquarters Address
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-xs text-muted-foreground">
-              This is the merchant&apos;s primary address. For per-location addresses, go to Branches.
-            </p>
-            <Input
-              value={values.addressLine1 ?? ''}
-              readOnly
-              className="bg-muted/30"
-              placeholder="No address on file"
+        <section className={SECTION}>
+          <h3 className="text-lg font-semibold">Branding</h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <BrandTile
+              title={'logoUrl' in requested ? 'Logo · requested new logo' : 'Logo'}
+              hint={'Square, at least 400 × 400 px, JPG, PNG or WebP,\nup to 500 KB'}
+              imageUrl={pendingLogoFile?.previewUrl ?? requested.logoUrl ?? values.logoUrl ?? null}
+              accept="image/jpeg,image/png,image/webp"
+              maxBytes={500 * 1024}
+              disabled={isPendingApproval}
+              onFile={setPendingLogoFile}
             />
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Input value={values.city ?? ''} readOnly className="bg-muted/30" placeholder="City" />
-              <Input value={values.state ?? ''} readOnly className="bg-muted/30" placeholder="State" />
-              <Input value={values.postalCode ?? ''} readOnly className="bg-muted/30" placeholder="Postal" />
-            </div>
-            <Input value={values.country ?? ''} readOnly className="bg-muted/30" placeholder="Country" />
-          </CardContent>
-        </Card>
+            <BrandTile
+              title="Cover image"
+              hint="1200 × 400 px landscape, JPG, PNG or WebP"
+              imageUrl={pendingCoverFile?.previewUrl ?? values.coverImageUrl ?? null}
+              accept="image/jpeg,image/png,image/webp"
+              maxBytes={5 * 1024 * 1024}
+              onFile={setPendingCoverFile}
+            />
+          </div>
+          {errors.logoUrl && <p className="text-xs text-destructive">{errors.logoUrl}</p>}
+        </section>
 
-        {/* ─── Sensitive Changes ─── */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <CheckCircle className="h-5 w-5" /> Sensitive Changes (require approval)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-xs text-muted-foreground">
-              Changes to <strong>Business Name</strong>, <strong>Category</strong>, or <strong>Logo</strong> require
-              admin review. Provide a reason below.
-            </p>
+        {/* ─── Reason (only when a change needs admin approval) ─── */}
+        {hasSensitiveDraft && (
+          <section className={SECTION}>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Category
-              </label>
-              <select
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={values.categoryId ?? ''}
-                onChange={(e) => setField('categoryId', e.target.value || null)}
-              >
-                <option value="">— No category —</option>
-                <option value={profile.category?.id}>{profile.category?.name ?? 'Current'}</option>
-              </select>
+              <h3 className="text-lg font-semibold">Reason for change</h3>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Business name, category and logo changes are reviewed by our team before they go live.
+              </p>
             </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Change reason (required for sensitive changes)
-              </label>
-              <textarea
-                rows={2}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={changeReason}
-                onChange={(e) => setChangeReason(e.target.value)}
-                placeholder="Why are you requesting this change?"
-              />
-              {errors.changeReason && <p className="mt-1 text-xs text-destructive">{errors.changeReason}</p>}
-            </div>
-          </CardContent>
-        </Card>
+            <textarea
+              rows={2}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={changeReason}
+              onChange={(e) => setChangeReason(e.target.value)}
+              placeholder="Why are you requesting this change?"
+            />
+            {errors.changeReason && <p className="text-xs text-destructive">{errors.changeReason}</p>}
+          </section>
+        )}
+
+        {/* ─── Latest change request outcome ─── */}
+        <ChangeRequestHistory requests={recentRequests} />
 
         {/* ─── Sticky Action Bar ─── */}
         <div className="sticky bottom-0 -mx-4 flex items-center justify-end gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
@@ -580,6 +595,8 @@ export default function MerchantProfilePage() {
               setForm(null)
               setPendingLogoFile(null)
               setPendingCoverFile(null)
+              setEditingIdentity(false)
+              setChangeReason('')
             }}
             disabled={update.isPending || uploadingImages}
           >

@@ -367,7 +367,9 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
           setEdits={setEdits}
         />
       )} */}
-      {!isFinalized && canEdit && (
+      {/* Profile edit requests: the merchant has no view of request status or
+          remarks, so remarks would be invisible to them — hide the panel. */}
+      {!isFinalized && canEdit && queueItem.type !== 'PROFILE_EDIT_REQUEST' && (
         <RemarksPanel
           queueItem={queueItem}
           onAddRemark={handleAddRemark}

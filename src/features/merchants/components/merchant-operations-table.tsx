@@ -39,7 +39,7 @@ interface MerchantOperationsTableProps {
   onApprove?: (id: string) => void
   onReject?: (id: string) => void
   onDelete?: (id: string) => void
-  onSuspend?: (id: string, reason: string) => void
+  onSuspend?: (id: string) => void
   onActivate?: (id: string) => void
   onPause?: (id: string) => void
   onResume?: (id: string) => void  
@@ -542,7 +542,7 @@ interface MerchantMobileCardProps {
   onApprove?: (id: string) => void
   onReject?: (id: string) => void
   onDelete?: (id: string) => void
-  onSuspend?: (id: string, reason: string) => void
+  onSuspend?: (id: string) => void
   onActivate?: (id: string) => void
   onPause?: (id: string) => void
   onResume?: (id: string) => void

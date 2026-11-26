@@ -52,6 +52,7 @@ export async function PATCH(
     const existing = await prisma.merchant.findUnique({ where: { id } })
     if (!existing || existing.deletedAt) return notFound('Merchant')
 
+    const reason = typeof body?.reason === 'string' && body.reason.trim() ? body.reason.trim() : null
     const data: Record<string, unknown> = {}
     let auditLabel = ''
     let auditChanges: Record<string, unknown> = {}
@@ -84,11 +85,11 @@ export async function PATCH(
         break
       }
       case 'suspend': {
-        const reason = typeof body?.reason === 'string' ? body.reason.trim() : null
+        if (!reason) return badRequest('reason is required to suspend a merchant')
         data.status = 'SUSPENDED'
-        data.rejectionReason = reason ?? existing.rejectionReason
+        data.rejectionReason = reason
         auditLabel = 'MERCHANT_SUSPENDED'
-        auditChanges = { reason: reason ?? 'No reason provided' }
+        auditChanges = { from: existing.status, to: 'SUSPENDED', reason }
         break
       }
       case 'activate': {
@@ -101,9 +102,10 @@ export async function PATCH(
         break
       }
       case 'pause': {
+        if (!reason) return badRequest('reason is required to pause a merchant')
         data.status = 'PAUSED'
         auditLabel = 'MERCHANT_PAUSED'
-        auditChanges = { status: 'PAUSED' }
+        auditChanges = { from: existing.status, to: 'PAUSED', reason }
         break
       }
       default:
@@ -118,7 +120,7 @@ export async function PATCH(
           toStatus: data.status as any,
           changedBy: user.id,
           changedByType: 'admin',
-          reason: typeof body?.reason === 'string' ? body.reason : null,
+          reason,
         },
       })
     }
@@ -165,7 +167,6 @@ export async function PATCH(
     const statusChanged = updated.status !== existing.status
     if (statusChanged && (action === 'suspend' || action === 'activate' || action === 'pause')) {
       const suspended = action === 'suspend'
-      const reason = typeof body?.reason === 'string' && body.reason.trim() ? body.reason.trim() : null
       const content = {
         suspend: {
           title: `Merchant suspended: ${existing.businessName}`,
@@ -203,7 +204,7 @@ export async function PATCH(
           channels: channels('IN_APP', 'PUSH', 'EMAIL'),
           referenceType: 'merchant',
           referenceId: id,
-          metadata: { previousStatus: existing.status, reason: body?.reason ?? null },
+          metadata: { previousStatus: existing.status, reason },
         })
       }
     }

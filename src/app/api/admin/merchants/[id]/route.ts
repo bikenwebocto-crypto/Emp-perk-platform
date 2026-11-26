@@ -274,6 +274,19 @@ export async function DELETE(
 
     const { id } = await params;
 
+    const body = await _request.json().catch(() => null);
+    const reason =
+      typeof body?.reason === "string" && body.reason.trim() ? body.reason.trim() : null;
+    if (!reason) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: { code: "VALIDATION", message: "reason is required to delete a merchant" },
+        },
+        { status: 400 },
+      );
+    }
+
     const merchant = await prisma.merchant.findUnique({ where: { id } });
     if (!merchant || merchant.deletedAt) {
       return NextResponse.json(
@@ -293,6 +306,8 @@ export async function DELETE(
     await createAuditLog(fromCurrentUser(user, 'MERCHANT_DELETED', 'merchant', id, {
       changes: {
         businessName: merchant.businessName,
+        status: merchant.status,
+        reason,
       },
     }));
 

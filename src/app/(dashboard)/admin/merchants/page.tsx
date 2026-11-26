@@ -35,6 +35,8 @@ import type {
 } from '@/types'
 
 type TabKey = 'all' | 'pending'
+type ConfirmAction = 'suspend' | 'reject' | 'delete' | 'pause' | 'resume' | 'activate'
+const REASON_REQUIRED: ConfirmAction[] = ['suspend', 'pause', 'delete']
 
 const TABS: { key: TabKey; label: string; icon: any }[] = [
   { key: 'all', label: 'All Merchants', icon: Package },
@@ -75,7 +77,7 @@ export default function MerchantsPage() {
   const [sortConfig, setSortConfig] = useState<TableSortConfig>({ key: 'priority', direction: 'desc' })
 
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [confirmAction, setConfirmAction] = useState<'suspend' | 'reject' | 'delete'>('suspend')
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction>('suspend')
   const [selectedMerchant, setSelectedMerchant] = useState<string | null>(null)
   const [suspendReasonText, setSuspendReasonText] = useState('')
 
@@ -194,20 +196,27 @@ export default function MerchantsPage() {
     )
   }
 
+  const closeConfirm = useCallback(() => {
+    setConfirmOpen(false)
+    setSelectedMerchant(null)
+    setSuspendReasonText('')
+  }, [])
+
   const handleConfirmAction = useCallback(() => {
     if (!selectedMerchant) return
+    const reason = suspendReasonText.trim()
+    if (REASON_REQUIRED.includes(confirmAction) && !reason) {
+      showToast({ type: 'error', title: 'Reason required', description: 'Please provide a reason for this action' })
+      return
+    }
     if (confirmAction === 'delete') {
-      deleteMutation.mutate(selectedMerchant, {
+      deleteMutation.mutate({ id: selectedMerchant, reason }, {
         onSuccess: (res: any) => {
           showToast({ type: 'success', title: res.message ?? 'Merchant deleted' })
-          setConfirmOpen(false)
-          setSelectedMerchant(null)
+          closeConfirm()
         },
-        onError: (err: Error) => {
-          showToast({ type: 'error', title: 'Delete failed', description: err.message })
-          setConfirmOpen(false)
-          setSelectedMerchant(null)
-        },
+        onError: (err: Error) =>
+          showToast({ type: 'error', title: 'Delete failed', description: err.message }),
       })
     } else if (confirmAction === 'reject') {
       approveMutation.mutate(
@@ -222,25 +231,38 @@ export default function MerchantsPage() {
         },
       )
     } else if (confirmAction === 'suspend') {
-      if (!suspendReasonText.trim()) {
-        showToast({ type: 'error', title: 'Required', description: 'Please provide a reason' })
-        return
-      }
       suspendMutation.mutate(
-        { id: selectedMerchant, reason: suspendReasonText.trim() },
+        { id: selectedMerchant, reason },
         {
           onSuccess: () => {
             showToast({ type: 'success', title: 'Merchant suspended' })
-            setConfirmOpen(false)
-            setSelectedMerchant(null)
-            setSuspendReasonText('')
+            closeConfirm()
           },
           onError: (err: Error) =>
             showToast({ type: 'error', title: 'Failed to suspend', description: err.message }),
         },
       )
+    } else if (confirmAction === 'pause') {
+      pauseMutation.mutate(
+        { id: selectedMerchant, reason },
+        {
+          onSuccess: () => {
+            showToast({ type: 'success', title: 'Merchant paused' })
+            closeConfirm()
+          },
+          onError: (err: Error) =>
+            showToast({ type: 'error', title: 'Failed to pause', description: err.message }),
+        },
+      )
+    } else {
+      const successTitle = confirmAction === 'resume' ? 'Merchant resumed' : 'Merchant reactivated'
+      activateMutation.mutate(selectedMerchant, {
+        onSuccess: () => showToast({ type: 'success', title: successTitle }),
+        onError: (err: Error) => showToast({ type: 'error', title: 'Action failed', description: err.message }),
+        onSettled: closeConfirm,
+      })
     }
-  }, [selectedMerchant, confirmAction, suspendReasonText, deleteMutation, approveMutation, suspendMutation])
+  }, [selectedMerchant, confirmAction, suspendReasonText, deleteMutation, approveMutation, suspendMutation, pauseMutation, activateMutation, closeConfirm])
 
   // ----- Sort handler (replaces page state) -----
   const handleSortChange = useCallback(
@@ -299,49 +321,64 @@ export default function MerchantsPage() {
     [toggleHomepage],
   )
 
-  const onSuspend = useCallback(
-    (id: string, reason: string) => {
-      suspendMutation.mutate(
-        { id, reason },
-        {
-          onSuccess: () => showToast({ type: 'success', title: 'Merchant suspended' }),
-          onError: (err: Error) => showToast({ type: 'error', title: 'Failed to suspend', description: err.message }),
-        },
-      )
-    },
-    [suspendMutation],
-  )
+  const confirmLoading =
+    deleteMutation.isPending ||
+    approveMutation.isPending ||
+    suspendMutation.isPending ||
+    pauseMutation.isPending ||
+    activateMutation.isPending
 
-  const onActivate = useCallback(
-    (id: string) => {
-      activateMutation.mutate(id, {
-        onSuccess: () => showToast({ type: 'success', title: 'Merchant reactivated' }),
-        onError: (err: Error) => showToast({ type: 'error', title: 'Failed', description: err.message }),
-      })
-    },
-    [activateMutation],
-  )
+  const openConfirm = useCallback((id: string, action: ConfirmAction) => {
+    setSelectedMerchant(id)
+    setSuspendReasonText('')
+    setConfirmAction(action)
+    setConfirmOpen(true)
+  }, [])
 
-  const onPause = useCallback(
-    (id: string) => {
-      pauseMutation.mutate(id, {
-        onSuccess: () => showToast({ type: 'success', title: 'Merchant paused' }),
-        onError: (err: Error) => showToast({ type: 'error', title: 'Failed', description: err.message }),
-      })
-    },
-    [pauseMutation],
-  )
+  const onSuspend = handleSuspendClick
+  const onActivate = useCallback((id: string) => openConfirm(id, 'activate'), [openConfirm])
+  const onPause = useCallback((id: string) => openConfirm(id, 'pause'), [openConfirm])
+  const onResume = useCallback((id: string) => openConfirm(id, 'resume'), [openConfirm])
 
-   const onResume = useCallback(
-    (id: string) => {
-      activateMutation.mutate(id, {
-        onSuccess: () => showToast({ type: 'success', title: 'Merchant resumed' }),
-        onError: (err: Error) => showToast({ type: 'error', title: 'Failed to resume', description: err.message }),
-      })
+  const confirmCopy: Record<ConfirmAction, { title: string; message: string; label: string; destructive: boolean }> = {
+    delete: {
+      title: 'Delete merchant',
+      message: 'This merchant will be soft-deleted. The record can be recovered later.',
+      label: 'Delete',
+      destructive: true,
     },
-    [activateMutation],
-  )
-  
+    reject: {
+      title: 'Reject merchant',
+      message: 'Rejecting this application will mark the merchant as rejected. You can change the status later.',
+      label: 'Reject',
+      destructive: true,
+    },
+    suspend: {
+      title: 'Suspend merchant',
+      message: 'Suspending will hide this merchant from employees and prevent redemptions. You can reactivate them later.',
+      label: 'Suspend',
+      destructive: true,
+    },
+    pause: {
+      title: 'Pause merchant',
+      message: 'Pausing will temporarily hide this merchant and their offers. You can resume them anytime.',
+      label: 'Pause',
+      destructive: true,
+    },
+    resume: {
+      title: 'Resume merchant',
+      message: 'This merchant and their offers will become visible to employees again.',
+      label: 'Resume',
+      destructive: false,
+    },
+    activate: {
+      title: 'Reactivate merchant',
+      message: 'This will lift the suspension and make the merchant active again.',
+      label: 'Reactivate',
+      destructive: false,
+    },
+  }
+
 
   return (
     <div className="min-w-0 space-y-6">
@@ -481,43 +518,29 @@ export default function MerchantsPage() {
       {/* ===== Confirm dialog (handles delete, reject, suspend) ===== */}
       <ConfirmDialog
         open={confirmOpen}
-        title={
-          confirmAction === 'delete'
-            ? 'Delete merchant'
-            : confirmAction === 'suspend'
-              ? 'Suspend merchant'
-              : 'Reject merchant'
-        }
-        message={
-          confirmAction === 'delete'
-            ? 'This merchant will be soft-deleted. The record can be recovered later.'
-            : confirmAction === 'suspend'
-              ? 'Suspending will hide this merchant from employees. You can reactivate them later from the actions menu.'
-              : 'Rejecting this application will mark the merchant as rejected. You can change the status later.'
-        }
-        confirmLabel={
-          confirmAction === 'delete' ? 'Delete' : confirmAction === 'suspend' ? 'Suspend' : 'Reject'
-        }
-        loading={
-          deleteMutation.isPending ||
-          approveMutation.isPending ||
-          suspendMutation.isPending
-        }
+        title={confirmCopy[confirmAction].title}
+        message={confirmCopy[confirmAction].message}
+        confirmLabel={confirmCopy[confirmAction].label}
+        variant={confirmCopy[confirmAction].destructive ? 'destructive' : 'default'}
+        loading={confirmLoading}
         onConfirm={handleConfirmAction}
         onCancel={() => {
-          setConfirmOpen(false)
-          setSelectedMerchant(null)
-          setSuspendReasonText('')
+          if (confirmLoading) return
+          closeConfirm()
         }}
       >
-        {confirmAction === 'suspend' && (
+        {REASON_REQUIRED.includes(confirmAction) && (
           <div className="space-y-2">
-            <label className="text-sm font-medium">Reason for suspension</label>
+            <label className="text-sm font-medium">
+              Reason for {confirmAction === 'suspend' ? 'suspension' : confirmAction === 'pause' ? 'pausing' : 'deletion'}{' '}
+              <span className="text-destructive">*</span>
+            </label>
             <textarea
               className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               placeholder="e.g. Policy violation, multiple complaints, payment failure..."
               value={suspendReasonText}
               onChange={(e) => setSuspendReasonText(e.target.value)}
+              disabled={confirmLoading}
             />
           </div>
         )}

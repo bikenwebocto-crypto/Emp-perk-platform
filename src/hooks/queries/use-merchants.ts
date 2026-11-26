@@ -221,8 +221,12 @@ export function useDeleteMerchant() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/admin/merchants/${id}`, { method: 'DELETE' });
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const res = await fetch(`/api/admin/merchants/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to delete merchant');
       return json;
@@ -363,7 +367,7 @@ export function useToggleMerchantHomepage() {
 export function useSuspendMerchant() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (vars: { id: string; reason?: string }) => {
+    mutationFn: async (vars: { id: string; reason: string }) => {
       const res = await fetch(`/api/admin/merchants/${vars.id}/manage`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -405,11 +409,11 @@ export function useActivateMerchant() {
 export function usePauseMerchant() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
       const res = await fetch(`/api/admin/merchants/${id}/manage`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pause' }),
+        body: JSON.stringify({ action: 'pause', reason }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to pause merchant')

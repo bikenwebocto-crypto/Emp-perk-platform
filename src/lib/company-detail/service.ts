@@ -16,6 +16,7 @@ import { validateUserEmail } from '@/services/user-validation.service'
 import { getLatestInviteStatuses, sendCompanyAdminInvitation } from '@/services/company-admin-invitation.service'
 import { inviteAuthUser, normalizeEmail, rollbackAuthUser } from '@/services/employee-invite.service'
 import { emailService } from '@/lib/email/email'
+import { renderTemplate } from '@/emails/renderer'
 
 /**
  * Company Detail operations shared by the Super Admin routes
@@ -997,17 +998,17 @@ async function sendPromotionEmail(params: {
   const firstName = escapeHtml(params.firstName)
   const companyName = escapeHtml(params.companyName)
   try {
+    const bodyHtml = `
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">Hi ${firstName},</p>
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">You now have administrator access for <strong>${companyName}</strong>.</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 24px 0;"><tr><td><a href="${loginUrl}" style="display: inline-block; background-color: #61549A; color: #ffffff; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 6px;">Sign in</a></td></tr></table>
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.6; margin: 16px 0;">Use your existing password. Your access to the mobile app as an employee has been deactivated; your savings history is kept.</p>
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 24px 0 0 0;">Best regards,<br/><strong>The Perks &amp; More Team</strong></p>
+    `
     await emailService.sendEmail({
       to: params.to,
       subject: `You are now a Company Admin for ${params.companyName}`,
-      html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">
-        <h2>You are now a Company Admin</h2>
-        <p>Hi ${firstName},</p>
-        <p>You now have administrator access for <strong>${companyName}</strong>.</p>
-        <p>Sign in at <a href="${loginUrl}">${loginUrl}</a> using your existing password.</p>
-        <p>Note: your access to the mobile app as an employee has been deactivated. Your savings history is kept.</p>
-        <p>Best Regards,<br/>The Perks &amp; More Team</p>
-      </div>`,
+      html: renderTemplate('You are now a Company Admin', bodyHtml),
     })
   } catch (error) {
     console.error('Promotion notification email failed:', error)

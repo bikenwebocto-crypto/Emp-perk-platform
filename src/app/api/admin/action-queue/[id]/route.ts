@@ -444,6 +444,9 @@ export async function POST(
     }
 
     if (action === "REMARK") {
+      if (queueItem.type === "PROFILE_EDIT_REQUEST") {
+        return badRequest("Remarks are not supported for profile edit requests");
+      }
       if (!remark?.trim()) return badRequest("Remark is required");
       await performRemark(queueItem, adminId, remark.trim());
       return NextResponse.json({ success: true, message: "Remark added" });
@@ -1141,6 +1144,21 @@ for (const field of validFields) {
   });
   console.log(`[PROFILE_EDIT_REQUEST] ✅ Status history created with simplified changes`);
 
+  emailWarnings.push(...collectEmailWarnings(await publishBusinessNotification({
+    type: 'PROFILE_UPDATED',
+    title: 'Your profile change request was approved',
+    message: `Updated: ${Object.keys(updateData).join(', ')}`,
+    priority: 'NORMAL',
+    recipients: [{ role: 'merchant', id: merchant.id }],
+    channels: channels('IN_APP', 'EMAIL'),
+    referenceType: 'merchant',
+    referenceId: merchant.id,
+    metadata: { approvedBy: adminId, queueItemId: queueItem.id },
+    emailDetail: `Updated: ${Object.keys(updateData).join(', ')}`,
+    actionUrl: '/merchant/profile',
+    actionLabel: 'View change requests',
+  })));
+
   break;
 }
       /**
@@ -1292,7 +1310,27 @@ async function performReject(
   const meta = (queueItem.metadata as Record<string, unknown> | null) ?? {};
   const previousStatus = queueItem.status;
 
-  if (kind === "MERCHANT_OFFER") {
+  if (queueItem.type === "PROFILE_EDIT_REQUEST") {
+    // A rejected change request only closes the request: the merchant keeps
+    // its current status and profile. (referenceType is "merchant", so without
+    // this branch the whole merchant would be marked REJECTED.)
+    const merchantId = queueItem.merchantId ?? queueItem.referenceId;
+    const subject = meta.branchName ? `branch "${meta.branchName}" location` : "profile";
+    emailWarnings.push(...collectEmailWarnings(await publishBusinessNotification({
+      type: 'PROFILE_UPDATED',
+      title: `Your ${subject} change request was rejected`,
+      message: `Reason: ${rejectionReason}`,
+      priority: 'NORMAL',
+      recipients: [{ role: 'merchant', id: merchantId }],
+      channels: channels('IN_APP', 'EMAIL'),
+      referenceType: 'merchant',
+      referenceId: merchantId,
+      metadata: { rejectedBy: adminId, rejectionReason, queueItemId: queueItem.id },
+      emailDetail: `Reason: ${rejectionReason}`,
+      actionUrl: '/merchant/profile',
+      actionLabel: 'View change requests',
+    })));
+  } else if (kind === "MERCHANT_OFFER") {
     const offerId =
       (meta.offerId as string | undefined) ??
       (meta.newOfferId as string | undefined) ??

@@ -37,17 +37,23 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [selectedOffer, setSelectedOffer] = useState<any | null>(null)  
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleteReason, setDeleteReason] = useState('')
   const deleteMerchant = useDeleteMerchant()
 
   const handleDelete = useCallback(() => {
-    deleteMerchant.mutate(id, {
+    const reason = deleteReason.trim()
+    if (!reason) {
+      showToast({ type: 'error', title: 'Reason required', description: 'Please provide a reason for deletion' })
+      return
+    }
+    deleteMerchant.mutate({ id, reason }, {
       onSuccess: (res: any) => {
         showToast({ type: 'success', title: res.message ?? 'Merchant deleted' })
         router.push('/admin/merchants')
       },
       onError: (err: Error) => showToast({ type: 'error', title: 'Delete failed', description: err.message }),
     })
-  }, [id, deleteMerchant, router])
+  }, [id, deleteMerchant, router, deleteReason])
 
   const {
     data: merchantRes,
@@ -465,8 +471,25 @@ const handleEditOffer = (offer: any) => {
         confirmLabel="Delete"
         loading={deleteMerchant.isPending}
         onConfirm={handleDelete}
-        onCancel={() => setConfirmDelete(false)}
-      />
+        onCancel={() => {
+          if (deleteMerchant.isPending) return
+          setConfirmDelete(false)
+          setDeleteReason('')
+        }}
+      >
+        <div className="space-y-2">
+          <label className="text-sm font-medium">
+            Reason for deletion <span className="text-destructive">*</span>
+          </label>
+          <textarea
+            className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            placeholder="e.g. Duplicate account, merchant requested closure..."
+            value={deleteReason}
+            onChange={(e) => setDeleteReason(e.target.value)}
+            disabled={deleteMerchant.isPending}
+          />
+        </div>
+      </ConfirmDialog>
       <EditOfferModal
         open={isEditModalOpen}
         offer={selectedOffer}

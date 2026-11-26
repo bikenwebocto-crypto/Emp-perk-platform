@@ -6,6 +6,7 @@ import { companyEmployeeUpdateSchema } from "@/schemas";
 import { validateUserEmail } from "@/services/user-validation.service";
 import { createAuditLog, fromCurrentUser } from "@/services/audit-log.service";
 import { emailService } from "@/lib/email/email";
+import { escapeHtmlContent, renderTemplate } from "@/emails/renderer";
 import { deleteImage } from "@/lib/upload/image";
 import {
   isPromotedAccount,
@@ -408,18 +409,17 @@ async function sendEmailChangeNotification(
   console.log("[PATCH] Sending email notification for email change...");
 
   try {
+    const bodyHtml = `
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">Hi ${escapeHtmlContent(employeeName)},</p>
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">Your email address for ${escapeHtmlContent(companyName)} has been changed to:</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; margin: 16px 0 24px 0;"><tr><td style="color: #61549A; font-family: monospace; font-size: 16px; font-weight: 700; padding: 16px; background-color: #F7F7F8; border-radius: 6px;">${escapeHtmlContent(nextEmail)}</td></tr></table>
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.6; margin: 16px 0;">If you did not request this change, contact your company administrator immediately.</p>
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 24px 0 0 0;">Best regards,<br/><strong>The Perks &amp; More Team</strong></p>
+    `
     await emailService.sendEmail({
       to: nextEmail,
       subject: `Your email has been updated for ${companyName}`,
-      html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">
-                <h2>Email Address Updated</h2>
-                <p>Hi ${employeeName},</p>
-                <p>Your email address for ${companyName} has been changed to:</p>
-                <p><strong>${nextEmail}</strong></p>
-                <p>If you did not request this change, please contact your company administrator immediately.</p>
-                <br />
-                <p>Best Regards,<br />${companyName} Team</p>
-              </div>`,
+      html: renderTemplate('Email Address Updated', bodyHtml),
     });
     console.log("[PATCH] ✅ Email notification sent to:", nextEmail);
   } catch (emailError) {
@@ -439,17 +439,16 @@ async function sendOldEmailNotification(
   console.log("[PATCH] Sending notification to old email...");
 
   try {
+    const bodyHtml = `
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">Hi ${escapeHtmlContent(employeeName)},</p>
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">Your email address for ${escapeHtmlContent(companyName)} has been changed.</p>
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.6; margin: 16px 0;">If you did not request this change, contact your company administrator immediately.</p>
+      <p style="color: #1C181D; font-family: 'Geologica', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.6; margin: 24px 0 0 0;">Best regards,<br/><strong>The Perks &amp; More Team</strong></p>
+    `
     await emailService.sendEmail({
       to: oldEmail,
       subject: `Your email was changed for ${companyName}`,
-      html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">
-                <h2>Email Address Changed</h2>
-                <p>Hi ${employeeName},</p>
-                <p>Your email address for ${companyName} has been changed.</p>
-                <p>If you did not request this change, please contact your company administrator immediately.</p>
-                <br />
-                <p>Best Regards,<br />${companyName} Team</p>
-              </div>`,
+      html: renderTemplate('Email Address Changed', bodyHtml),
     });
     console.log("[PATCH] ✅ Notification sent to old email:", oldEmail);
   } catch (emailError) {

@@ -30,15 +30,6 @@ import {
   DropdownMenuPortal,
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Textarea } from '@/components/ui/textarea'
 import { showToast } from '@/hooks/use-toast'
 import type { MerchantDashboardRow } from '@/types'
 
@@ -47,7 +38,7 @@ interface MerchantActionsMenuProps {
   onApprove?: (id: string) => void
   onReject?: (id: string) => void
   onDelete?: (id: string) => void
-  onSuspend?: (id: string, reason: string) => void
+  onSuspend?: (id: string) => void
   onActivate?: (id: string) => void
   onPause?: (id: string) => void
   onResume?: (id: string) => void
@@ -73,8 +64,6 @@ export function MerchantActionsMenu({
   onChangePriority,
   disabled,
 }: MerchantActionsMenuProps) {
-  const [suspendOpen, setSuspendOpen] = useState(false)
-  const [suspendReason, setSuspendReason] = useState('')
   const [priorityOpen, setPriorityOpen] = useState(false)
   const [customPriority, setCustomPriority] = useState(String(row.displayPriority ?? 0))
 
@@ -82,16 +71,6 @@ export function MerchantActionsMenu({
   const isActive = row.status === 'ACTIVE'
   const isSuspended = row.status === 'SUSPENDED'
   const isPaused = row.status === 'PAUSED'
-
-  const handleSuspend = () => {
-    if (!suspendReason.trim()) {
-      showToast({ type: 'error', title: 'Required', description: 'Please provide a reason' })
-      return
-    }
-    onSuspend?.(row.id, suspendReason.trim())
-    setSuspendOpen(false)
-    setSuspendReason('')
-  }
 
   const handlePriorityPreset = (value: number) => {
     onChangePriority?.(row.id, value)
@@ -172,21 +151,12 @@ export function MerchantActionsMenu({
       <CheckCircle2 className="h-4 w-4" /> Resume
     </DropdownMenuItem>
     <DropdownMenuItem
-      onClick={() => setSuspendOpen(true)}
+      onClick={() => onSuspend?.(row.id)}
       className="flex items-center gap-2 text-rose-600"
     >
       <Ban className="h-4 w-4" /> Suspend
     </DropdownMenuItem>
   </>
-)}
-
-{isSuspended && (
-  <DropdownMenuItem
-    onClick={() => onActivate?.(row.id)}
-    className="flex items-center gap-2 text-emerald-600"
-  >
-    <CheckCircle2 className="h-4 w-4" /> Reactivate
-  </DropdownMenuItem>
 )}
 
           {isSuspended && (
@@ -207,42 +177,6 @@ export function MerchantActionsMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <Dialog open={suspendOpen} onOpenChange={setSuspendOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-rose-600" />
-              Suspend {row.businessName}?
-            </DialogTitle>
-            <DialogDescription>
-              This will hide the merchant from employees and prevent redemptions. You can
-              reactivate them later from the same menu.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Reason for suspension</label>
-            <Textarea
-              placeholder="e.g. Policy violation, multiple complaints, payment failure..."
-              value={suspendReason}
-              onChange={(e) => setSuspendReason(e.target.value)}
-              rows={3}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSuspendOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleSuspend}
-              className="gap-1.5"
-            >
-              <Ban className="h-4 w-4" /> Suspend merchant
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   )
 }
