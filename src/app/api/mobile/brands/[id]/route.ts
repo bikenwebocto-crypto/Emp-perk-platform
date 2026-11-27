@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { internalError, notFound } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { isEvergreenRange, offerRank } from '@/lib/offers/evergreen'
+import { isMerchantVisible } from '@/lib/offers/visible-merchants'
 
 // GET /api/mobile/brands/[id]
 //
@@ -57,7 +58,8 @@ export async function GET(
         _count: { select: { offers: true, branches: true } },
       },
     })
-    if (!merchant) return notFound('Brand not found')
+    // Hidden until the merchant's Evergreen offer is approved and LIVE.
+    if (!merchant || !(await isMerchantVisible(merchant.id, now))) return notFound('Brand not found')
 
     const offers = [...(merchant.offers ?? [])]
       .map((offer) => ({

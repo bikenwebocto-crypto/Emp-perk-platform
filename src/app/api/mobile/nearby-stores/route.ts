@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { internalError, badRequest } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { haversineKm } from '@/lib/distance'
+import { getVisibleMerchantIds } from '@/lib/offers/visible-merchants'
 
 const DEFAULT_RADIUS_KM = 10
 
@@ -71,6 +72,8 @@ export async function GET(request: NextRequest) {
         status: 'ACTIVE',
         latitude: { not: null },
         longitude: { not: null },
+        // Hidden until the merchant's Evergreen offer is approved and LIVE.
+        merchantId: { in: await getVisibleMerchantIds() },
         merchant: { is: { status: 'ACTIVE', deletedAt: null } },
       },
       include: {

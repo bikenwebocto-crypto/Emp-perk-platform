@@ -1,4 +1,5 @@
 import { notEndedBy } from '@/lib/offers/end-date';
+import { getVisibleMerchantIds } from '@/lib/offers/visible-merchants';
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { internalError } from '@/lib/employee-helpers'
@@ -39,6 +40,8 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = {
       status: 'ACTIVE',
       deletedAt: null,
+      // Hidden until the merchant's Evergreen offer is approved and LIVE.
+      id: { in: await getVisibleMerchantIds() },
       branches: { some: { isActive: true, status: 'ACTIVE', deletedAt: null } },
     }
     if (categoryId) where.categoryId = categoryId
