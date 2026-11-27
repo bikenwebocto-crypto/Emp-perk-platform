@@ -109,7 +109,12 @@ export async function middleware(request: NextRequest) {
     process.env.NODE_ENV === "production" &&
     request.headers.get("x-forwarded-proto") === "http"
   ) {
-    return NextResponse.redirect(publicUrl(pathname + request.nextUrl.search), 308)
+    const target = publicUrl(pathname + request.nextUrl.search)
+    target.protocol = "https:" // never redirect to http
+    if (target.href !== request.url) {
+      // never redirect to the same URL
+      return NextResponse.redirect(target, 308)
+    }
   }
 
   if (pathname === "/") {
