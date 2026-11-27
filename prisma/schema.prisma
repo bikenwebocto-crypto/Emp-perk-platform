@@ -243,7 +243,7 @@ model CompanyBilling {
   billingEmail         String?       @db.VarChar(255)
   billingCycle         String        @default("monthly") @db.VarChar(20)
   pricePerEmployee     Decimal       @default(5.0) @db.Decimal(10, 2)
-  currency             String        @default("GBP") @db.VarChar(3)
+  currency             String        @default("EUR") @db.VarChar(3)
   stripeCustomerId     String?       @db.VarChar(255)
   stripeSubscriptionId String?       @db.VarChar(255)
   currentPeriodStart   DateTime?

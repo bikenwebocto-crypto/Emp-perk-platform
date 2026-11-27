@@ -534,8 +534,9 @@ export interface ConfirmCsvBody {
 
 export async function confirmEmployeeCsv(user: User, companyId: string, body: ConfirmCsvBody) {
   try {
-    const company = await prisma.company.findUnique({ where: { id: companyId }, select: { id: true, name: true, deletedAt: true } })
+    const company = await prisma.company.findUnique({ where: { id: companyId }, select: { id: true, name: true, deletedAt: true, status: true } })
     if (!company || company.deletedAt) return apiError(404, 'NOT_FOUND', 'Company not found')
+    if (company.status !== 'ACTIVE') return apiError(400, 'COMPANY_INACTIVE', 'Company is not active')
 
     const { csv, bodyHash } = body
     if (!csv) return apiError(400, 'VALIDATION', 'csv body is required')

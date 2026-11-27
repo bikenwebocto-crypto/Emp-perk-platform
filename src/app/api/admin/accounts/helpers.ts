@@ -1,3 +1,4 @@
+import { getAppUrl } from '@/lib/app-url'
 import { NextResponse } from 'next/server'
 import { getCurrentUser, type CurrentUser } from '@/lib/supabase/server'
 import { getAdminClient } from '@/lib/supabase/admin'
@@ -83,7 +84,7 @@ export async function signOutAuthUsers(authUserIds: string[]) {
  * goes through the same SMTP setup and lands on the same web login page.
  */
 export async function resendAdminInvite(email: string): Promise<boolean> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+  const appUrl = getAppUrl()
   try {
     const { error } = await getAdminClient().auth.resetPasswordForEmail(email, {
       redirectTo: `${appUrl}/login?email=${encodeURIComponent(email)}`,

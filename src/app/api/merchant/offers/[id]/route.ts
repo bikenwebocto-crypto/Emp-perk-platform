@@ -1,3 +1,4 @@
+import { categoryLockError } from '@/lib/offers/category-lock'
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMerchantFromSession } from '@/lib/merchant-session'
@@ -28,15 +29,8 @@ import { createAuditLog } from '@/services/audit-log.service';
 
 const EDITABLE_STATUSES = ["DRAFT", "VALIDATION_FAILED", "AWAITING_APPROVAL"];
 const VALID_REDEMPTION_TYPES = ['ONLINE_CODE', 'BOOKING_LINK', 'IN_STORE_QR', 'VIRTUAL_CARD_AUTO_VERIFY'] as const;
-const DELETABLE_STATUSES = [
-  "DRAFT",
-  "VALIDATION_FAILED",
-  "REJECTED",
-  "EXPIRED",
-  "REPLACED",
-  "AWAITING_APPROVAL",
-  "ARCHIVED",
-];
+// Only drafts that were never submitted can be deleted; everything else is kept for history.
+const DELETABLE_STATUSES = ["DRAFT"];
 
 function unauthorized() {
   return NextResponse.json(
@@ -182,6 +176,8 @@ export async function PATCH(
     }
 
     const body = await request.json();
+    const categoryLock = categoryLockError(body.categoryId, merchant.categoryId);
+    if (categoryLock) return categoryLock;
 
     const repeatAfterHours = parseRepeatAfterHoursInput(body.repeatAfterHours);
     if (!repeatAfterHours.ok) {
@@ -472,7 +468,7 @@ export async function DELETE(
 
     if (!DELETABLE_STATUSES.includes(existing.status)) {
       return forbidden(
-        "Only draft, validation-failed, rejected, expired, replaced, awaiting-approval, or archived offers can be deleted",
+        "Only drafts that were never submitted can be deleted",
       );
     }
 

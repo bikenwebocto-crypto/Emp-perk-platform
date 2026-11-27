@@ -81,7 +81,7 @@ export function OfferStrengthIndicator({ discountValue, offerType, categoryId, m
       </div>
 
       <div className="text-xs text-muted-foreground pt-1 border-t">
-        <span>Category avg: ${categoryAvg.toFixed(2)} &middot; </span>
+        <span>Category avg: €{categoryAvg.toFixed(2)} &middot; </span>
         <span className={discountValue > categoryAvg ? 'text-green-600' : discountValue < categoryAvg ? 'text-red-600' : ''}>
           {comparison}
         </span>

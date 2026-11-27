@@ -17,6 +17,7 @@ import {
   ArrowLeft,
   Pencil,
   RefreshCw,
+  Copy,
   Trash2,
   Download,
   Printer,
@@ -254,11 +255,12 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
             )}
             {offer.status === 'LIVE' && (
               <>
-                <Link href={`/merchant/offers/${offer.id}/replace`}>
+                <Link href={`/merchant/offers/${offer.id}/duplicate`}>
                   <Button size="sm" variant="outline" className="gap-1.5">
-                    <RefreshCw className="h-4 w-4" /> Replace
+                    <Copy className="h-4 w-4" /> Duplicate
                   </Button>
                 </Link>
+                {!offer.isForever && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -267,6 +269,7 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
                 >
                   <Ban className="h-4 w-4" /> Revoke
                 </Button>
+                )}
               </>
             )}
             {DELETABLE_STATUSES.includes(offer.status) && (

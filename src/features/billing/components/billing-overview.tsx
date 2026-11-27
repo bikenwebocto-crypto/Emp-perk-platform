@@ -33,7 +33,7 @@ export function BillingOverview({ plan, usage }: BillingOverviewProps) {
         <CardContent>
           <p className="text-2xl font-bold">{plan.name}</p>
           <p className="text-sm text-muted-foreground">
-            ${plan.amount.toFixed(2)} / {plan.period}
+            €{plan.amount.toFixed(2)} / {plan.period}
           </p>
           <p className="mt-2 text-xs text-muted-foreground">
             Next billing: {new Date(plan.nextBilling).toLocaleDateString()}
@@ -57,7 +57,7 @@ export function BillingOverview({ plan, usage }: BillingOverviewProps) {
           </div>
           {usage.additionalCost > 0 && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Additional cost: ${usage.additionalCost.toFixed(2)}
+              Additional cost: €{usage.additionalCost.toFixed(2)}
             </p>
           )}
         </CardContent>

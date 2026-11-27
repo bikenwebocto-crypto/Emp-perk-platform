@@ -19,7 +19,7 @@ export async function GET() {
       billingEmail: billing?.billingEmail ?? company.email,
       billingCycle: billing?.billingCycle ?? 'monthly',
       pricePerEmployee: billing ? Number(billing.pricePerEmployee) : 5,
-      currency: billing?.currency ?? 'GBP',
+      currency: billing?.currency ?? 'EUR',
       nextBillingDate: billing?.nextBillingDate ?? null,
       renewalDate: billing?.renewalDate ?? null,
       billingStatus: billing?.billingStatus ?? 'ACTIVE',

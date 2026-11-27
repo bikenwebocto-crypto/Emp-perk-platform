@@ -43,7 +43,7 @@ export function renderCompanyAdminInvitationTemplate(
 </p>
 
 <p style="color: #6b7280; font-size: 14px; line-height: 1.5; margin: 0;">
-  Support: <a href="mailto:${process.env.SUPPORT_EMAIL || 'support@example.com'}" style="color: #16a34a;">${process.env.SUPPORT_EMAIL || 'support@example.com'}</a>
+  Support: <a href="mailto:${process.env.SUPPORT_EMAIL || 'hello@perksandmore.com'}" style="color: #16a34a;">${process.env.SUPPORT_EMAIL || 'hello@perksandmore.com'}</a>
 </p>`
 
   return renderTemplate('Welcome to the Platform', bodyHtml)

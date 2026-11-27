@@ -533,7 +533,7 @@ export function RedeemModal({
                 <div className="rounded-md border p-2 text-sm">
                   <p className="text-xs text-muted-foreground">Minimum spend</p>
                   <p className="font-medium">
-                    ${Number(o.minimumSpend).toFixed(2)}
+                    €{Number(o.minimumSpend).toFixed(2)}
                   </p>
                 </div>
               )}
@@ -541,7 +541,7 @@ export function RedeemModal({
                 <div className="rounded-md border p-2 text-sm">
                   <p className="text-xs text-muted-foreground">Max discount</p>
                   <p className="font-medium">
-                    ${Number(o.discountMax).toFixed(2)}
+                    €{Number(o.discountMax).toFixed(2)}
                   </p>
                 </div>
               )}

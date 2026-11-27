@@ -39,9 +39,9 @@ function formatValue(o: any): string {
   const cfg = (o?.pricing?.configuration as Record<string, any>) ?? {}
   const offerType = o?.offerType
   const v = Number(cfg.amount ?? cfg.percent ?? o?.discountValue ?? 0)
-  if (offerType === 'percentage' || offerType === 'PERCENTAGE') return `£{v}% OFF`
+  if (offerType === 'percentage' || offerType === 'PERCENTAGE') return `${Number(cfg.percent ?? o?.discountPercent ?? v)}% OFF`
   if (offerType === 'buy_x_get_y' || offerType === 'BUY_X_GET_Y') return 'BOGO'
-  return `£${v.toFixed(0)} OFF`
+  return `â‚¬${v.toFixed(2)} OFF`
 }
 
 export function LiveOffersCarousel({ offers, isLoading }: LiveOffersCarouselProps) {

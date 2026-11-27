@@ -60,6 +60,9 @@ export async function POST(
     if (offer.status !== "LIVE") {
       return badRequest("Only live offers can be revoked");
     }
+    if (offer.isForever) {
+      return badRequest("Evergreen offers can't be ended. Replace it with a new offer instead.");
+    }
     console.log(`Revoking offer ${id} for merchant ${merchant.id} by user ${user?.id ?? 'unknown'}`);
     await prisma.$transaction(async (tx) => {
       await tx.merchantOffer.update({

@@ -1,3 +1,4 @@
+import { getAppUrl } from '@/lib/app-url'
 import { prisma } from '@/lib/prisma'
 import { emailService } from '@/lib/email/email'
 import type { NotificationType } from '@/types/notification'
@@ -704,7 +705,7 @@ class NotificationServiceClass {
     notification: NotificationEvent,
     options: Pick<PublishNotificationOptions, 'emailDetail' | 'actionUrl' | 'actionLabel'> = {}
   ): string {
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/+$/, '')
+    const appUrl = getAppUrl()
     const actionHref = options.actionUrl
       ? /^https?:\/\//.test(options.actionUrl)
         ? options.actionUrl

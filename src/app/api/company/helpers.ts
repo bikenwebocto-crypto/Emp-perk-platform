@@ -7,7 +7,11 @@ import type { CompanyAdmin, Company } from '@prisma/client'
 export class CompanyInactiveError extends Error {
   code = 'COMPANY_INACTIVE'
   constructor(public companyStatus: string) {
-    super(`Your company's access is currently inactive.`)
+    super(
+      companyStatus === 'PENDING' || companyStatus === 'APPROVED_PENDING_PAYMENT'
+        ? `Your company has been approved. Access opens once payment is confirmed.`
+        : `Your company's access is currently inactive.`,
+    )
     this.name = 'CompanyInactiveError'
   }
 }
@@ -54,9 +58,7 @@ export async function getCompanyAdmin(options: GetCompanyAdminOptions = {}): Pro
   }
   if (
     !allowInactive &&
-    (company.status === 'CANCELLED' ||
-      company.status === 'PAUSED' ||
-      company.status === 'SUSPENDED')
+    company.status !== 'ACTIVE'
   ) {
     throw new CompanyInactiveError(company.status)
   }
@@ -97,7 +99,7 @@ export function handleApiError(error: unknown) {
         success: false,
         error: {
           code: 'COMPANY_INACTIVE',
-          message: `Your company's access is currently inactive.`,
+          message: error.message,
           companyStatus: error.companyStatus,
         },
       },

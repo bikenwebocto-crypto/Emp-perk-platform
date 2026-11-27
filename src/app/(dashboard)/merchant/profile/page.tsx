@@ -25,7 +25,6 @@ import {
 import type { SocialLinks } from '@/lib/social-links'
 import { PhoneInput } from '@/components/ui/phone-input'
 import { isValidPhone } from '@/lib/phone'
-import { useCategories } from '@/hooks/queries/use-categories'
 
 interface Category {
   id: string
@@ -133,7 +132,6 @@ export default function MerchantProfilePage() {
 
   const { pending: pendingRequest, recent: recentRequests } = useMerchantChangeRequests()
   const requested = pendingRequest?.requestedValues ?? {}
-  const { data: categories } = useCategories()
   // Business name / category are shown as text; this reveals their inputs.
   const [editingIdentity, setEditingIdentity] = useState(false)
 
@@ -260,7 +258,6 @@ export default function MerchantProfilePage() {
       'businessHours',
       'tags',
       'businessName',
-      'categoryId',
       'logoUrl',
     ]
 
@@ -283,7 +280,7 @@ export default function MerchantProfilePage() {
 
       if (JSON.stringify(a ?? null) !== JSON.stringify(b ?? null)) {
         payload[f] = b
-        if (['businessName', 'categoryId', 'logoUrl'].includes(f)) {
+        if (['businessName', 'logoUrl'].includes(f)) {
           changedSensitiveFields.push(f)
         }
       }
@@ -300,7 +297,6 @@ export default function MerchantProfilePage() {
       if (!changeReason || changeReason.trim().length === 0) {
         const fieldNames = changedSensitiveFields.map(f =>
           f === 'businessName' ? 'Business Name' :
-          f === 'categoryId' ? 'Category' :
           f === 'logoUrl' ? 'Logo' : f
         ).join(', ')
 
@@ -335,8 +331,7 @@ export default function MerchantProfilePage() {
   const isPendingApproval = profile.status === 'PENDING' || profile.status === 'PAUSED'
   const hasSensitiveDraft =
     !!pendingLogoFile ||
-    (values.businessName ?? '') !== (profile.businessName ?? '') ||
-    (values.categoryId ?? null) !== (profile.categoryId ?? null)
+    (values.businessName ?? '') !== (profile.businessName ?? '')
 
   return (
     <div className="space-y-6">
@@ -440,26 +435,14 @@ export default function MerchantProfilePage() {
               {errors.businessName && <p className="mt-1 text-xs text-destructive">{errors.businessName}</p>}
             </div>
 
-            {/* Category — needs admin approval */}
+            {/* Category: read-only for merchants; only Super Admin can change it */}
             <div>
               <p className={LABEL_MUTED}>Category</p>
-              {editingIdentity ? (
-                <select
-                  className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={values.categoryId ?? ''}
-                  onChange={(e) => setField('categoryId', e.target.value || null)}
-                >
-                  <option value="">— No category —</option>
-                  {(categories ?? []).map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              ) : (
-                <p className="mt-0.5 text-sm font-medium">{profile.category?.name ?? '—'}</p>
-              )}
-              {'categoryId' in requested && (
-                <RequestedHint text={pendingRequest?.requestedCategoryName ?? 'No category'} />
-              )}
+              <p className="mt-0.5 text-sm font-medium">{profile.category?.name ?? '—'}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                To change your category, contact{' '}
+                <a href="mailto:hello@perksandmore.com" className="underline">hello@perksandmore.com</a>
+              </p>
             </div>
           </div>
 

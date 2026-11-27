@@ -88,6 +88,17 @@ async function fetchRole(
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
+  // Behind the hosting proxy the original scheme is in x-forwarded-proto.
+  if (
+    process.env.NODE_ENV === "production" &&
+    request.headers.get("x-forwarded-proto") === "http"
+  ) {
+    const httpsUrl = request.nextUrl.clone()
+    httpsUrl.protocol = "https:"
+    httpsUrl.port = ""
+    return NextResponse.redirect(httpsUrl, 308)
+  }
+
   if (pathname === "/") {
     return NextResponse.redirect(new URL("/login", request.url))
   }
@@ -99,6 +110,17 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith(p),
   )
   const isApiRoute = pathname.startsWith("/api")
+
+  // Paid banners are hidden for merchants in V1: no page, no API.
+  if (pathname.startsWith("/api/merchant/banners")) {
+    return NextResponse.json(
+      { success: false, error: { code: "NOT_FOUND", message: "Not found" } },
+      { status: 404 },
+    )
+  }
+  if (pathname.startsWith("/merchant/banners")) {
+    return NextResponse.redirect(new URL("/merchant", request.url))
+  }
 
   if (!isProtected && !isApiRoute) {
     return NextResponse.next()

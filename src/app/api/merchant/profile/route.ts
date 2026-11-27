@@ -45,7 +45,7 @@ const IMMEDIATE_FIELDS = [
   'tags',
 ] as const
 
-const APPROVAL_FIELDS = ['businessName', 'categoryId', 'logoUrl'] as const
+const APPROVAL_FIELDS = ['businessName', 'logoUrl'] as const
 
 type ImmediateField = (typeof IMMEDIATE_FIELDS)[number]
 type ApprovalField = (typeof APPROVAL_FIELDS)[number]
@@ -101,7 +101,7 @@ export async function PATCH(request: NextRequest) {
 
     const body = await request.json()
     const {
-      businessName, categoryId, logoUrl, contactName, contactPhone,
+      businessName, logoUrl, contactName, contactPhone,
       description, website, coverImageUrl, socialLinks, businessHours, tags, changeReason,
     } = body
 

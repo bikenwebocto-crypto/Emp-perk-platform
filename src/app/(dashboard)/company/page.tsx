@@ -79,20 +79,23 @@ export default function CompanyDashboard() {
 
   if (isInactive) {
     const statusMsg = (dashError as any)?.message ?? 'Your company\'s access is currently inactive.'
+    const awaitingPayment = /payment is confirmed/i.test(statusMsg)
     return (
       <div className="space-y-6">
         <Alert
-          title="Account Inactive"
+          title={awaitingPayment ? 'Approved: awaiting payment' : 'Account Inactive'}
           description={statusMsg}
-          variant="error"
+          variant={awaitingPayment ? 'info' : 'error'}
           icon={Ban}
         />
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <Ban className="mb-3 h-10 w-10 text-muted-foreground/50" />
-            <h2 className="text-lg font-semibold">Access Restricted</h2>
+            <h2 className="text-lg font-semibold">{awaitingPayment ? 'Almost there' : 'Access Restricted'}</h2>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">
-              {statusMsg} Please contact your account manager or support team to restore access.
+              {awaitingPayment
+                ? statusMsg
+                : `${statusMsg} Please contact your account manager or support team to restore access.`}
             </p>
           </CardContent>
         </Card>

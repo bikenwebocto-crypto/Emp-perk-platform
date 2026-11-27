@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { showToast } from '@/hooks/use-toast'
 import { FeaturedLiveCarousel } from '@/components/merchant/FeaturedLiveCarousel'
-import { Plus, Pencil, ExternalLink, Gift, RefreshCw, Clock, History, Trash2, BadgeCheck, AlertCircle, Ban, Zap, Info } from 'lucide-react'
+import { Plus, Pencil, ExternalLink, Gift, RefreshCw, Copy, Clock, History, Trash2, BadgeCheck, AlertCircle, Ban, Zap, Info } from 'lucide-react'
 
 const ARCHIVED_INFO =
   'Offers you revoked, or offers taken down when an approved replacement went live.'
@@ -160,10 +160,11 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
           {o.status === 'LIVE' && !pendingReplacement && (
             <>
               <Button variant="outline" size="sm" asChild className="h-8 border-purple-200 text-purple-700 hover:bg-purple-50 hover:text-purple-800 dark:border-purple-800 dark:text-purple-400 dark:hover:bg-purple-950/50">
-                <Link href={`/merchant/offers/${o.id}/replace`} onClick={(e) => e.stopPropagation()} title="Replace offer">
-                  <RefreshCw className="h-3.5 w-3.5" /> 
+                <Link href={`/merchant/offers/${o.id}/duplicate`} onClick={(e) => e.stopPropagation()} title="Duplicate offer">
+                  <Copy className="h-3.5 w-3.5" />
                 </Link>
               </Button>
+              {!o.isForever && (
               <Button
                 variant="outline"
                 size="sm"
@@ -171,15 +172,19 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
                 className="h-8 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/50"
                 title="Revoke offer"
               >
-                <Ban className="h-3.5 w-3.5" /> 
+                <Ban className="h-3.5 w-3.5" />
               </Button>
+              )}
             </>
           )}
           {o.status === 'LIVE' && pendingReplacement && (
             <>
-              <Button variant="outline" size="sm" disabled className="h-8 opacity-50 cursor-not-allowed">
-                <RefreshCw className="h-3.5 w-3.5" /> 
+              <Button variant="outline" size="sm" asChild className="h-8 border-purple-200 text-purple-700 hover:bg-purple-50 hover:text-purple-800 dark:border-purple-800 dark:text-purple-400 dark:hover:bg-purple-950/50">
+                <Link href={`/merchant/offers/${o.id}/duplicate`} onClick={(e) => e.stopPropagation()} title="Duplicate offer">
+                  <Copy className="h-3.5 w-3.5" />
+                </Link>
               </Button>
+              {!o.isForever && (
               <Button
                 variant="outline"
                 size="sm"
@@ -187,11 +192,12 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
                 className="h-8 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/50"
                 title="Revoke offer"
               >
-                <Ban className="h-3.5 w-3.5" /> 
+                <Ban className="h-3.5 w-3.5" />
               </Button>
+              )}
             </>
           )}
-          {['DRAFT', 'VALIDATION_FAILED', 'REJECTED', 'EXPIRED', 'REPLACED', 'AWAITING_APPROVAL', 'ARCHIVED'].includes(o.status) && (
+          {['DRAFT'].includes(o.status) && (
             <Button
               variant="outline"
               size="sm"

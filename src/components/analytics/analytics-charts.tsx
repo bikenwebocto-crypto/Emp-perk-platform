@@ -193,7 +193,7 @@ export function DailyTrendTooltip({ active, payload }: any) {
         Redemptions: <span className="font-semibold text-foreground">{d.redemptions}</span>
       </p>
       <p className="text-muted-foreground">
-        Savings: <span className="font-semibold text-foreground">${Number(d.savings ?? 0).toFixed(2)}</span>
+        Savings: <span className="font-semibold text-foreground">€{Number(d.savings ?? 0).toFixed(2)}</span>
       </p>
     </div>
   )

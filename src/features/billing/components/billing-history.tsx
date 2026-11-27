@@ -42,7 +42,7 @@ export function BillingHistory({ invoices, isLoading }: BillingHistoryProps) {
           {invoices.map((inv) => (
             <tr key={inv.id} className="border-b transition-colors last:border-0 hover:bg-muted/50">
               <td className="py-3 font-mono text-xs">{inv.id.slice(0, 8)}</td>
-              <td className="py-3 font-medium">${inv.amount.toFixed(2)}</td>
+              <td className="py-3 font-medium">€{inv.amount.toFixed(2)}</td>
               <td className="py-3"><StatusBadge status={inv.status} /></td>
               <td className="py-3 text-muted-foreground">{inv.period}</td>
               <td className="py-3 text-muted-foreground">

@@ -1,3 +1,4 @@
+import { getAppUrl } from '@/lib/app-url'
 import { emailService } from '@/lib/email/email'
 import { renderTemplate } from '@/emails/renderer'
 import { OTP_TTL_MS } from './constants'
@@ -16,7 +17,7 @@ function esc(value: string): string {
 }
 
 function appUrl(path: string): string {
-  return `${process.env.NEXT_PUBLIC_APP_URL ?? ''}${path}`
+  return `${getAppUrl()}${path}`
 }
 
 function layout(title: string, body: string): string {

@@ -1,3 +1,4 @@
+import { getAppUrl } from '@/lib/app-url'
 import { getAdminClient } from '@/lib/supabase/admin'
 
 // Employees log in through Supabase Auth, so every employee needs a Supabase
@@ -29,7 +30,7 @@ export async function inviteAuthUser(
   meta: { role: InviteRole; firstName?: string | null; companyName?: string | null; merchantName?: string | null },
 ): Promise<InviteResult> {
   const normalized = normalizeEmail(email)
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+  const appUrl = getAppUrl()
   try {
     const { data, error } = await getAdminClient().auth.admin.inviteUserByEmail(normalized, {
       redirectTo: `${appUrl}/login?email=${encodeURIComponent(normalized)}`,

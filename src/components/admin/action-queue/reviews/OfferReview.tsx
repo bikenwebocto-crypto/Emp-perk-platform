@@ -145,7 +145,7 @@ export function OfferReview({ entity }: ReviewComponentProps) {
             {pricingConfig.minimumSpend != null && Number(pricingConfig.minimumSpend) > 0 && (
               <div className="rounded-md bg-muted/30 p-2">
                 <p className="text-xs text-muted-foreground">Min. Spend</p>
-                <p className="font-medium">${Number(pricingConfig.minimumSpend).toFixed(2)}</p>
+                <p className="font-medium">€{Number(pricingConfig.minimumSpend).toFixed(2)}</p>
               </div>
             )}
             <div className="rounded-md bg-muted/30 p-2">
@@ -159,7 +159,7 @@ export function OfferReview({ entity }: ReviewComponentProps) {
             {pricingConfig.maximumDiscount != null && Number(pricingConfig.maximumDiscount) > 0 && (
               <div className="rounded-md bg-muted/30 p-2">
                 <p className="text-xs text-muted-foreground">Max Discount</p>
-                <p className="font-medium">${Number(pricingConfig.maximumDiscount).toFixed(2)}</p>
+                <p className="font-medium">€{Number(pricingConfig.maximumDiscount).toFixed(2)}</p>
               </div>
             )}
             <div className="rounded-md bg-muted/30 p-2">

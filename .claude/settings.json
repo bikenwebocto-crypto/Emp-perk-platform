@@ -36,7 +36,11 @@
       "PowerShell(npx vitest run src/services src/lib/offers 2>&1)",
       "PowerShell(npx vitest run tests/unit/offers/flat-discount-api.spec.ts 2>&1)",
       "PowerShell(git stash push -q -- src/services src/app/api src/lib/company-activation src/hooks src/lib/email-warnings.client.ts \"src/app/\\(dashboard\\)\")",
-      "PowerShell(git stash pop -q)"
+      "PowerShell(git stash pop -q)",
+      "Bash(git show *)",
+      "Bash(git fetch *)",
+      "Bash(git rev-list *)",
+      "Bash(grep -n -i \"\\\\$\\\\|€\" src/components/analytics/analytics-charts.tsx)"
     ]
   }
 }

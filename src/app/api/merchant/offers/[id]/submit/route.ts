@@ -1,3 +1,4 @@
+import { categoryLockError } from '@/lib/offers/category-lock'
 import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
@@ -169,7 +170,6 @@ function runQualityChecks(body: any): {
   if (flashError && !errors.endDate) errors.endDate = flashError;
   if (!body.termsAndConditions)
     errors.termsAndConditions = "Terms and conditions are required";
-  if (!body.categoryId) errors.categoryId = "Category is required";
   if (body.imageUrls && Array.isArray(body.imageUrls)) {
     for (const url of body.imageUrls) {
       if (typeof url === "string" && url.trim()) {
@@ -432,6 +432,8 @@ export async function POST(
     }
 
     const body = await request.json();
+    const categoryLock = categoryLockError(body.categoryId, categoryId);
+    if (categoryLock) return categoryLock;
     console.log("[SUBMIT OFFER] Body received:", Object.keys(body));
 
     const repeatAfterHours = parseRepeatAfterHoursInput(body.repeatAfterHours);

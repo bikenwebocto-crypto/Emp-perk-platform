@@ -1,3 +1,4 @@
+import { categoryLockError } from '@/lib/offers/category-lock'
 import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
@@ -155,9 +156,6 @@ function runQualityChecks(body: any): {
   if (flashError && !errors.endDate) errors.endDate = flashError;
   if (!body.termsAndConditions) {
     errors.termsAndConditions = "Terms and conditions are required";
-  }
-  if (!body.categoryId) {
-    errors.categoryId = "Category is required";
   }
   if (body.imageUrls && Array.isArray(body.imageUrls)) {
     for (const url of body.imageUrls) {
@@ -537,6 +535,14 @@ export async function POST(request: NextRequest) {
     if (!merchant) return unauthorized();
 
     const body = await request.json();
+    const categoryLock = categoryLockError(body.categoryId, merchant.categoryId);
+    if (categoryLock) return categoryLock;
+    if (!merchant.categoryId && !body.saveAsDraft) {
+      return NextResponse.json(
+        { success: false, error: { code: "MISSING_CATEGORY", message: "Your business category is not set. Please contact support." } },
+        { status: 400 },
+      );
+    }
     console.log("[MERCHANT OFFERS POST] Incoming body keys:", Object.keys(body));
     console.log("[MERCHANT OFFERS POST] redemptionType:", body.redemptionType);
     console.log("[MERCHANT OFFERS POST] saveAsDraft:", body.saveAsDraft);
@@ -818,7 +824,7 @@ export async function POST(request: NextRequest) {
       const created = await tx.merchantOffer.create({
         data: {
           merchantId: merchant.id,
-          categoryId: categoryId ?? null,
+          categoryId: merchant.categoryId ?? null,
           title,
           offerType,
           isFeatured: !!isFeatured,
@@ -1037,7 +1043,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const deletableStatuses = ['DRAFT', 'VALIDATION_FAILED', 'REJECTED', 'EXPIRED', 'REPLACED', 'AWAITING_APPROVAL', 'ARCHIVED'];
+    const deletableStatuses = ['DRAFT'];
 
     const offers = await prisma.merchantOffer.findMany({
       where: { id: { in: idList }, merchantId: merchant.id },

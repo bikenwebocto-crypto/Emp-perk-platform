@@ -238,8 +238,8 @@ function limitWords(text: string, max: number): string {
   return match ? match[0] : text;
 }
 
-/** REGULAR = neither Evergreen nor Flash: a normal dated offer. */
-type OfferKind = "EVERGREEN" | "FLASH" | "REGULAR";
+/** Every offer is either Evergreen (always-on) or Flash (short window). */
+type OfferKind = "EVERGREEN" | "FLASH";
 
 async function fetchHasLiveForever(merchantId?: string, isAdmin?: boolean): Promise<boolean> {
   const url =
@@ -341,7 +341,7 @@ export function OfferForm({
         type: "success",
         title: result.message ?? EVERGREEN_LIVE_MESSAGE,
       });
-      // Flash / Regular are now unlocked.
+      // Flash is now unlocked.
       queryClient.invalidateQueries({ queryKey: ["merchant-has-live-forever"] });
     } else {
       showToast({ type: "success", title: fallbackTitle });
@@ -605,19 +605,16 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     });
   };
 
-  const offerKind: OfferKind = form.isForever ? "EVERGREEN" : form.isFlash ? "FLASH" : "REGULAR";
-  // Flash/Regular need a live Evergreen. Keep an offer's existing kind selectable when editing.
+  // null only for legacy dated offers saved before Regular was removed: the merchant must pick one.
+  const offerKind: OfferKind | null = form.isForever ? "EVERGREEN" : form.isFlash ? "FLASH" : null;
+  // Flash needs a live Evergreen. Keep an offer's existing kind selectable when editing.
   const kindLocked = (kind: OfferKind) =>
     kind !== "EVERGREEN" && !hasLiveForever && !(isEdit && offerKind === kind);
 
   const selectOfferKind = (kind: OfferKind) => {
     if (kindLocked(kind)) return;
     if (kind === "EVERGREEN") toggleForever(true);
-    else if (kind === "FLASH") toggleFlash(true);
-    else {
-      if (form.isForever) toggleForever(false);
-      if (form.isFlash) toggleFlash(false);
-    }
+    else toggleFlash(true);
     setErrors((prev) => {
       const n = { ...prev };
       delete n.offerKind;
@@ -631,7 +628,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     if (autoKindApplied.current || isEdit || liveForeverLoading) return;
     autoKindApplied.current = true;
     if (form.isForever || form.isFlash) return;
-    // Regular is gone: no live Evergreen → Evergreen; otherwise → Flash.
+    // No live Evergreen → Evergreen; otherwise → Flash.
     if (!hasLiveForever) toggleForever(true);
     else toggleFlash(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -738,7 +735,8 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       errs.shortDescription = `Short description must be ${DESCRIPTION_MAX_WORDS} words or fewer`;
     if (countWords(form.description) > DESCRIPTION_MAX_WORDS)
       errs.description = `Description must be ${DESCRIPTION_MAX_WORDS} words or fewer`;
-    if (kindLocked(offerKind))
+    if (!offerKind) errs.offerKind = "Choose Evergreen or Flash";
+    else if (kindLocked(offerKind))
       errs.offerKind = EVERGREEN_REQUIRED_MESSAGE;
     if (!form.offerType) errs.offerType = "Offer type is required";
 
@@ -1364,16 +1362,12 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     <b>Flash</b> — up to {FLASH_MAX_DAYS} days, only while your
                     evergreen offer is live.
                   </li>
-                  <li>
-                    <b>Regular</b> — a normal dated offer. Needs a live
-                    evergreen offer.
-                  </li>
                 </ul>
                     }
                   >
                     What kind of offer are you creating?
                   </FieldLabel>
-            <div className="grid gap-3 sm:grid-cols-3 lg:max-w-3xl">
+            <div className="grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
               {(
                 [
                   { kind: "EVERGREEN", label: "Evergreen offer", hint: "Always-on, one per branch" },
@@ -1382,7 +1376,6 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                     label: "Flash offer",
                     hint: `Up to ${FLASH_MAX_DAYS} days, only while your evergreen is live`,
                   },
-                  { kind: "REGULAR", label: "Regular offer", hint: "Normal start and end dates" },
                 ] as const
               ).map(({ kind, label, hint }) => {
                 const locked = kindLocked(kind);
@@ -1413,11 +1406,11 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
             {!liveForeverLoading && !hasLiveForever && (
               <HintText>
                 You don&apos;t have a live evergreen offer yet. Create one first —
-                Flash and Regular offers unlock once it&apos;s live.
+                Flash offers unlock once it&apos;s live.
               </HintText>
             )}
             {!liveForeverLoading && hasLiveForever && !isEdit && !isReplacement && (
-              <HintText>You already have an evergreen offer. Use Replace to change it.</HintText>
+              <HintText>You already have a live evergreen offer. Submitting this one will ask to replace it.</HintText>
             )}
             <ErrorText message={errors.offerKind || errors.isForever} />
                 </div>

@@ -136,6 +136,12 @@ export async function POST(request: NextRequest) {
         { status: 404 },
       );
     }
+    if (company.status !== "ACTIVE") {
+      return NextResponse.json(
+        { success: false, error: { code: "COMPANY_INACTIVE", message: "Company is not active" } },
+        { status: 400 },
+      );
+    }
 
     const normalizedEmail = normalizeEmail(email);
 

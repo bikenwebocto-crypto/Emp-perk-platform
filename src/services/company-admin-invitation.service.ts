@@ -1,3 +1,4 @@
+import { getAppUrl } from '@/lib/app-url'
 import { prisma } from '@/lib/prisma'
 import { getAdminClient } from '@/lib/supabase/admin'
 import { emailService } from '@/lib/email/email'
@@ -83,7 +84,7 @@ export async function sendCompanyAdminInvitation(
  */
 async function createSetPasswordUrl(rawEmail: string): Promise<string> {
   const email = rawEmail.trim().toLowerCase()
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/+$/, '')
+  const appUrl = getAppUrl()
   const admin = getAdminClient()
 
   let type: 'invite' | 'recovery' = 'invite'

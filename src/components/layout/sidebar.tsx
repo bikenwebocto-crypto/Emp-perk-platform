@@ -76,7 +76,6 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Redemptions', href: '/merchant/redemptions', icon: ShoppingBag },
     // { label: 'Issues', href: '/merchant/issues', icon: FileText },
     { label: 'Tickets', href: '/merchant/complaints', icon: FileText },
-    { label: 'Banners', href: '/merchant/banners', icon: Palette },
     { label: 'Profile', href: '/merchant/profile', icon: Store },
     { label: 'Store Map', href: '/merchant/profile/store-map', icon: MapPin },
     { label: 'Notifications', href: '/merchant/notifications', icon: Bell },

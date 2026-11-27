@@ -118,7 +118,7 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
   ]
 
   // Build a readable address line from whatever fields are present
-  const addressParts = [merchant.addressLine1, merchant.city, merchant.country].filter(Boolean)
+  const addressParts = [merchant.addressLine1, merchant.addressLine2, merchant.city].filter(Boolean)
   const fullAddress = addressParts.length ? addressParts.join(', ') : null
 
   // Email lives on the linked account; fall back to the merchant row for older data.
@@ -165,7 +165,7 @@ const handleEditOffer = (offer: any) => {
         return `${o.discountPercent ?? 0}%`
       }
 
-      return `£${Number(o.discountValue ?? 0).toFixed(2)}`
+      return `€${Number(o.discountValue ?? 0).toFixed(2)}`
     },
   },
   {
