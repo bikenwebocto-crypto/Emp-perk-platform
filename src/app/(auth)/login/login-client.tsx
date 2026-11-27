@@ -12,6 +12,7 @@ import { requiresMfaForRole } from "@/lib/auth/mfa";
 import type { PublicBranding } from "@/features/admin/settings/login-branding/services/login-branding.service";
 import { getEmailError, getPasswordError } from "@/lib/validation/credentials";
 import { PasswordRules } from "@/components/shared/password-rules";
+import { SignupForm } from "./signup-form";
 
 interface LoginClientProps {
   branding: PublicBranding;
@@ -35,8 +36,10 @@ export function LoginClient({ branding }: LoginClientProps) {
   const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
   const searchParams = useSearchParams();
-  // ?mode=signup is ignored; it always opens sign-in.
-  const [view, setView] = useState<'sign_in' | 'update_password'>("sign_in");
+  // ?mode=signup opens the self sign-up (merchant / company) view.
+  const [view, setView] = useState<'sign_in' | 'sign_up' | 'update_password'>(
+    searchParams.get("mode") === "signup" ? "sign_up" : "sign_in",
+  );
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -68,9 +71,21 @@ export function LoginClient({ branding }: LoginClientProps) {
     if (signInError) setError(signInError.message);
   };
 
-  // Public sign-up is disabled: accounts are created by admins (invite links)
-  // or requested through the website.
-  const switchView = (next: "sign_in") => {
+  // Self sign-up creates an already-approved merchant / company account; we then
+  // sign in with the new credentials and the SIGNED_IN handler syncs + redirects.
+  const handleSignupCreated = async (newEmail: string, newPassword: string) => {
+    setEmail(newEmail);
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: newEmail,
+      password: newPassword,
+    });
+    if (signInError) {
+      setView("sign_in");
+      setNotice("Your account was created. Please sign in to continue.");
+    }
+  };
+
+  const switchView = (next: "sign_in" | "sign_up") => {
     setError(null);
     setNotice(null);
     setPassword("");
@@ -446,7 +461,21 @@ export function LoginClient({ branding }: LoginClientProps) {
             >
               Forgot password?
             </Button>
+            <p className="text-center text-sm text-gray-600">
+              Don&apos;t have an account?{" "}
+              <button
+                type="button"
+                className="font-medium text-blue-600 hover:underline"
+                disabled={submitting}
+                onClick={() => switchView("sign_up")}
+              >
+                Sign up
+              </button>
+            </p>
           </form>
+        )}
+        {mounted && view === "sign_up" && (
+          <SignupForm onCreated={handleSignupCreated} onBack={() => switchView("sign_in")} />
         )}
       </div>
     </LoginLayoutRenderer>

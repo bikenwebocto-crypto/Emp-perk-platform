@@ -41,6 +41,7 @@ const PUBLIC_API_ROUTES = [
   "/api/auth/sync-admin",
   "/api/auth/logout",
   "/api/auth/session",
+  "/api/auth/signup", // public self sign-up (merchant / company) from the login page
   "/api/firebase-config",
   "/api/webhooks",
   "/api/health",
@@ -101,21 +102,6 @@ function publicOrigin(request: NextRequest): string {
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   const publicUrl = (path: string) => new URL(path, publicOrigin(request))
-
-  // Only redirect when a proxy explicitly reports http. The NLB sends no
-  // x-forwarded-proto, so there this is a no-op: http→https belongs at the
-  // load balancer (TLS listener / port-80 redirect).
-  if (
-    process.env.NODE_ENV === "production" &&
-    request.headers.get("x-forwarded-proto") === "http"
-  ) {
-    const target = publicUrl(pathname + request.nextUrl.search)
-    target.protocol = "https:" // never redirect to http
-    if (target.href !== request.url) {
-      // never redirect to the same URL
-      return NextResponse.redirect(target, 308)
-    }
-  }
 
   if (pathname === "/") {
     return NextResponse.redirect(publicUrl("/login"))
