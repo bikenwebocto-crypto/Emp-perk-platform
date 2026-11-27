@@ -192,14 +192,12 @@ export const MFA_RECOVERY_PATHS = ['/admin/mfa-recovery']
 /** Admin pages intentionally unavailable across every admin role. */
 export const BLOCKED_ADMIN_PATHS = [
   '/admin/settings/login-branding',
-  '/admin/categories',
   '/admin/audit-logs',
 ] as const
 
 /** Admin APIs intentionally unavailable across every admin role. */
 export const BLOCKED_ADMIN_API_PATHS = [
   '/api/admin/settings/login-branding',
-  '/api/admin/categories',
 ] as const
 
 /** Can an admin with this AdminRole open this /admin path? Unknown role → false. */
