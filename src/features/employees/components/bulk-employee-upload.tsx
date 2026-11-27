@@ -36,8 +36,8 @@ const COLUMNS: { field: BulkRowField; label: string; className: string }[] = [
 
 const SAMPLE_CSV = [
   ['name', 'email', 'department', 'jobTitle', 'phone'],
-  ['Anna Kowalski', 'anna@example.com', 'HR', 'HR Manager', '+357 99 000000'],
-  ['John Smith', 'john@example.com', 'Engineering', 'Developer', ''],
+  ['Anna Kowalski', 'anna@yourcompany.com', 'HR', 'HR Manager', '+357 99 000000'],
+  ['John Smith', 'john@yourcompany.com', 'Engineering', 'Developer', ''],
 ]
 
 type Step = 'upload' | 'review' | 'result'

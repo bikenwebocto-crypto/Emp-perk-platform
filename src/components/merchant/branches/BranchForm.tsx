@@ -459,7 +459,7 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
                 type="email"
                 value={values.email}
                 onChange={(e) => setField('email', e.target.value)}
-                placeholder="branch@example.com"
+                placeholder="branch@yourbusiness.com"
               />
               {values.email && getEmailError(values.email) && (
                 <p className="mt-1 text-xs text-destructive">{getEmailError(values.email)}</p>

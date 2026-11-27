@@ -49,6 +49,8 @@ import {
   validateMerchantForeverOfferPolicy,
 } from '@/lib/offers/evergreen';
 import { notifyEvergreenBroadcast, notifyEvergreenMerchant } from '@/lib/offers/evergreen-notifications';
+import * as mail from '@/emails/templates/merchant';
+import { merchantEmailBase } from '@/lib/merchant-emails';
 import { ensureOfferQRCode } from '@/lib/offer-qr';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, collectEmailWarnings, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
@@ -160,9 +162,6 @@ function runQualityChecks(body: any): {
   }
   const flashError = validateFlashWindow(body.isFlash, body.startDate, body.endDate);
   if (flashError && !errors.endDate) errors.endDate = flashError;
-  if (!body.termsAndConditions) {
-    errors.termsAndConditions = "Terms and conditions are required";
-  }
   if (body.imageUrls && Array.isArray(body.imageUrls)) {
     for (const url of body.imageUrls) {
       if (typeof url === "string" && url.trim()) {
@@ -272,10 +271,17 @@ async function firePostCreateSideEffects(params: {
       await publishBusinessNotification({
         ...template,
         recipients: [{ role: 'merchant', id: merchantId }],
-        channels: channels('IN_APP'),
+        channels: channels('IN_APP', 'EMAIL'),
         referenceType: 'merchant_offer',
         referenceId: offerId,
         metadata: { validationErrors: qcErrors },
+        // Spec M-06 Offer failed checks.
+        email: mail.m06OfferFailedChecks({
+          ...(await merchantEmailBase(merchantId)),
+          offerId,
+          offerTitle: title,
+          failedRule: Object.values(qcErrors).join(' ') || 'The offer did not pass our automatic checks.',
+        }),
       });
       return;
     }
@@ -541,6 +547,12 @@ export async function POST(request: NextRequest) {
     if (!merchant) return unauthorized();
 
     const body = await request.json();
+    if (typeof body?.redemptionCode === "string") body.redemptionCode = body.redemptionCode.trim().toUpperCase(); // ME-15
+    if (body?.saveAsDraft) { // ME-10: drafts may be incomplete; fill schema-required columns
+      if (!String(body.title ?? "").trim()) body.title = "Untitled draft";
+      if (!body.offerType) body.offerType = "percentage";
+      if (!body.startDate) body.startDate = new Date().toISOString();
+    }
     const categoryLock = categoryLockError(body.categoryId, merchant.categoryId);
     if (categoryLock) return categoryLock;
     if (!merchant.categoryId && !body.saveAsDraft) {
@@ -612,7 +624,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (!title || !offerType || !startDate || (!endDate && !isForever)) {
+    if (!saveAsDraft && (!title || !offerType || !startDate || (!endDate && !isForever))) {
       return badRequest(
         "Missing required fields: title, offerType, startDate, endDate (except Evergreen offers)",
       );
@@ -1062,7 +1074,7 @@ export async function DELETE(request: NextRequest) {
       where: { id: { in: idList }, merchantId: merchant.id },
     });
 
-    const invalid = offers.filter((o) => !deletableStatuses.includes(o.status));
+    const invalid = offers.filter((o) => !deletableStatuses.includes(o.status) || o.liveAt);
     if (invalid.length > 0) {
       return NextResponse.json(
         {

@@ -27,6 +27,8 @@ interface NotificationListProps {
   markAllUrl?: string
   queryKey: string
   emptyMessage?: string
+  /** Show the internal priority badge on each item (hidden for merchants). */
+  showPriority?: boolean
 }
 
 const PRIORITY_STYLES: Record<string, string> = {
@@ -52,6 +54,7 @@ export function NotificationList({
   markAllUrl,
   queryKey,
   emptyMessage = 'No notifications',
+  showPriority = true,
 }: NotificationListProps) {
   const queryClient = useQueryClient()
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
@@ -162,13 +165,15 @@ export function NotificationList({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className="font-medium">{n.title}</p>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                        PRIORITY_STYLES[n.priority] ?? PRIORITY_STYLES.NORMAL
-                      }`}
-                    >
-                      {n.priority}
-                    </span>
+                    {showPriority && (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          PRIORITY_STYLES[n.priority] ?? PRIORITY_STYLES.NORMAL
+                        }`}
+                      >
+                        {n.priority}
+                      </span>
+                    )}
                   </div>
                   {n.body && (
                     <p className="mt-0.5 text-sm text-muted-foreground line-clamp-2">{n.body}</p>

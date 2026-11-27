@@ -37,7 +37,7 @@ type FieldConfig = {
 const DETAILS_FIELDS: FieldConfig[] = [
   { name: 'name', label: 'Company name', placeholder: 'Company name' },
   { name: 'phone', label: 'Phone', placeholder: 'Phone number', type: 'tel' },
-  { name: 'website', label: 'Website', placeholder: 'https://example.com', type: 'url' },
+  { name: 'website', label: 'Website', placeholder: 'https://www.yourcompany.com', type: 'url' },
   { name: 'industry', label: 'Industry', placeholder: 'e.g. Technology, Healthcare' },
   { name: 'taxId', label: 'Tax ID', placeholder: 'e.g. 12-3456789' },
   { name: 'approvedDomain', label: 'Approved domain', placeholder: 'e.g. company.com' },

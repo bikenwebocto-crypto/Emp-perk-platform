@@ -29,7 +29,18 @@ describe('leadToMerchantPrefill', () => {
       website: 'https://acme.test',
       categoryId: 'cat-food',
       city: 'Austin',
+      country: '',
     })
+  })
+
+  it('matches categories ignoring "&"/"and" and plural s, and maps instagram + country', () => {
+    const prefill = leadToMerchantPrefill(
+      { ...baseLead, industry: 'Food and Drinks', socialUrl: '@acme.coffee', hqCountry: 'Cyprus' },
+      categories,
+    )
+    expect(prefill.categoryId).toBe('cat-food')
+    expect(prefill.country).toBe('Cyprus')
+    expect(prefill.socialLinks).toEqual({ instagram: 'https://www.instagram.com/acme.coffee' })
   })
 
   it('leaves category empty when the industry matches more than one category', () => {
@@ -56,13 +67,18 @@ describe('leadToMerchantPrefill', () => {
 
 describe('leadToCompanyPrefill', () => {
   it('maps lead fields onto the company form and ignores companySize', () => {
-    const prefill = leadToCompanyPrefill({ ...baseLead, hqCountry: 'Canada', companySize: '51-200' } as any)
+    const prefill = leadToCompanyPrefill({
+      ...baseLead, hqCountry: 'Canada', companySize: '51-200', websiteUrl: 'https://acme.test', cities: ['Toronto'],
+    } as any)
     expect(prefill).toEqual({
       name: 'Acme Coffee',
       email: 'ada@acme.test',
       firstName: 'Ada',
       lastName: 'Lovelace',
       phone: '+14155550100',
+      website: 'https://acme.test',
+      industry: '',
+      city: 'Toronto',
       country: 'Canada',
     })
     expect(prefill).not.toHaveProperty('employeeCount')

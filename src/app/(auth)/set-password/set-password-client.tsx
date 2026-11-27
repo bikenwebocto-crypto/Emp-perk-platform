@@ -2,7 +2,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { clearClientSession } from "@/lib/auth/clear-client-session";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ export function SetPasswordClient({ branding }: SetPasswordClientProps) {
   const [checking, setChecking] = useState(true);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -83,14 +84,25 @@ export function SetPasswordClient({ branding }: SetPasswordClientProps) {
               <label htmlFor="set-password" className="text-sm font-medium">
                 Password
               </label>
-              <Input
-                id="set-password"
-                type="password"
-                autoComplete="new-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  id="set-password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  required
+                  className="pr-10"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               <PasswordRules password={password} />
             </div>
             <div className="space-y-1.5">
@@ -99,7 +111,7 @@ export function SetPasswordClient({ branding }: SetPasswordClientProps) {
               </label>
               <Input
                 id="set-password-confirm"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="new-password"
                 required
                 aria-invalid={mismatch}

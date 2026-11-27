@@ -147,10 +147,9 @@ export default function MerchantAnalyticsPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         <AnalyticsKPICard label="Total Views" value={totalViews.toLocaleString()} icon={Eye} iconBg="bg-blue-100 text-blue-600" accentColor="from-blue-500 to-indigo-600" loading={loading} />
         <AnalyticsKPICard label="Total Redemptions" value={summary?.totalRedemptions ?? 0} icon={ShoppingBag} iconBg="bg-emerald-100 text-emerald-600" accentColor="from-emerald-500 to-teal-600" loading={loading} />
-        <AnalyticsKPICard label="Campaign Expenditure" value={formatCurrency(summary?.totalSavings ?? 0)} icon={Banknote} iconBg="bg-amber-100 text-amber-600" accentColor="from-amber-500 to-orange-600" loading={loading} />
         <AnalyticsKPICard label="Active Offers" value={summary?.liveOffers ?? 0} icon={Gift} iconBg="bg-rose-100 text-rose-600" accentColor="from-rose-500 to-red-600" loading={loading} />
       </div>
 
@@ -177,7 +176,7 @@ export default function MerchantAnalyticsPage() {
                   { key: 'Redemptions', color: '#22c55e', name: 'Redemptions' },
                 ]}
                 height={300}
-                emptyMessage="Offer data will appear here once your campaigns get engagement"
+                emptyMessage="Offer data will appear here once your offers get engagement"
               />
             )}
           </CardContent>

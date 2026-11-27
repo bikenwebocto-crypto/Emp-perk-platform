@@ -42,6 +42,8 @@ export interface PublishNotificationOptions {
   /** Call-to-action link in the email. Relative paths use NEXT_PUBLIC_APP_URL. */
   actionUrl?: string
   actionLabel?: string
+  /** Full spec email (subject + HTML). Replaces the generic notification email. */
+  email?: { subject: string; html: string } | null
 }
 
 export interface EmailDeliveryFailure {
@@ -610,7 +612,7 @@ class NotificationServiceClass {
   private async dispatchEmails(
     notifications: NotificationEvent[],
     recipients: Recipient[],
-    options: Pick<PublishNotificationOptions, 'emailDetail' | 'actionUrl' | 'actionLabel'>
+    options: Pick<PublishNotificationOptions, 'emailDetail' | 'actionUrl' | 'actionLabel' | 'email'>
   ): Promise<{ attempted: number; sent: number; failed: EmailDeliveryFailure[] }> {
     // Deduplicate recipients
     const uniqueRecipients = [...new Map(recipients.map((r) => [`${r.role}:${r.id}`, r])).values()]
@@ -643,8 +645,8 @@ class NotificationServiceClass {
         // sendEmail returns { success: false } instead of throwing, so check it.
         const result = await emailService.sendEmail({
           to: email,
-          subject: notification.title,
-          html: this.buildEmailHtml(notification, options),
+          subject: options.email?.subject ?? notification.title,
+          html: options.email?.html ?? this.buildEmailHtml(notification, options),
         })
         if (!result.success) reason = result.error ??'Email provider rejected the message'
       } catch (err) {

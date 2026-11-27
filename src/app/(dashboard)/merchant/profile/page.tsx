@@ -462,7 +462,7 @@ export default function MerchantProfilePage() {
               <Input
                 value={values.website ?? ''}
                 onChange={(e) => setField('website', e.target.value)}
-                placeholder="example.com"
+                placeholder="www.yourbusiness.com"
               />
               <p className="mt-1.5 text-xs text-muted-foreground">We add https:// for you</p>
               {errors.website && <p className="mt-1 text-xs text-destructive">{errors.website}</p>}

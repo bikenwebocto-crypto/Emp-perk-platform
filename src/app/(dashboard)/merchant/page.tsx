@@ -244,7 +244,8 @@ function GettingStarted({
 }) {
   // 0 = branch, 1 = offer, 2 = review
   const current = step === 'branch' ? 0 : offer ? 2 : 1
-  const titles = ['Set up branches (In-store + Online)', 'Submit evergreen offer', 'Under review', 'Live in the app']
+  // First step reads "Profile done"; while a branch is still missing it says so instead.
+  const titles = [current === 0 ? 'Set up branches' : 'Profile done', 'Submit evergreen offer', 'Under review', 'Live']
   const steps = titles.map((title, i) => ({
     title,
     state: (i < current ? 'done' : i === current ? 'progress' : 'waiting') as StepState,
@@ -253,8 +254,8 @@ function GettingStarted({
     current === 0
       ? { title: 'Branch setup incomplete', text: branchMessage ?? 'Add an In-store branch and an Online branch, and make sure both are active.', href: '/merchant/branches', cta: 'Go to Branches' }
       : current === 1
-        ? { title: 'Create your evergreen offer', text: 'Configure an always-on offer and submit it for approval.', href: '/merchant/offers/create', cta: 'Create offer' }
-        : { title: 'Your evergreen offer is under review', text: 'You will appear in the app once it is approved. We will email you.', href: null, cta: null }
+        ? { title: 'Your profile is set up', text: 'Submit your evergreen offer to go live in the app.', href: '/merchant/offers/create', cta: 'Create offer' }
+        : { title: 'Your evergreen offer is under review', text: 'You will appear in the app once it is approved.', href: null, cta: null }
   const submitted = offer?.submittedAt
     ? new Date(offer.submittedAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : null
@@ -412,7 +413,7 @@ export default function MerchantDashboard() {
             ))}
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-3">
             <DashboardStatCard
               title="Live Offers"
               value={s.liveOffers.value}
@@ -434,26 +435,12 @@ export default function MerchantDashboard() {
               icon={ShoppingBag}
               accentClass="bg-emerald-600"
             />
-            <DashboardStatCard
-              title="Campaign Expenditure"
-              value={s.monthlySavings.value}
-              href="/merchant/analytics"
-              icon={Banknote}
-              accentClass="bg-amber-500"
-            />
-            <DashboardStatCard
-              title="Active Bookings"
-              value={s.activeBookings.value}
-              href="/merchant/banners"
-              icon={Sparkles}
-              accentClass="bg-rose-500"
-            />
           </div>
         )}
       </section>
 
       {/* Quick Actions */}
-      <section className="grid gap-6 lg:grid-cols-4">
+      <section className="grid gap-6 lg:grid-cols-3">
         <Link href="/merchant/offers" className="block lg:col-span-1">
           <Card className="group cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 h-full">
             <CardContent className="flex flex-col items-center justify-center gap-2 p-5 text-center h-full">
@@ -489,19 +476,6 @@ export default function MerchantDashboard() {
               <div>
                 <p className="text-sm font-medium">Redemptions</p>
                 <p className="text-xs text-muted-foreground">Track redemptions</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/merchant/banners" className="block lg:col-span-1">
-          <Card className="group cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 h-full">
-            <CardContent className="flex flex-col items-center justify-center gap-2 p-5 text-center h-full">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-100">
-                <Sparkles className="h-5 w-5 text-rose-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">Banner Bookings</p>
-                <p className="text-xs text-muted-foreground">Manage sponsored banners</p>
               </div>
             </CardContent>
           </Card>

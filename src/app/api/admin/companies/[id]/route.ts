@@ -8,6 +8,7 @@ import { createAuditLog, fromCurrentUser } from '@/services/audit-log.service';
 import { forbidden } from '@/lib/api-auth';
 import { getCompanyDetail } from '@/lib/company-detail/service';
 import { collectEmailWarnings, notifyCompanyStatusChange } from '@/services/business-notification.service';
+import { signOutAuthUsers } from "@/app/api/admin/accounts/helpers";
 
 export async function GET(
   _request: NextRequest,
@@ -148,6 +149,11 @@ export async function PATCH(
         }
       }
 
+      // ON-07: end employee sessions when the company is paused or suspended.
+      if (body.status === "PAUSED" || body.status === "SUSPENDED") {
+        const employees = await prisma.employee.findMany({ where: { companyId: id, accountId: { not: null } }, select: { accountId: true } });
+        await signOutAuthUsers(employees.map((e) => e.accountId!).filter(Boolean));
+      }
       emailWarnings.push(...collectEmailWarnings(await notifyCompanyStatusChange({
         companyId: id,
         companyName: company.name,

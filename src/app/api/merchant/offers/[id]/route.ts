@@ -182,6 +182,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
+    if (typeof body?.redemptionCode === "string") body.redemptionCode = body.redemptionCode.trim().toUpperCase(); // ME-15
     const categoryLock = categoryLockError(body.categoryId, merchant.categoryId);
     if (categoryLock) return categoryLock;
 
@@ -481,7 +482,7 @@ export async function DELETE(
     const existing = await getOwnOffer(merchant.id, id);
     if (!existing) return notFound();
 
-    if (!DELETABLE_STATUSES.includes(existing.status)) {
+    if (!DELETABLE_STATUSES.includes(existing.status) || existing.liveAt) {
       return forbidden(
         "Only drafts that were never submitted can be deleted",
       );

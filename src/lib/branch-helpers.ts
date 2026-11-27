@@ -309,6 +309,31 @@ export function formatOpeningHours(hours: any): string {
 export const PHYSICAL_BRANCH_TYPES = ['IN_STORE', 'BOTH'] as const satisfies readonly BranchType[]
 export const ONLINE_BRANCH_TYPES = ['ONLINE', 'BOTH'] as const satisfies readonly BranchType[]
 
+/**
+ * The one definition of a branch where an in-store offer can be redeemed:
+ * not deleted, physical (IN_STORE or BOTH), status ACTIVE and switched on.
+ * Used by offer validation, admin review and the mobile app so they always agree.
+ */
+export function activeInStoreBranchWhere(merchantId: string) {
+  return {
+    merchantId,
+    deletedAt: null,
+    branchType: { in: [...PHYSICAL_BRANCH_TYPES] },
+    status: 'ACTIVE' as const,
+    isActive: true,
+  }
+}
+
+/** Same rule for a branch row already loaded in memory. */
+export function isActiveInStoreBranch(b: {
+  branchType?: string | null
+  status?: string | null
+  isActive?: boolean | null
+  deletedAt?: Date | string | null
+}): boolean {
+  return isPhysicalBranch(b.branchType) && b.status === 'ACTIVE' && b.isActive === true && !b.deletedAt
+}
+
 /** Has a physical store (IN_STORE or BOTH). */
 export function isPhysicalBranch(type: BranchType | string | null | undefined): boolean {
   return type === 'IN_STORE' || type === 'BOTH'

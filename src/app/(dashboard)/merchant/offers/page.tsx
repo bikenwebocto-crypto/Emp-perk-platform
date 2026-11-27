@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { useMerchantOffers, useBulkDeleteMerchantOffers, useRevokeMerchantOffer } from '@/hooks/queries/use-merchant-offers'
+import { useMerchantOffers, useRevokeMerchantOffer } from '@/hooks/queries/use-merchant-offers'
 import { DataTable } from '@/components/shared/data-table'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { Button } from '@/components/ui/button'
@@ -9,16 +9,33 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { showToast } from '@/hooks/use-toast'
 import { FeaturedLiveCarousel } from '@/components/merchant/FeaturedLiveCarousel'
-import { Plus, Pencil, ExternalLink, Gift, RefreshCw, Copy, Clock, History, Trash2, BadgeCheck, AlertCircle, Ban, Zap, Info } from 'lucide-react'
+import { Plus, Pencil, ExternalLink, Gift, RefreshCw, Copy, Clock, History, BadgeCheck, AlertCircle, Ban, Zap, Info } from 'lucide-react'
 
 const ARCHIVED_INFO =
-  'Offers you revoked, or offers taken down when an approved replacement went live.'
+  'Flash offers you ended early, or offers taken down when an approved replacement went live.'
 
 const DRAFTS_INFO =
   'Offers appear here when you click "Save as Draft" while creating an offer, or when a submitted offer fails automatic validation. Open a draft to finish editing and submit it for approval.'
 import { Alert } from '@/components/ui/alert'
 import { offerStatusRank } from '@/lib/offers/status-order'
 import type { ColumnDef } from '@/types'
+import { branchSelectionFromConfig, OFFER_CHANNELS } from '@/lib/offers/channel'
+
+const FLASH_NOTE = 'Flash offers run only while your evergreen offer is live, up to 15 days.'
+
+function channelLabel(o: any): string {
+  if (!o.redemption) return '—'
+  const { channel } = branchSelectionFromConfig(o.redemption.redemptionType, o.redemption.configuration)
+  return OFFER_CHANNELS.find((c) => c.value === channel)?.label ?? '—'
+}
+
+function branchesLabel(o: any): string {
+  if (!o.redemption) return '—'
+  const sel = branchSelectionFromConfig(o.redemption.redemptionType, o.redemption.configuration)
+  if (sel.channel === 'ONLINE') return 'Online only'
+  if (sel.allBranches) return 'All branches'
+  return `${sel.branchIds.length} branch${sel.branchIds.length === 1 ? '' : 'es'}`
+}
 
 const statusLabels: Record<string, string> = {
   LIVE: 'Live',
@@ -54,13 +71,10 @@ export default function MerchantOffersPage() {
   const [tab, setTab] = useState<'all' | 'flash' | 'drafts' | 'history'>('all')
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const [revokeOpen, setRevokeOpen] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<any>(null)
   const [revokeReason, setRevokeReason] = useState('')
   const scope = tab === 'all' ? undefined : tab
-  const bulkDelete = useBulkDeleteMerchantOffers()
   const revokeOffer = useRevokeMerchantOffer()
 
   const { data, isLoading } = useMerchantOffers({
@@ -90,7 +104,11 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
       key: 'offerType',
       header: 'Type',
       render: (o: any) => {
-        const labels: Record<string, string> = { FLAT: 'Flat', PERCENTAGE: '% Off', BUY_X_GET_Y: 'BOGO' }
+        const labels: Record<string, string> = {
+          FLAT: 'Flat amount', flat_rate: 'Flat amount',
+          PERCENTAGE: 'Percentage', percentage: 'Percentage',
+          BUY_X_GET_Y: 'Buy X get Y', buy_x_get_y: 'Buy X get Y',
+        }
         return <span className="text-sm">{labels[o.offerType] ?? o.offerType}</span>
       },
     },
@@ -107,6 +125,16 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
         const suffix = o.offerType === 'percentage' || o.offerType === 'PERCENTAGE' ? '%' : ''
         return <span>{o.offerType === 'percentage' || o.offerType === 'PERCENTAGE' ? `${amount}%` : `€${amount.toFixed(2)}`}</span>
       },
+    },
+    {
+      key: 'channel',
+      header: 'Channel',
+      render: (o: any) => <span className="text-sm">{channelLabel(o)}</span>,
+    },
+    {
+      key: 'branches',
+      header: 'Branches',
+      render: (o: any) => <span className="text-sm">{branchesLabel(o)}</span>,
     },
     {
       key: 'status',
@@ -137,13 +165,13 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
       key: 'startDate',
       header: 'Start',
       sortValue: (o: any) => (o.startDate ? new Date(o.startDate).getTime() : undefined),
-      render: (o: any) => new Date(o.startDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+      render: (o: any) => new Date(o.startDate).toLocaleDateString('en-GB'),
     },
     {
       key: 'endDate',
       header: 'End',
       sortValue: (o: any) => (o.endDate ? new Date(o.endDate).getTime() : undefined),
-      render: (o: any) => !o.endDate ? 'No end date' : new Date(o.endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+      render: (o: any) => !o.endDate ? 'No end date' : new Date(o.endDate).toLocaleDateString('en-GB'),
     },
     {
       key: 'actions',
@@ -164,15 +192,15 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
                   <Copy className="h-3.5 w-3.5" />
                 </Link>
               </Button>
-              {!o.isForever && (
+              {o.isFlash && !o.isForever && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={(e) => { e.stopPropagation(); setSelectedIds(new Set([o.id])); setRevokeTarget(o); setRevokeOpen(true) }}
+                onClick={(e) => { e.stopPropagation(); setRevokeTarget(o); setRevokeOpen(true) }}
                 className="h-8 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/50"
-                title="Revoke offer"
+                title="End early"
               >
-                <Ban className="h-3.5 w-3.5" />
+                <Ban className="h-3.5 w-3.5" /> End early
               </Button>
               )}
             </>
@@ -184,29 +212,18 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
                   <Copy className="h-3.5 w-3.5" />
                 </Link>
               </Button>
-              {!o.isForever && (
+              {o.isFlash && !o.isForever && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={(e) => { e.stopPropagation(); setSelectedIds(new Set([o.id])); setRevokeTarget(o); setRevokeOpen(true) }}
+                onClick={(e) => { e.stopPropagation(); setRevokeTarget(o); setRevokeOpen(true) }}
                 className="h-8 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/50"
-                title="Revoke offer"
+                title="End early"
               >
-                <Ban className="h-3.5 w-3.5" />
+                <Ban className="h-3.5 w-3.5" /> End early
               </Button>
               )}
             </>
-          )}
-          {['DRAFT'].includes(o.status) && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={(e) => { e.stopPropagation(); setSelectedIds(new Set([o.id])); setDeleteOpen(true) }}
-              className="h-8 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/50"
-              title="Delete offer"
-            >
-              <Trash2 className="h-3.5 w-3.5" /> 
-            </Button>
           )}
           <Button variant="ghost" size="sm" asChild className="h-8">
             <Link href={`/merchant/offers/${o.id}`} onClick={(e) => e.stopPropagation()} title="View details">
@@ -333,6 +350,12 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
         </Link>
       </div>
 
+      {tab === 'flash' && (
+        <p className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          <Zap className="h-4 w-4 shrink-0" /> {FLASH_NOTE}
+        </p>
+      )}
+
       <div className="flex items-center gap-3">
         <input
           className="flex h-9 w-full max-w-sm rounded-md border border-input bg-transparent px-3 py-1 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
@@ -340,14 +363,6 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1) }}
         />
-        {selectedIds.size > 0 && (
-          <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1 text-sm">
-            <span className="text-muted-foreground">{selectedIds.size} selected</span>
-            <Button size="sm" variant="destructive" onClick={() => setDeleteOpen(true)}>
-              <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete Selected
-            </Button>
-          </div>
-        )}
       </div>
 
       <DataTable
@@ -355,9 +370,6 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
         data={offers}
         keyExtractor={(o: any) => o.id}
         isLoading={isLoading}
-        selectable
-        selectedIds={selectedIds}
-        onSelectChange={setSelectedIds}
         emptyMessage={
           tab === 'drafts' ? `No drafts. ${DRAFTS_INFO}`
             : tab === 'history' ? 'No offer history'
@@ -384,43 +396,22 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
       />
 
       <ConfirmDialog
-        open={deleteOpen}
-        title="Delete Offers"
-        message={`Are you sure you want to delete ${selectedIds.size} offer(s)? This will permanently remove them.`}
-        confirmLabel={`Delete ${selectedIds.size} Offer(s)`}
-        loading={bulkDelete.isPending}
-        onConfirm={async () => {
-          try {
-            await bulkDelete.mutateAsync(Array.from(selectedIds))
-            showToast({ type: 'success', title: `${selectedIds.size} offer(s) deleted` })
-            setSelectedIds(new Set())
-          } catch (err: any) {
-            showToast({ type: 'error', title: 'Failed', description: err.message })
-          } finally {
-            setDeleteOpen(false)
-          }
-        }}
-        onCancel={() => setDeleteOpen(false)}
-      />
-
-      <ConfirmDialog
         open={revokeOpen}
-        title="Revoke Offer"
-        message={`Are you sure you want to revoke "${revokeTarget?.title}"? This will deactivate the offer and it will no longer be visible to employees.`}
-        confirmLabel="Revoke"
+        title="End this flash offer now?"
+        message="Employees can no longer use it from now. This cannot be undone."
+        confirmLabel="End offer"
         loading={revokeOffer.isPending}
         onConfirm={async () => {
           if (!revokeReason.trim() || !revokeTarget) {
-            showToast({ type: 'error', title: 'Required', description: 'Please provide a reason for revocation' })
+            showToast({ type: 'error', title: 'Required', description: 'Please add a reason' })
             return
           }
           try {
             await revokeOffer.mutateAsync({ id: revokeTarget.id, reason: revokeReason.trim() })
-            showToast({ type: 'success', title: 'Offer revoked' })
+            showToast({ type: 'success', title: 'Flash offer ended' })
             setRevokeOpen(false)
             setRevokeTarget(null)
             setRevokeReason('')
-            setSelectedIds(new Set())
           } catch (err: any) {
             showToast({ type: 'error', title: 'Failed', description: err.message })
           }
@@ -428,10 +419,10 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
         onCancel={() => { setRevokeOpen(false); setRevokeTarget(null); setRevokeReason('') }}
       >
         <div className="space-y-2">
-          <label className="text-sm font-medium">Reason for revocation</label>
+          <label className="text-sm font-medium">Reason</label>
           <textarea
             className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            placeholder="Explain why you are revoking this offer..."
+            placeholder="Why are you ending this offer early?"
             value={revokeReason}
             onChange={(e) => setRevokeReason(e.target.value)}
           />

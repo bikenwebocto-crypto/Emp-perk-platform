@@ -61,7 +61,10 @@ export async function GET(request: NextRequest) {
       where.isActive = false
     }
 
-    if (type && type !== 'ALL') {
+    if (type === 'PHYSICAL') {
+      // In-store stores, including ones that also sell online (BOTH).
+      where.branchType = { in: [...PHYSICAL_BRANCH_TYPES] }
+    } else if (type && type !== 'ALL') {
       where.branchType = type as 'IN_STORE' | 'ONLINE' | 'BOTH'
     }
 

@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  Plus, Search, MapPin, Building2, Globe, Eye, Pencil, Power, PowerOff, Trash2, Star, AlertTriangle,
+  Plus, Search, MapPin, Building2, Globe, Pencil, Power, PowerOff, Trash2, Star, AlertTriangle,
 } from 'lucide-react'
 import { PageHeader } from '@/components/shared/page-header'
 import { Card, CardContent } from '@/components/ui/card'
@@ -125,9 +125,9 @@ const branches = useMemo(() => {
     if (!confirmDelete) return
     try {
       await deleteBranch.mutateAsync(confirmDelete.id)
-      showToast({ type: 'success', title: 'Branch closed' })
+      showToast({ type: 'success', title: 'Branch deleted' })
     } catch (e: any) {
-      showToast({ type: 'error', title: 'Failed to close branch', description: e.message })
+      showToast({ type: 'error', title: 'Failed to delete branch', description: e.message })
     }
     setConfirmDelete(null)
   }
@@ -258,7 +258,15 @@ const hasFilter =
                 const displayType = getBranchDisplayType(b)
                 const isActive = b.isActive && b.status === 'ACTIVE'
                 return (
-                  <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30">
+                  <tr
+                    key={b.id}
+                    className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                    onClick={(e) => {
+                      // Row opens the branch detail; buttons and links inside keep their own action.
+                      if ((e.target as HTMLElement).closest('button, a')) return
+                      router.push(`/merchant/branches/${b.id}`)
+                    }}
+                  >
                     <td className="px-4 py-3">
                       <div className="flex items-start gap-2">
                         <div className="mt-0.5">
@@ -308,19 +316,10 @@ const hasFilter =
                       </span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                      {new Date(b.createdAt).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })}
+                      {new Date(b.createdAt).toLocaleDateString('en-GB')}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center justify-end gap-1">
-                        <Link href={`/merchant/branches/${b.id}`}>
-                          <Button size="sm" variant="ghost" className="h-7 px-2" aria-label="View">
-                            <Eye className="h-3 w-3" />
-                          </Button>
-                        </Link>
                         <Link href={`/merchant/branches/${b.id}/edit`}>
                           <Button size="sm" variant="ghost" className="h-7 px-2" aria-label="Edit">
                             <Pencil className="h-3 w-3" />
@@ -369,7 +368,7 @@ const hasFilter =
       <ConfirmDialog
         open={!!confirmDeactivate}
         title="Deactivate branch?"
-        message={`${confirmDeactivate?.name} will be hidden from employees. You can re-activate it later.`}
+        message={`${confirmDeactivate?.name} will be hidden from employees. Offers that apply only to this branch will pause. You can re-activate it later.`}
         confirmLabel="Deactivate"
         loading={deactivating}
         onConfirm={() => confirmDeactivate && handleDeactivate(confirmDeactivate.id)}
@@ -387,9 +386,9 @@ const hasFilter =
       />
       <ConfirmDialog
         open={!!confirmDelete}
-        title="Close this branch?"
-        message={`${confirmDelete?.name} will be closed and archived. This action cannot be undone.${branches.length <= 1 ? ' You must keep at least one branch.' : ''}`}
-        confirmLabel="Close Branch"
+        title="Delete this branch?"
+        message={`${confirmDelete?.name} will be removed. This action cannot be undone. A branch with redemption history cannot be deleted: deactivate it instead.${branches.length <= 1 ? ' You must keep at least one branch.' : ''}`}
+        confirmLabel="Delete Branch"
         loading={deleteBranch.isPending}
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(null)}

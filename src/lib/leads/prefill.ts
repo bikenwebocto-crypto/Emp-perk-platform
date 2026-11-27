@@ -11,6 +11,7 @@ export interface PrefillLead {
   cities?: string[] | null
   websiteUrl?: string | null
   hqCountry?: string | null
+  socialUrl?: string | null
 }
 
 export interface MerchantPrefill {
@@ -21,6 +22,8 @@ export interface MerchantPrefill {
   website: string
   categoryId: string
   city: string
+  country: string
+  socialLinks?: { instagram: string }
 }
 
 export interface CompanyPrefill {
@@ -29,7 +32,30 @@ export interface CompanyPrefill {
   firstName: string
   lastName: string
   phone: string
+  website: string
+  industry: string
+  city: string
   country: string
+}
+
+/** "@handle" (how lead forms store Instagram) → profile URL; URLs pass through. */
+export function instagramUrl(value: string | null | undefined): string {
+  const v = value?.trim()
+  if (!v) return ''
+  if (/^https?:\/\//i.test(v)) return v
+  const handle = v.replace(/^@/, '')
+  return handle ? `https://www.instagram.com/${handle}` : ''
+}
+
+/** "Food & Drinks" and "food and drink" compare equal. */
+function normaliseCategoryName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .map((w) => (w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w))
+    .join(' ')
 }
 
 /** Lead types that can be converted into a company or a merchant. */
@@ -43,14 +69,17 @@ export function convertHref(lead: { id: string; type: LeadType }): string {
   return `${base}?leadId=${encodeURIComponent(lead.id)}`
 }
 
-/** Picks a category only when exactly one has the same name (case-insensitive). */
+/**
+ * Picks a category only when exactly one has the same name, ignoring case,
+ * punctuation, "&" vs "and" and plural "s". Never matches partially.
+ */
 export function matchCategoryId(
   industry: string | null | undefined,
   categories: { id: string; name: string }[],
 ): string {
-  const term = industry?.trim().toLowerCase()
+  const term = industry ? normaliseCategoryName(industry) : ''
   if (!term) return ''
-  const matches = categories.filter((c) => c.name.trim().toLowerCase() === term)
+  const matches = categories.filter((c) => normaliseCategoryName(c.name) === term)
   return matches.length === 1 ? matches[0]!.id : ''
 }
 
@@ -58,6 +87,7 @@ export function leadToMerchantPrefill(
   lead: PrefillLead,
   categories: { id: string; name: string }[],
 ): MerchantPrefill {
+  const instagram = instagramUrl(lead.socialUrl)
   return {
     businessName: lead.companyName?.trim() || `${lead.firstName} ${lead.lastName}`.trim(),
     contactName: `${lead.firstName} ${lead.lastName}`.trim(),
@@ -66,6 +96,8 @@ export function leadToMerchantPrefill(
     website: lead.websiteUrl ?? '',
     categoryId: matchCategoryId(lead.industry, categories),
     city: lead.cities?.[0] ?? '',
+    country: lead.hqCountry ?? '',
+    ...(instagram ? { socialLinks: { instagram } } : {}),
   }
 }
 
@@ -76,6 +108,9 @@ export function leadToCompanyPrefill(lead: PrefillLead): CompanyPrefill {
     firstName: lead.firstName,
     lastName: lead.lastName,
     phone: lead.phone ?? '',
+    website: lead.websiteUrl ?? '',
+    industry: lead.industry ?? '',
+    city: lead.cities?.[0] ?? '',
     country: lead.hqCountry ?? '',
   }
 }

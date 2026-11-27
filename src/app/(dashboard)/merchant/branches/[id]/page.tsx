@@ -156,10 +156,10 @@ export default function BranchDetailPage({ params }: { params: Promise<{ id: str
   async function handleDelete() {
     try {
       await deleteBranch.mutateAsync(id)
-      showToast({ type: 'success', title: 'Branch closed' })
+      showToast({ type: 'success', title: 'Branch deleted' })
       router.push('/merchant/branches')
     } catch (e: any) {
-      showToast({ type: 'error', title: 'Failed to close branch', description: e.message })
+      showToast({ type: 'error', title: 'Failed to delete branch', description: e.message })
     }
     setConfirmDelete(false)
   }
@@ -232,9 +232,9 @@ export default function BranchDetailPage({ params }: { params: Promise<{ id: str
             className="text-destructive"
             onClick={() => setConfirmDelete(true)}
             disabled={deleteBranch.isPending || totalBranches <= 1}
-            title={totalBranches <= 1 ? 'You must keep at least one branch' : 'Close this branch'}
+            title={totalBranches <= 1 ? 'You must keep at least one branch' : 'Delete this branch'}
           >
-            <Trash2 className="mr-1 h-4 w-4" />Close
+            <Trash2 className="mr-1 h-4 w-4" />Delete
           </Button>
         </div>
       </div>
@@ -468,7 +468,7 @@ export default function BranchDetailPage({ params }: { params: Promise<{ id: str
           className="mt-3"
           variant="warning"
           title="Branch limit"
-          description="You must keep at least one branch. Closing is disabled until you add another."
+          description="You must keep at least one branch. Delete is disabled until you add another."
           icon={AlertTriangle}
           onClose={() => setShowMinBranchesAlert(false)}
         />
@@ -476,9 +476,9 @@ export default function BranchDetailPage({ params }: { params: Promise<{ id: str
 
       <ConfirmDialog
         open={confirmDelete}
-        title="Close this branch?"
-        message={`${branch.name} will be closed and archived. You can re-open it from the inactive filter, but it will no longer appear in employee search.`}
-        confirmLabel="Close Branch"
+        title="Delete this branch?"
+        message={`${branch.name} will be removed and will no longer appear in employee search. A branch with redemption history cannot be deleted: deactivate it instead.`}
+        confirmLabel="Delete Branch"
         loading={deleteBranch.isPending}
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(false)}

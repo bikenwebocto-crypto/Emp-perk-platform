@@ -38,7 +38,9 @@ async function fetchArchived(params: URLSearchParams): Promise<ApiResponse> {
 }
 
 function formatDate(s: string | null) {
-  return s ? new Date(s).toLocaleDateString() : 'No end date'
+  if (!s) return 'No end date'
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-GB')
 }
 
 export default function ArchivedOffersPage() {

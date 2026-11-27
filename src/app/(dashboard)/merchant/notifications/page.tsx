@@ -10,6 +10,7 @@ export default function MerchantNotificationsPage() {
       markAllUrl="/api/merchant/notifications"
       queryKey="merchant-notifications"
       emptyMessage="No notifications yet"
+      showPriority={false}
     />
   )
 }

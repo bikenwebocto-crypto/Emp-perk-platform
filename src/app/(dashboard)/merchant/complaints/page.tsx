@@ -98,12 +98,12 @@ export default function MerchantComplaintsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Complaints"
-        description="Complaints filed against your offers"
+        title="Support"
+        description="Complaints about your offers and your support requests"
         actions={
           <Link href="/merchant/complaints/new">
             <Button>
-              <Plus className="mr-1 h-4 w-4" /> File Application Support
+              <Plus className="mr-1 h-4 w-4" /> New Ticket
             </Button>
           </Link>
         }
@@ -148,14 +148,13 @@ export default function MerchantComplaintsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/30 text-left text-xs font-medium uppercase text-muted-foreground">
-                  <SortableTh label="Employee" sortKey="employee" {...sortProps} className="px-4 py-3" />
+                  <SortableTh label="Date" sortKey="createdAt" {...sortProps} className="px-4 py-3" />
                   {/* <th className="px-4 py-3">Company</th> */}
                   <SortableTh label="Offer" sortKey="offer" {...sortProps} className="px-4 py-3" />
                   <SortableTh label="Type" sortKey="type" {...sortProps} className="px-4 py-3" />
                   <SortableTh label="Category" sortKey="category" {...sortProps} className="px-4 py-3" />
                   <SortableTh label="Status" sortKey="status" {...sortProps} className="px-4 py-3" />
                   <SortableTh label="Priority" sortKey="priority" {...sortProps} className="px-4 py-3" />
-                  <SortableTh label="Date" sortKey="createdAt" {...sortProps} className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
@@ -165,14 +164,14 @@ export default function MerchantComplaintsPage() {
                     className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
                     onClick={() => window.location.href = `/merchant/complaints/${c.id}`}
                   >
-                    <td className="px-4 py-3 font-medium">{c.employee?.firstName} {c.employee?.lastName}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{new Date(c.createdAt).toLocaleDateString('en-GB')}</td>
                     {/* <td className="px-4 py-3 text-muted-foreground">{c.company?.name ?? '—'}</td> */}
                     <td className="px-4 py-3">{c.offer?.title ?? '—'}</td>
                     <td className="px-4 py-3 capitalize">{c.complaintType?.replace(/_/g, ' ').toLowerCase()}</td>
                     <td className="px-4 py-3 capitalize">{c.category ? (CATEGORY_LABELS[c.category] ?? c.category) : '—'}</td>
                     <td className="px-4 py-3">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[c.status] ?? ''}`}>
-                        {c.status.replace(/_/g, ' ')}
+                        {c.status.replace(/_/g, ' ').toLowerCase().replace(/^./, (ch) => ch.toUpperCase())}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -180,7 +179,6 @@ export default function MerchantComplaintsPage() {
                         {c.priority}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(c.createdAt).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>

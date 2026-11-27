@@ -18,6 +18,7 @@ import {
   reserveCapacity,
 } from "@/lib/redemption-tracking";
 import { createAuditLog } from "@/services/audit-log.service";
+import { offerSupportsRedemptionType } from "@/lib/offers/channel";
 import {
   BUSINESS_NOTIFICATION_TEMPLATES,
   channels,
@@ -55,6 +56,7 @@ export async function POST(
         redemption: {
           select: {
             redemptionType: true,
+            redemptionTypes: true,
             configuration: true,
             maxRedemptions: true,
             currentRedemptions: true,
@@ -72,8 +74,8 @@ export async function POST(
       return badRequest("This offer is no longer available.");
     }
 
-    const redemptionType = offer.redemption?.redemptionType ?? null;
-    if (!redemptionType) {
+    const storedType = offer.redemption?.redemptionType ?? null;
+    if (!storedType) {
       return badRequest(
         "This offer does not have a redemption type configured",
       );
@@ -87,6 +89,15 @@ export async function POST(
     // ONLINE_CODE: the server generates a fresh unique per-redemption code
     // at redemption time (proof-of-redemption identifier). The employee no
     // longer needs to know or submit a pre-existing code.
+    // "Both" offers store ONLINE_CODE as their legacy single type. When the
+    // employee redeems at a branch, treat it as the in-store method instead.
+    const redemptionType =
+      branchId &&
+      storedType === "ONLINE_CODE" &&
+      offerSupportsRedemptionType(offer.redemption, "VIRTUAL_CARD_AUTO_VERIFY")
+        ? "VIRTUAL_CARD_AUTO_VERIFY"
+        : storedType;
+
     if (redemptionType === "BOOKING_LINK" && !redemptionConfig.bookingUrl) {
       return badRequest("This offer does not have a booking link");
     }
@@ -114,7 +125,8 @@ export async function POST(
     const savings = isPercentageOffer
       ? 0 // unresolved — awaits billAmount entry
       : discountAmount;
-    const status = redemptionType === "ONLINE_CODE" ? "PENDING" : "CONFIRMED";
+    // Online and "Both" offers are redeemed immediately; no merchant confirmation step.
+    const status = "CONFIRMED" as "PENDING" | "CONFIRMED";
 
     const method =
       redemptionType === "ONLINE_CODE"

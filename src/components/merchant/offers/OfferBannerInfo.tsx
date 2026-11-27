@@ -5,9 +5,8 @@ interface OfferBannerInfoProps {
   imageUrls: string[]
 }
 
-const RECOMMENDED_WIDTH = 1200
-const RECOMMENDED_HEIGHT = 600
-const RECOMMENDED_RATIO = 2 / 1
+const RECOMMENDED_WIDTH = 800
+const RECOMMENDED_HEIGHT = 450
 
 function getAspectRatioWarning(url: string): string | null {
   return null
@@ -26,23 +25,23 @@ export function OfferBannerInfo({ imageUrls }: OfferBannerInfoProps) {
 
         <dl className="space-y-2 text-sm">
           <div className="flex justify-between">
-            <dt className="text-muted-foreground">Recommended Size</dt>
+            <dt className="text-muted-foreground">Minimum Size</dt>
             <dd className="font-medium">{RECOMMENDED_WIDTH} &times; {RECOMMENDED_HEIGHT} px</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Aspect Ratio</dt>
-            <dd className="font-medium">2 : 1</dd>
+            <dd className="font-medium">16 : 9</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Max File Size</dt>
-            <dd className="font-medium">5 MB</dd>
+            <dd className="font-medium">2 MB</dd>
           </div>
         </dl>
 
         <div className="mt-3">
           <p className="mb-1 text-xs text-muted-foreground">Supported Formats</p>
           <div className="flex flex-wrap gap-1">
-            {['PNG', 'JPG', 'SVG', 'WEBP', 'GIF'].map((fmt) => (
+            {['JPG', 'PNG', 'WEBP'].map((fmt) => (
               <span
                 key={fmt}
                 className="rounded-md bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
@@ -59,7 +58,7 @@ export function OfferBannerInfo({ imageUrls }: OfferBannerInfoProps) {
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
             <p className="text-xs text-amber-800 dark:text-amber-300">
-              Recommended banner ratio is 2:1. Your image may be cropped in the mobile app.
+              Use a 16:9 image of at least 800 × 450 px. Other ratios may be cropped in the mobile app.
             </p>
           </div>
         </div>

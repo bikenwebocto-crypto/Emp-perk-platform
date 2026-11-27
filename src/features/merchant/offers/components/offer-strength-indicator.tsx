@@ -99,7 +99,7 @@ export function OfferStrengthIndicator({ discountValue, offerType, categoryId, m
           <div className="flex justify-between">
             <span>Savings per order:</span>
             <span className="font-medium text-foreground">
-              up to ${discountMax.toFixed(2)}
+              up to €{discountMax.toFixed(2)}
             </span>
           </div>
         </div>

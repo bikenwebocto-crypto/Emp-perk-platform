@@ -79,10 +79,12 @@ interface BranchOption {
 }
 
 async function fetchInStoreBranches(): Promise<BranchOption[]> {
-  const res = await fetch("/api/merchant/branches?type=IN_STORE");
+  // PHYSICAL = IN_STORE + BOTH (a store that also sells online is still an in-store branch).
+  const res = await fetch("/api/merchant/branches?type=PHYSICAL&status=active");
   const json = await res.json();
   if (!res.ok) throw new Error(json.error?.message ?? "Failed to load branches");
-  return json.data ?? [];
+  // Only branches an offer can actually be redeemed at (status ACTIVE as well as switched on).
+  return (json.data ?? []).filter((b: { status?: string }) => b.status === undefined || b.status === "ACTIVE");
 }
 
 async function fetchActiveBranchCounts(): Promise<ActiveBranchCounts> {
@@ -181,11 +183,9 @@ async function fetchMerchantProfileCategory(): Promise<MerchantCategory | null> 
 const ACCEPTED_TYPES = [
   "image/jpeg",
   "image/png",
-  "image/svg+xml",
   "image/webp",
-  "image/gif",
 ];
-const MAX_SIZE = 5 * 1024 * 1024;
+const MAX_SIZE = 2 * 1024 * 1024;
 
 const OFFER_TYPE_MAP: Record<string, string> = {
   FLAT: "flat_rate",
@@ -656,7 +656,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
   const usesBranches = channelUsesBranches(form.channel);
   const hasOnlineCode = channelHasOnlineCode(form.channel);
   const { data: branchOptions = [], isLoading: branchesLoading, isError: branchesError } = useQuery({
-    queryKey: ["merchant-branches", "IN_STORE"],
+    queryKey: ["merchant-branches", "PHYSICAL", "active"],
     queryFn: fetchInStoreBranches,
     // Admins act through other endpoints; they can still pick "All branches".
     enabled: !isAdmin,
@@ -798,9 +798,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       const flashError = validateFlashWindow(form.isFlash, form.startDate, form.endDate);
       if (flashError) errs.endDate = flashError;
     }
-    // Server rejects submissions without T&C, so require it client-side too.
-    if (!form.termsAndConditions.trim())
-      errs.termsAndConditions = "Terms and conditions are required";
+    // Terms and conditions are optional free text; empty means no terms are shown.
 
     if (form.isFlash && form.isForever)
       errs.isForever = "An offer cannot be both Flash and Forever";
@@ -1026,7 +1024,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
           ...body,
         });
         if (result.qualityCheck === "PASSED") {
-          showSubmitSuccess(result, "Offer submitted for review");
+          showSubmitSuccess(result, "Submitted for review. We will email you when it is approved.");
         } else {
           showToast({
             type: "error",
@@ -1059,7 +1057,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
             result,
             isReplacement
               ? "Replacement offer submitted for review"
-              : "Offer submitted for review",
+              : "Submitted for review. We will email you when it is approved.",
           );
         } else {
           showToast({
@@ -2191,7 +2189,6 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
               <div>
                 <FieldLabel
                   htmlFor="termsAndConditions"
-                  required
                   info="Rules employees must follow, e.g. “Valid Mon to Fri only”, “Not valid with other offers”. Write exclusions here."
                 >
                   Terms and conditions
@@ -2206,7 +2203,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
                 {errors.termsAndConditions ? (
                   <ErrorText message={errors.termsAndConditions} />
                 ) : (
-                  <HintText>Write exclusions here.</HintText>
+                  <HintText>Optional. Write specific conditions such as valid days and exclusions. Leave empty for no terms.</HintText>
                 )}
               </div>
 

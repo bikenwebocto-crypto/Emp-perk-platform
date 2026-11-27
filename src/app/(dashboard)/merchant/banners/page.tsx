@@ -1165,7 +1165,7 @@ export default function MerchantBannersPage() {
                           redirectUrl: e.target.value,
                         }))
                       }
-                      placeholder="https://example.com/landing"
+                      placeholder="https://www.yourbusiness.com/offer"
                     />
 
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -1676,7 +1676,7 @@ export default function MerchantBannersPage() {
                       redirectUrl: e.target.value,
                     }))
                   }
-                  placeholder="https://example.com/landing"
+                  placeholder="https://www.yourbusiness.com/offer"
                 />
 
                 <p className="mt-1 text-xs text-muted-foreground">

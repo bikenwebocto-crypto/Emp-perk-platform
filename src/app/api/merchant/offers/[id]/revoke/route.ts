@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { getMerchantFromSession } from '@/lib/merchant-session'
 import { createAuditLog } from '@/services/audit-log.service';
+import * as mail from '@/emails/templates/merchant';
+import { merchantEmailBase } from '@/lib/merchant-emails';
 import { channels, collectEmailWarnings, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service';
 
 function unauthorized() {
@@ -119,6 +121,12 @@ export async function POST(
       emailDetail: `Reason: ${reason.trim()}`,
       actionUrl: `/merchant/offers/${id}`,
       actionLabel: 'View offer',
+      // Spec M-29 Flash ended early.
+      email: mail.m29FlashEndedEarly({
+        ...(await merchantEmailBase(merchant.id)),
+        offerTitle: offer.title,
+        endedAt: new Date(),
+      }),
     });
     await publishBusinessToAdmins({
       type: 'OFFER_EXPIRED',

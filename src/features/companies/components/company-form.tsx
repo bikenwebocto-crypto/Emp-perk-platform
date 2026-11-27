@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useLead } from '@/hooks/queries/use-leads'
 import { leadToCompanyPrefill } from '@/lib/leads/prefill'
+import { LeadConvertBanner } from '@/features/leads/components/lead-convert-banner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PhoneInput } from '@/components/ui/phone-input'
@@ -69,7 +70,7 @@ export function CompanyForm() {
 
   // Converting a lead: /admin/companies/add?leadId=...
   const leadId = useSearchParams().get('leadId')
-  const { data: lead } = useLead(leadId)
+  const { data: lead, isLoading: leadLoading, error: leadError } = useLead(leadId)
   const prefilled = useRef(false)
   useEffect(() => {
     if (!lead || prefilled.current) return
@@ -224,6 +225,10 @@ export function CompanyForm() {
         </Button> */}
       </div>
 
+      {leadId && (
+        <LeadConvertBanner leadId={leadId} lead={lead} isLoading={leadLoading} error={leadError} expectedType="EMPLOYER" />
+      )}
+
       {showBulk && (
         <CSVUploadDropzone onUpload={handleBulkUpload} isUploading={createCompany.isPending} acceptedFormats=".csv" />
       )}
@@ -291,7 +296,7 @@ export function CompanyForm() {
               </div>
             </div>
           </CardContent>
-          <CardHeader><CardTitle className="text-lg">Address</CardTitle></CardHeader>
+          <CardHeader className="pt-0"><CardTitle className="text-lg">Address</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div>
               <label className="mb-1 block text-sm font-medium">Address Line 1</label>

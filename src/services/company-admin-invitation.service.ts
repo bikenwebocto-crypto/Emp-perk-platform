@@ -52,7 +52,7 @@ export async function sendCompanyAdminInvitation(
       email: params.email,
       loginUrl,
     })
-    const sent = await emailService.sendEmail({ to: params.email, subject: 'Welcome to the Platform', html })
+    const sent = await emailService.sendEmail({ to: params.email, subject: 'Welcome to Perks & More', html })
     result = sent.success
       ? { success: true }
       : { success: false, error: String(sent.error ?? 'Email provider rejected the message') }

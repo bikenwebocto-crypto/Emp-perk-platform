@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useLead } from '@/hooks/queries/use-leads'
 import { leadToMerchantPrefill } from '@/lib/leads/prefill'
+import { LeadConvertBanner } from '@/features/leads/components/lead-convert-banner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PhoneInput } from '@/components/ui/phone-input'
@@ -60,7 +61,7 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
   const [pendingLogoFile, setPendingLogoFile] = useState<DeferredFile | null>(null)
   const [pendingCoverFile, setPendingCoverFile] = useState<DeferredFile | null>(null)
   const [uploadingImages, setUploadingImages] = useState(false)
-  const { data: categories } = useCategories()
+  const { data: categories, isLoading: categoriesLoading } = useCategories()
 
   const [form, setForm] = useState<FormData>(initialData ?? {
     businessName: '',
@@ -83,14 +84,20 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
   // Converting a lead: /admin/merchants/add?leadId=... (create only)
   const searchLeadId = useSearchParams().get('leadId')
   const leadId = isEdit ? null : searchLeadId
-  const { data: lead } = useLead(leadId)
+  const { data: lead, isLoading: leadLoading, error: leadError } = useLead(leadId)
   const prefilled = useRef(false)
   useEffect(() => {
-    // Wait for categories so the industry → category match can run.
-    if (!lead || !categories || prefilled.current) return
+    // Wait for categories so the industry → category match can run, but do not
+    // block the prefill forever if the categories request fails.
+    if (!lead || categoriesLoading || prefilled.current) return
     prefilled.current = true
-    setForm((prev) => ({ ...prev, ...leadToMerchantPrefill(lead, categories) }))
-  }, [lead, categories])
+    const prefill = leadToMerchantPrefill(lead, categories ?? [])
+    setForm((prev) => ({
+      ...prev,
+      ...prefill,
+      socialLinks: { ...(prev.socialLinks ?? {}), ...(prefill.socialLinks ?? {}) },
+    }))
+  }, [lead, categories, categoriesLoading])
 
   const setField = (field: keyof FormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -175,14 +182,12 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
     if (!body.password) delete body.password
     if (isEdit) body.id = merchantId
     if (leadId) body.leadId = leadId
-    console.log('Mutation body:', body)
     const mutateFn = isEdit
       ? (data: typeof body) => updateMerchant.mutateAsync(data as any)
       : (data: typeof body) => createMerchant.mutateAsync(data as any)
 
     try {
       const res = await mutateFn(body)
-      console.log('Mutation response:', res)
       showToast({ type: 'success', title: res.message ?? (isEdit ? 'Merchant updated' : 'Merchant created') })
       router.push(leadId ? `/admin/leads/${leadId}` : '/admin/merchants')
     } catch (err: any) {
@@ -285,6 +290,10 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
         )}
       </div>
 
+      {leadId && (
+        <LeadConvertBanner leadId={leadId} lead={lead} isLoading={leadLoading} error={leadError} expectedType="MERCHANT" />
+      )}
+
       {showBulk && (
         <CSVUploadDropzone onUpload={handleBulkUpload} isUploading={createMerchant.isPending} acceptedFormats=".csv" />
       )}
@@ -304,11 +313,6 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
               {errors.email && <p className="mt-1 text-xs text-destructive">{errors.email}</p>}
             </div>
             <div>
-              {/* <label className="mb-1 block text-sm font-medium">Password <span className="text-destructive">*</span></label>
-              <Input type="password" className={inputClass('password')} value={form.password} onChange={(e) => setField('password', e.target.value)} placeholder="Min. 8 characters" />
-              {errors.password && <p className="mt-1 text-xs text-destructive">{errors.password}</p>} */}
-            </div>
-            <div>
               <label className="mb-1 block text-sm font-medium">Contact Name <span className="text-destructive">*</span></label>
               <Input className={inputClass('contactName')} value={form.contactName} onChange={(e) => setField('contactName', e.target.value)} placeholder="Full name" />
               {errors.contactName && <p className="mt-1 text-xs text-destructive">{errors.contactName}</p>}
@@ -323,13 +327,17 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
               <select
                 value={form.categoryId}
                 onChange={(e) => setField('categoryId', e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className={`flex h-9 w-full rounded-md border bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring ${errors.categoryId ? 'border-destructive' : 'border-input'}`}
               >
                 <option value="">Select category</option>
                 {(categories ?? []).map((category) => (
                   <option key={category.id} value={category.id}>{category.name}</option>
                 ))}
               </select>
+              {errors.categoryId && <p className="mt-1 text-xs text-destructive">{errors.categoryId}</p>}
+              {lead?.industry && !form.categoryId && (
+                <p className="mt-1 text-xs text-muted-foreground">Lead chose “{lead.industry}”; no exact category match, please pick one.</p>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Description</label>
@@ -342,7 +350,7 @@ export function MerchantForm({ merchantId, initialData }: MerchantFormProps) {
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Website</label>
-              <Input type="url" value={form.website} onChange={(e) => setField('website', e.target.value)} placeholder="https://example.com" />
+              <Input type="url" value={form.website} onChange={(e) => setField('website', e.target.value)} placeholder="https://www.yourbusiness.com" />
             </div>
             <div>
               <SocialLinksInput value={form.socialLinks} onChange={setSocialLink} />

@@ -15,6 +15,7 @@ import { generateRedemptionCode } from "@/lib/redemption-code";
 import { encodeMethod } from "@/lib/redemption-status";
 import { buildVirtualCard, VIRTUAL_CARD_AUTO_VERIFY } from "@/lib/virtual-card";
 import { createAuditLog } from "@/services/audit-log.service";
+import { offerSupportsRedemptionType } from "@/lib/offers/channel";
 import {
   BUSINESS_NOTIFICATION_TEMPLATES,
   channels,
@@ -68,6 +69,7 @@ export async function POST(request, { params }) {
         redemption: {
           select: {
             redemptionType: true,
+            redemptionTypes: true,
             configuration: true,
             maxRedemptions: true,
             daysOfWeek: true,
@@ -86,7 +88,7 @@ export async function POST(request, { params }) {
     }
 
     // ── 3. Correct redemption type ──────────────────────────────
-    if (offer.redemption?.redemptionType !== VIRTUAL_CARD_AUTO_VERIFY) {
+    if (!offerSupportsRedemptionType(offer.redemption, VIRTUAL_CARD_AUTO_VERIFY)) {
       return fail(
         "This offer does not support auto redemption.",
         "WRONG_REDEMPTION_TYPE",

@@ -1,4 +1,3 @@
-import { PHYSICAL_BRANCH_TYPES } from '@/lib/branch-helpers';
 import { notEndedBy } from '@/lib/offers/end-date';
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -6,8 +5,11 @@ import { createAuditLog } from "@/services/audit-log.service";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { getEntityKindFromReferenceType } from "@/lib/action-queue-types";
 import { ensureOfferQRCode } from "@/lib/offer-qr";
+import { resolveOfferBranches } from "@/lib/offers/channel.server";
 import { branchSelectionFromConfig, channelUsesBranches } from "@/lib/offers/channel";
 import { findLiveEvergreen, isEvergreenOffer, isEvergreenRange } from "@/lib/offers/evergreen";
+import * as mail from '@/emails/templates/merchant';
+import { merchantEmailBase } from '@/lib/merchant-emails';
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification, publishBusinessToAdmins, publishBusinessToCompanyAdmins, publishBusinessToAllEmployees, collectEmailWarnings } from '@/services/business-notification.service';
 
 /**
@@ -25,24 +27,15 @@ async function withRedemptionBranches<
   if (!channelUsesBranches(selection.channel)) {
     return { ...offer, redemptionChannel: selection.channel, redemptionBranches: [] };
   }
-  const redemptionBranches = await prisma.merchantBranch.findMany({
-    where: {
-      merchantId: offer.merchantId,
-      deletedAt: null,
-      branchType: { in: [...PHYSICAL_BRANCH_TYPES] },
-      ...(selection.allBranches ? { isActive: true } : { id: { in: selection.branchIds } }),
-    },
-    select: {
-      id: true,
-      name: true,
-      addressLine1: true,
-      addressLine2: true,
-      city: true,
-      postalCode: true,
-      phone: true,
-      isActive: true,
-    },
-    orderBy: { name: "asc" },
+  const redemptionBranches = await resolveOfferBranches(offer.merchantId, selection, {
+    id: true,
+    name: true,
+    addressLine1: true,
+    addressLine2: true,
+    city: true,
+    postalCode: true,
+    phone: true,
+    isActive: true,
   });
   return {
     ...offer,
@@ -776,6 +769,18 @@ async function performApprove(queueItem: any, adminId: string, now: Date, emailW
         });
         console.log(`[FIRST_OFFER_APPROVAL] ✅ Merchant updated to ACTIVE`);
 
+        const replaced = replacedEvergreen as { id: string; title: string } | null;
+
+        // Spec email: M-09 flash approved, M-11 evergreen replaced, M-07 first evergreen live.
+        const base = await merchantEmailBase(offer.merchantId);
+        const approvalEmail = offer.isFlash && offer.startDate && offer.endDate
+          ? mail.m09FlashApproved({ ...base, offerId: offer.id, offerTitle: offer.title, start: offer.startDate, end: offer.endDate })
+          : replaced
+            ? mail.m11ReplacementLive({ ...base, newOfferId: offer.id, newOfferTitle: offer.title, oldOfferTitle: replaced.title })
+            : isEvergreenOffer(offer)
+              ? mail.m07YouAreLive({ ...base, offerId: offer.id, offerTitle: offer.title, liveDate: now })
+              : null;
+
         emailWarnings.push(...collectEmailWarnings(await publishBusinessNotification({
           ...BUSINESS_NOTIFICATION_TEMPLATES.offerApproved(offer.title),
           recipients: [{ role: 'merchant', id: offer.merchantId }],
@@ -785,9 +790,9 @@ async function performApprove(queueItem: any, adminId: string, now: Date, emailW
           metadata: { approvedBy: adminId },
           actionUrl: `/merchant/offers/${offer.id}`,
           actionLabel: 'View offer',
+          email: approvalEmail,
         })));
 
-        const replaced = replacedEvergreen as { id: string; title: string } | null;
         if (replaced) {
           await publishBusinessNotification({
             type: 'OFFER_REPLACED',
@@ -927,6 +932,10 @@ async function performApprove(queueItem: any, adminId: string, now: Date, emailW
           `[OFFER_REPLACEMENT] ✅ Replacement offer activated: ${newOffer.id}`,
         );
 
+        // Spec email M-11 Replacement live.
+        const oldOffer = oldOfferId
+          ? await prisma.merchantOffer.findUnique({ where: { id: oldOfferId }, select: { title: true } })
+          : null;
         emailWarnings.push(...collectEmailWarnings(await publishBusinessNotification({
           ...BUSINESS_NOTIFICATION_TEMPLATES.offerApproved(newOffer.title),
           recipients: [{ role: 'merchant', id: newOffer.merchantId }],
@@ -936,6 +945,12 @@ async function performApprove(queueItem: any, adminId: string, now: Date, emailW
           metadata: { replacedOfferId: oldOfferId ?? null, approvedBy: adminId },
           actionUrl: `/merchant/offers/${newOffer.id}`,
           actionLabel: 'View offer',
+          email: mail.m11ReplacementLive({
+            ...(await merchantEmailBase(newOffer.merchantId)),
+            newOfferId: newOffer.id,
+            newOfferTitle: newOffer.title,
+            oldOfferTitle: oldOffer?.title ?? 'your previous offer',
+          }),
         })));
         await publishBusinessToAdmins({
           type: 'OFFER_REPLACED',
@@ -1159,6 +1174,11 @@ for (const field of validFields) {
     emailDetail: `Updated: ${Object.keys(updateData).join(', ')}`,
     actionUrl: '/merchant/profile',
     actionLabel: 'View change requests',
+    // Spec M-15 Profile update live.
+    email: mail.m15ProfileUpdateLive({
+      ...(await merchantEmailBase(merchant.id)),
+      changedFields: mail.plainFieldList(Object.keys(updateData)),
+    }),
   })));
 
   break;
@@ -1331,6 +1351,14 @@ async function performReject(
       emailDetail: `Reason: ${rejectionReason}`,
       actionUrl: '/merchant/profile',
       actionLabel: 'View change requests',
+      // Spec M-16 Profile update not approved.
+      email: mail.m16ProfileUpdateNotApproved({
+        ...(await merchantEmailBase(merchantId)),
+        changedFields: meta.branchName
+          ? `the location of branch "${meta.branchName}"`
+          : mail.plainFieldList(Object.keys((meta.changes as Record<string, unknown> | undefined) ?? {})) || 'your profile',
+        reason: rejectionReason || 'Not provided',
+      }),
     })));
   } else if (kind === "MERCHANT_OFFER") {
     const offerId =
@@ -1376,7 +1404,21 @@ async function performReject(
         });
       });
       if (offer) {
+        // Spec email: M-12 replacement, M-10 flash, M-08 evergreen not approved.
+        const base = await merchantEmailBase(offer.merchantId);
+        const reason = rejectionReason || 'Not provided';
+        const oldOffer = offer.replacesOfferId
+          ? await prisma.merchantOffer.findUnique({ where: { id: offer.replacesOfferId }, select: { title: true } })
+          : null;
+        const rejectionEmail = oldOffer
+          ? mail.m12ReplacementNotApproved({ ...base, newOfferId: offer.id, newOfferTitle: offer.title, oldOfferTitle: oldOffer.title, reason })
+          : offer.isFlash
+            ? mail.m10FlashNotApproved({ ...base, offerId: offer.id, offerTitle: offer.title, reason })
+            : isEvergreenOffer(offer)
+              ? mail.m08EvergreenNeedsChange({ ...base, offerId: offer.id, offerTitle: offer.title, reason })
+              : null;
         emailWarnings.push(...collectEmailWarnings(await publishBusinessNotification({
+          email: rejectionEmail,
           ...BUSINESS_NOTIFICATION_TEMPLATES.offerRejected(offer.title),
           recipients: [{ role: 'merchant', id: offer.merchantId }],
           channels: channels('IN_APP', 'PUSH', 'EMAIL'),

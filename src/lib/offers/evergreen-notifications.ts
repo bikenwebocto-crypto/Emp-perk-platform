@@ -5,6 +5,8 @@ import {
   publishBusinessToAllEmployees,
   type EmailOutcome,
 } from '@/services/business-notification.service';
+import * as mail from '@/emails/templates/merchant';
+import { merchantEmailBase } from '@/lib/merchant-emails';
 
 /**
  * Merchant notice for an Evergreen offer that went LIVE without admin approval
@@ -21,7 +23,14 @@ export async function notifyEvergreenMerchant(params: {
 }): Promise<EmailOutcome> {
   const { offerId, title, merchantId, replacedOfferId = null, replacedOfferTitle = null } = params;
 
+  // Spec M-11 Replacement live / M-07 You are live.
+  const base = await merchantEmailBase(merchantId);
+  const email = replacedOfferId
+    ? mail.m11ReplacementLive({ ...base, newOfferId: offerId, newOfferTitle: title, oldOfferTitle: replacedOfferTitle ?? 'your previous offer' })
+    : mail.m07YouAreLive({ ...base, offerId, offerTitle: title, liveDate: new Date() });
+
   return publishBusinessNotification({
+    email,
     type: 'OFFER_APPROVED',
     title: `Offer live: ${title}`,
     message: replacedOfferId
@@ -31,8 +40,7 @@ export async function notifyEvergreenMerchant(params: {
       : 'Your Evergreen offer is now live.',
     priority: 'HIGH',
     recipients: [{ role: 'merchant', id: merchantId }],
-    // Email only on the first go-live; a replacement keeps in-app + push.
-    channels: replacedOfferId ? channels('IN_APP', 'PUSH') : channels('IN_APP', 'PUSH', 'EMAIL'),
+    channels: channels('IN_APP', 'PUSH', 'EMAIL'),
     referenceType: 'merchant_offer',
     referenceId: offerId,
     metadata: { autoActivated: true, replacedOfferId },

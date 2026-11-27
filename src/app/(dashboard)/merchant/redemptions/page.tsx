@@ -463,117 +463,8 @@ export default function MerchantRedemptionsPage() {
         )}
       </div>
 
-      <div className={`grid gap-2 ${hasBranchData ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5 text-base">
-              Voucher Verification
-              <InfoTip label="How to use Voucher Verification">
-                <p className="mb-1 font-semibold">Use this at checkout to redeem an employee&apos;s voucher.</p>
-                <ol className="list-decimal space-y-0.5 pl-4">
-                  <li>Ask the employee for their redemption code.</li>
-                  <li>Enter it and click <strong>Verify Code</strong>. This checks that the code is yours, valid, not expired, not already used and within its limit.</li>
-                  <li>If it&apos;s valid, check the offer details, give the discount, then click <strong>Mark Redeemed</strong>.</li>
-                </ol>
-                <p className="mt-1">Marking it redeemed records the redemption, sends confirmation emails and stops the code from being used again.</p>
-              </InfoTip>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Redemption Code</label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  placeholder="Enter redemption code"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleVerify();
-                  }}
-                  disabled={isVerifying}
-                  className="sm:flex-1"
-                />
-                <Button
-                  onClick={handleVerify}
-                  disabled={isVerifying || !code.trim()}
-                >
-                  {isVerifying ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Verifying...
-                    </>
-                  ) : (
-                    "Verify Code"
-                  )}
-                </Button>
-              </div>
-              {validationError && (
-                <p className="text-xs text-destructive">{validationError}</p>
-              )}
-            </div>
-
-            {verificationError && (
-              <Alert
-                variant="error"
-                title={verificationError.title}
-                description={verificationError.message}
-              />
-            )}
-
-            {redeemSuccess && (
-              <Alert variant="success" title="Reward Redeemed Successfully">
-                <p className="mt-2 text-sm">
-                  The redemption has been completed and notification emails have been sent.
-                </p>
-              </Alert>
-            )}
-
-            {verificationResult && !redeemSuccess && (
-              <>
-                <Alert variant="success" title="✓ Code Valid">
-                  <div className="mt-2 space-y-1 text-sm">
-                    <p>
-                      <strong>Voucher:</strong>{" "}
-                      {verificationResult.voucher.title}
-                    </p>
-                    <p>
-                      <strong>Merchant:</strong>{" "}
-                      {verificationResult.voucher.merchant}
-                    </p>
-                    <p>
-                      <strong>Expires:</strong>{" "}
-                      {formatExpiryDate(verificationResult.voucher.expiresAt)}
-                    </p>
-                    <p>
-                      <strong>Status:</strong> Eligible for Redemption
-                    </p>
-                  </div>
-                </Alert>
-                <Button
-                  onClick={handleRedeem}
-                  disabled={isRedeeming}
-                  className="w-full sm:w-auto"
-                >
-                  {isRedeeming ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Marking...
-                    </>
-                  ) : (
-                    "Mark Redeemed"
-                  )}
-                </Button>
-                {redeemError && (
-                  <Alert
-                    variant="error"
-                    title={redeemError.title}
-                    description={redeemError.message}
-                  />
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
+      {/* No "Verify a code" panel in V1: the virtual card needs no merchant check. */}
+      <div className={`grid gap-2 ${hasBranchData ? "lg:grid-cols-2" : ""}`}>
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Top Performing Offers</CardTitle>
@@ -809,7 +700,7 @@ export default function MerchantRedemptionsPage() {
                           <span
                             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[r.status]}`}
                           >
-                            {r.status}
+                            {r.status.charAt(0) + r.status.slice(1).toLowerCase()}
                           </span>
                         </td>
                         <td className="p-2 text-right">

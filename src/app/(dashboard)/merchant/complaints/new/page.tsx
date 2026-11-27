@@ -60,7 +60,7 @@ export default function NewMerchantComplaintPage() {
       showToast({
         type: 'success',
         title: 'Ticket submitted',
-        description: 'Your support ticket has been created.',
+        description: 'Your report has been received. We will look into it within 1 business day.',
       })
 
       router.push('/merchant/complaints')
@@ -123,9 +123,9 @@ export default function NewMerchantComplaintPage() {
       <Dialog open onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Support Ticket</DialogTitle>
+            <DialogTitle>New Ticket</DialogTitle>
             <DialogDescription>
-              Application Support
+              Tell us what you need help with.
             </DialogDescription>
           </DialogHeader>
 
@@ -194,7 +194,7 @@ export default function NewMerchantComplaintPage() {
               onChange={setEvidenceFiles}
               disabled={createAppSupport.isPending || uploadingEvidence}
               label="Evidence Screenshots (optional)"
-              helperText="Screenshots are uploaded to S3 when you submit. Max 5."
+              helperText="Add up to 5 screenshots."
             />
 
           </div>

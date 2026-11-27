@@ -31,11 +31,9 @@ export function OfferImageUploader({
       acceptedTypes={[
         'image/jpeg',
         'image/png',
-        'image/svg+xml',
         'image/webp',
-        'image/gif',
       ]}
-      maxFileSize={5 * 1024 * 1024}
+      maxFileSize={2 * 1024 * 1024}
       maxFiles={8}
       placeholder="Drop images here or click to browse"
       allowMultiple

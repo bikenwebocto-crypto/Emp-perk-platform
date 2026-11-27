@@ -1,4 +1,4 @@
-import { isPhysicalBranch } from '@/lib/branch-helpers';
+import { isActiveInStoreBranch } from '@/lib/branch-helpers';
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { internalError, notFound } from '@/lib/employee-helpers'
@@ -114,8 +114,8 @@ export async function GET(
     const offerBranches = inStore
       ? offer.merchant.branches.filter(
           (b) =>
-            isPhysicalBranch(b.branchType) &&
-            (selection.allBranches ? b.isActive : chosenIds.has(b.id)),
+            isActiveInStoreBranch(b) &&
+            (selection.allBranches || chosenIds.has(b.id)),
         )
       : []
     const now = new Date()

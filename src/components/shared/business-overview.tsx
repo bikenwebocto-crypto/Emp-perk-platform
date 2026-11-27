@@ -298,7 +298,8 @@ export function BusinessOverview({
         </CardContent>
       </Card>
 
-      {/* ─── Group D: Banner Bookings ─── */}
+      {/* ─── Group D: Banner Bookings (admin only; hidden for merchants until Phase B) ─── */}
+      {scope === 'admin' && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -394,6 +395,7 @@ export function BusinessOverview({
             )}
         </CardContent>
       </Card>
+      )}
     </div>
   )
 }

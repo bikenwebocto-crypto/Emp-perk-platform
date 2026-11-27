@@ -1,4 +1,5 @@
-import { PHYSICAL_BRANCH_TYPES } from '@/lib/branch-helpers';
+import type { Prisma } from "@prisma/client";
+import { activeInStoreBranchWhere } from '@/lib/branch-helpers';
 import { notEndedBy } from '@/lib/offers/end-date';
 import { prisma } from "@/lib/prisma";
 import {
@@ -48,14 +49,7 @@ export async function getLiveOffersLinkedToBranch(
     }
     if (isLastActiveInStore === null) {
       const others = await prisma.merchantBranch.count({
-        where: {
-          merchantId,
-          branchType: { in: [...PHYSICAL_BRANCH_TYPES] },
-          status: "ACTIVE",
-          isActive: true,
-          deletedAt: null,
-          id: { not: branch.id },
-        },
+        where: { ...activeInStoreBranchWhere(merchantId), id: { not: branch.id } },
       });
       isLastActiveInStore = others === 0;
     }
@@ -94,18 +88,34 @@ export async function requiredBranchesError(
   return missingBranchesMessage(channel, await getActiveBranchCounts(merchantId));
 }
 
-/** In-store branches an offer can be attached to: not deleted and not closed. */
+/** In-store branches an offer can be attached to (same rule as mobile + admin review). */
 export async function getSelectableBranchIds(merchantId: string): Promise<string[]> {
   const branches = await prisma.merchantBranch.findMany({
-    where: {
-      merchantId,
-      branchType: { in: [...PHYSICAL_BRANCH_TYPES] },
-      deletedAt: null,
-      status: { not: "CLOSED" },
-    },
+    where: activeInStoreBranchWhere(merchantId),
     select: { id: true },
   });
   return branches.map((b) => b.id);
+}
+
+/**
+ * The branches an offer's in-store card can really be used at right now.
+ * "All branches" stores no ids, so it resolves to every active in-store branch.
+ * Online-only offers → [].
+ */
+export async function resolveOfferBranches<S extends Prisma.MerchantBranchSelect>(
+  merchantId: string,
+  selection: BranchSelection,
+  select: S,
+) {
+  if (!channelUsesBranches(selection.channel)) return [];
+  return prisma.merchantBranch.findMany({
+    where: {
+      ...activeInStoreBranchWhere(merchantId),
+      ...(selection.allBranches ? {} : { id: { in: selection.branchIds } }),
+    },
+    select,
+    orderBy: { name: "asc" },
+  });
 }
 
 /**

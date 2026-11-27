@@ -36,6 +36,8 @@ import {
   validateMerchantForeverOfferPolicy,
 } from "@/lib/offers/evergreen";
 import { notifyEvergreenBroadcast, notifyEvergreenMerchant } from "@/lib/offers/evergreen-notifications";
+import * as mail from "@/emails/templates/merchant";
+import { merchantEmailBase } from "@/lib/merchant-emails";
 import { ensureOfferQRCode } from "@/lib/offer-qr";
 import {
   BUSINESS_NOTIFICATION_TEMPLATES,
@@ -173,8 +175,6 @@ function runQualityChecks(body: any): {
   }
   const flashError = validateFlashWindow(body.isFlash, body.startDate, body.endDate);
   if (flashError && !errors.endDate) errors.endDate = flashError;
-  if (!body.termsAndConditions)
-    errors.termsAndConditions = "Terms and conditions are required";
   if (body.imageUrls && Array.isArray(body.imageUrls)) {
     for (const url of body.imageUrls) {
       if (typeof url === "string" && url.trim()) {
@@ -264,10 +264,17 @@ async function firePostSubmitSideEffects(params: {
       await publishBusinessNotification({
         ...template,
         recipients: [{ role: "merchant", id: merchantId }],
-        channels: channels("IN_APP"),
+        channels: channels("IN_APP", "EMAIL"),
         referenceType: "merchant_offer",
         referenceId: finalOfferId,
         metadata: { validationErrors: qcErrors },
+        // Spec M-06 Offer failed checks.
+        email: mail.m06OfferFailedChecks({
+          ...(await merchantEmailBase(merchantId)),
+          offerId: finalOfferId,
+          offerTitle: finalOfferTitle,
+          failedRule: Object.values(qcErrors).join(' ') || 'The offer did not pass our automatic checks.',
+        }),
       });
       return;
     }
@@ -437,6 +444,7 @@ export async function POST(
     }
 
     const body = await request.json();
+    if (typeof body?.redemptionCode === "string") body.redemptionCode = body.redemptionCode.trim().toUpperCase(); // ME-15
     const categoryLock = categoryLockError(body.categoryId, categoryId);
     if (categoryLock) return categoryLock;
     console.log("[SUBMIT OFFER] Body received:", Object.keys(body));

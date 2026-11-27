@@ -1,8 +1,9 @@
 'use client'
 import { use, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { useMerchantOfferById, useDeleteMerchantOffer, useRevokeMerchantOffer } from '@/hooks/queries/use-merchant-offers'
+import { useMerchantOfferById, useRevokeMerchantOffer } from '@/hooks/queries/use-merchant-offers'
+import { branchSelectionFromConfig, OFFER_CHANNELS } from '@/lib/offers/channel'
+import { OFFER_FREQUENCY_OPTIONS, repeatHoursToFrequency } from '@/lib/offers/frequency'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { OfferStatusTimeline } from '@/components/shared/offer-status-timeline'
 import { OfferPreviewSection } from '@/components/merchant/offers/OfferPreviewSection'
@@ -18,7 +19,6 @@ import {
   Pencil,
   RefreshCw,
   Copy,
-  Trash2,
   Download,
   Printer,
   QrCode,
@@ -52,7 +52,6 @@ import {
   Receipt,
 } from 'lucide-react'
 
-const DELETABLE_STATUSES = ['DRAFT', 'VALIDATION_FAILED', 'REJECTED', 'EXPIRED', 'REPLACED', 'AWAITING_APPROVAL', 'CHANGES_REQUESTED', 'ARCHIVED']
 const EDITABLE_STATUSES = ['DRAFT', 'VALIDATION_FAILED', 'CHANGES_REQUESTED', 'AWAITING_APPROVAL']
 
 const statusLabels: Record<string, string> = {
@@ -82,15 +81,13 @@ const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function formatDate(date: string | Date | null) {
   if (!date) return '-'
-  return new Date(date).toLocaleDateString('en-US', {
-    year: 'numeric', month: 'long', day: 'numeric',
-  })
+  return new Date(date).toLocaleDateString('en-GB')
 }
 
 function formatDateTime(date: string | Date) {
   if (!date) return '-'
-  return new Date(date).toLocaleDateString('en-US', {
-    year: 'numeric', month: 'long', day: 'numeric',
+  return new Date(date).toLocaleString('en-GB', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   })
 }
@@ -113,10 +110,7 @@ function formatRelativeTime(date: string | Date) {
 export default function OfferDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const { data, isLoading, error } = useMerchantOfferById(id)
-  const deleteOffer = useDeleteMerchantOffer()
   const revokeOffer = useRevokeMerchantOffer()
-  const router = useRouter()
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const [revokeOpen, setRevokeOpen] = useState(false)
   const [revokeReason, setRevokeReason] = useState('')
 
@@ -158,7 +152,25 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
   const percent = pricingConfig.percent as number | undefined
   const minimumSpend = pricingConfig.minimumSpend as number | undefined
   const maximumDiscount = pricingConfig.maximumDiscount as number | undefined
-  const redemptionCode = redemptionConfig.code as string | undefined
+  const selection = branchSelectionFromConfig(offer.redemption?.redemptionType, offer.redemption?.configuration)
+  const channelLabel = offer.redemption ? OFFER_CHANNELS.find((c) => c.value === selection.channel)?.label : undefined
+  const branchesLabel = !offer.redemption
+    ? undefined
+    : selection.channel === 'ONLINE'
+      ? 'Online only'
+      : selection.allBranches
+        ? 'All branches'
+        : `${selection.branchIds.length} branch${selection.branchIds.length === 1 ? '' : 'es'}`
+  const frequency = repeatHoursToFrequency(
+    (offer as { repeatAfterHours?: number | string | null }).repeatAfterHours ??
+      (redemptionConfig.repeatAfterHours as number | string | undefined),
+  )
+  const frequencyOption = OFFER_FREQUENCY_OPTIONS.find((o) => o.value === frequency)
+  const frequencyLabel = frequencyOption
+    ? frequencyOption.value === 'UNLIMITED' ? 'Unlimited' : `${frequencyOption.label} per employee`
+    : undefined
+  // In-store (virtual card) offers have no redemption code to show.
+  const redemptionCode = selection.channel === 'IN_STORE' ? undefined : (redemptionConfig.code as string | undefined)
   const redemptionInstructions = redemptionConfig.instructions as string | undefined
   const bookingUrl = redemptionConfig.bookingUrl as string | undefined
   const qrCodeUrl = redemptionConfig.qrCodeUrl as string | undefined
@@ -193,8 +205,8 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
               <StatusBadge
                 status={offer.status}
                 label={
-                  offer.status === 'ARCHIVED' && offer.review?.reviewNotes
-                    ? 'Revoked'
+                  offer.status === 'ARCHIVED' && offer.review?.reviewNotes && offer.isFlash
+                    ? 'Ended early'
                     : statusLabels[offer.status]
                 }
               />
@@ -260,27 +272,17 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
                     <Copy className="h-4 w-4" /> Duplicate
                   </Button>
                 </Link>
-                {!offer.isForever && (
+                {offer.isFlash && !offer.isForever && (
                 <Button
                   size="sm"
                   variant="outline"
                   className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
                   onClick={() => setRevokeOpen(true)}
                 >
-                  <Ban className="h-4 w-4" /> Revoke
+                  <Ban className="h-4 w-4" /> End flash offer early
                 </Button>
                 )}
               </>
-            )}
-            {DELETABLE_STATUSES.includes(offer.status) && (
-              <Button
-                size="sm"
-                variant="destructive"
-                className="gap-1.5"
-                onClick={() => setDeleteOpen(true)}
-              >
-                <Trash2 className="h-4 w-4" /> Delete
-              </Button>
             )}
           </div>
         </div>
@@ -424,7 +426,7 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
               <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900/50 dark:bg-red-950/30">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-400">
                   <Ban className="h-3.5 w-3.5" />
-                  Revocation Reason
+                  Reason for ending early
                 </div>
                 <p className="mt-1 text-sm text-red-700 dark:text-red-300">{offer.review.reviewNotes}</p>
               </div>
@@ -445,7 +447,10 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
           </CardHeader>
           <CardContent className="space-y-3 p-4 text-sm">
             <DetailRow icon={Calendar} label="Start Date" value={formatDate(offer.startDate)} />
-            <DetailRow icon={Calendar} label="End Date" value={offer.endDate ? formatDate(offer.endDate) : "No end date (Evergreen)"} />
+            <DetailRow icon={Calendar} label="End Date" value={offer.endDate ? formatDate(offer.endDate) : "No end date"} />
+            {channelLabel && <DetailRow icon={Store} label="Channel" value={channelLabel} />}
+            {branchesLabel && <DetailRow icon={Store} label="Branches" value={branchesLabel} />}
+            {frequencyLabel && <DetailRow icon={Repeat} label="Frequency" value={frequencyLabel} />}
             <div className="rounded-lg bg-muted/40 p-3">
               <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Repeat className="h-3.5 w-3.5" />
@@ -515,7 +520,7 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
                 <Separator />
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Terms & Conditions</p>
-                  <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{offer.content.termsAndConditions}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{offer.content.termsAndConditions.replace(/\\n/g, '\n')}</p>
                 </div>
               </>
             )}
@@ -585,13 +590,6 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
                 label="Offer Type"
                 value={typeConfig.label}
               />
-              {offer.capacity?.maxRedemptions != null && (
-                <DetailRow
-                  icon={Receipt}
-                  label="Max Redemptions"
-                  value={offer.capacity.maxRedemptions.toString()}
-                />
-              )}
             </div>
           </CardContent>
         </Card>
@@ -813,39 +811,19 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
       )}
 
       <ConfirmDialog
-        open={deleteOpen}
-        title="Delete Offer"
-        message={`Are you sure you want to delete "${offer.title}"? This will permanently remove the offer.`}
-        confirmLabel="Delete"
-        loading={deleteOffer.isPending}
-        onConfirm={async () => {
-          try {
-            await deleteOffer.mutateAsync(offer.id)
-            showToast({ type: 'success', title: 'Offer deleted' })
-            router.push('/merchant/offers')
-          } catch (err: any) {
-            showToast({ type: 'error', title: 'Failed', description: err.message })
-          } finally {
-            setDeleteOpen(false)
-          }
-        }}
-        onCancel={() => setDeleteOpen(false)}
-      />
-
-      <ConfirmDialog
         open={revokeOpen}
-        title="Revoke Offer"
-        message={`Are you sure you want to revoke "${offer.title}"? This will deactivate the offer and it will no longer be visible to employees. You can delete it afterwards.`}
-        confirmLabel="Revoke"
+        title="End this flash offer now?"
+        message="Employees can no longer use it from now. This cannot be undone."
+        confirmLabel="End offer"
         loading={revokeOffer.isPending}
         onConfirm={async () => {
           if (!revokeReason.trim()) {
-            showToast({ type: 'error', title: 'Required', description: 'Please provide a reason for revocation' })
+            showToast({ type: 'error', title: 'Required', description: 'Please add a reason' })
             return
           }
           try {
             await revokeOffer.mutateAsync({ id: offer.id, reason: revokeReason.trim() })
-            showToast({ type: 'success', title: 'Offer revoked' })
+            showToast({ type: 'success', title: 'Flash offer ended' })
             setRevokeOpen(false)
             setRevokeReason('')
           } catch (err: any) {
@@ -855,10 +833,10 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
         onCancel={() => { setRevokeOpen(false); setRevokeReason('') }}
       >
         <div className="space-y-2">
-          <label className="text-sm font-medium">Reason for revocation</label>
+          <label className="text-sm font-medium">Reason</label>
           <textarea
             className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            placeholder="Explain why you are revoking this offer..."
+            placeholder="Why are you ending this offer early?"
             value={revokeReason}
             onChange={(e) => setRevokeReason(e.target.value)}
           />

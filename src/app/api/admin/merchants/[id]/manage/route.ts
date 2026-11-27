@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { createAuditLog, fromCurrentUser } from '@/services/audit-log.service'
+import * as mail from '@/emails/templates/merchant'
+import type { MerchantEmail } from '@/emails/templates/merchant'
+import { merchantEmailBase } from '@/lib/merchant-emails'
 import { channels, collectEmailWarnings, publishBusinessNotification, publishBusinessToAdmins } from '@/services/business-notification.service'
 
 function unauthorized() {
@@ -184,7 +187,23 @@ export async function PATCH(
           priority: 'HIGH' as const,
         },
       }[action]
+
+      // Spec emails: M-19 suspended, M-17 paused, M-20 suspension lifted, M-18 listing live again.
+      const base = await merchantEmailBase(id)
+      const now = new Date()
+      const why = reason ?? 'Not provided'
+      let email: MerchantEmail | null = null
+      if (action === 'suspend') email = mail.m19AccountSuspended({ ...base, date: now, reason: why })
+      else if (action === 'pause') email = mail.m17ListingPaused({ ...base, date: now, reason: why })
+      else if (existing.status === 'SUSPENDED') {
+        const liveEvergreen = await prisma.merchantOffer.count({
+          where: { merchantId: id, deletedAt: null, status: 'LIVE', isForever: true },
+        })
+        email = mail.m20SuspensionLifted({ ...base, date: now, hasLiveEvergreen: liveEvergreen > 0 })
+      } else if (existing.status === 'PAUSED') email = mail.m18ListingLiveAgain({ ...base, date: now })
+
       emailWarnings.push(...collectEmailWarnings(await publishBusinessNotification({
+        email,
         type: action === 'activate' ? 'SYSTEM' : 'COMPANY_DISABLED',
         ...content,
         recipients: [{ role: 'merchant', id }],

@@ -15,6 +15,7 @@ import {
   reserveCapacity,
 } from '@/lib/redemption-tracking'
 import { createAuditLog } from '@/services/audit-log.service'
+import { offerSupportsRedemptionType } from '@/lib/offers/channel'
 import { BUSINESS_NOTIFICATION_TEMPLATES, channels, publishBusinessNotification } from '@/services/business-notification.service'
 
 export async function POST(
@@ -61,7 +62,7 @@ export async function POST(
           },
         },
         pricing: { select: { configuration: true } },
-        redemption: { select: { redemptionType: true, configuration: true, maxRedemptions: true } },
+        redemption: { select: { redemptionType: true, redemptionTypes: true, configuration: true, maxRedemptions: true } },
       },
     })
 
@@ -108,7 +109,7 @@ export async function POST(
       )
     }
 
-    if (offer.redemption?.redemptionType !== 'IN_STORE_QR') {
+    if (!offerSupportsRedemptionType(offer.redemption, 'IN_STORE_QR')) {
       return NextResponse.json(
         {
           success: false,

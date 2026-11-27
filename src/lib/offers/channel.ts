@@ -171,6 +171,22 @@ export function redemptionResponseFields(
   return { channel, redemptionTypes };
 }
 
+/**
+ * True when the offer can be redeemed with `type`. Reads `redemptionTypes`
+ * (so "Both" offers count as in-store too), falling back to the legacy single value.
+ */
+export function offerSupportsRedemptionType(
+  redemption:
+    | { redemptionType?: string | null; redemptionTypes?: string[] | null; configuration?: unknown }
+    | null
+    | undefined,
+  type: string,
+): boolean {
+  if (!redemption) return false;
+  if (redemption.redemptionType === type) return true;
+  return redemptionResponseFields(redemption).redemptionTypes.includes(type);
+}
+
 export function channelHasOnlineCode(channel: OfferChannel): boolean {
   return channel !== "IN_STORE";
 }

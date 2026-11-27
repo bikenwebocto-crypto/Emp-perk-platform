@@ -7,16 +7,14 @@ const EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export function getEmailError(email: string): string | null {
   if (!email) return 'Email is required';
   if (/\s/.test(email)) return 'Email must not contain spaces';
-  if (!EMAIL_FORMAT.test(email)) return 'Enter a valid email address (e.g. name@example.com)';
+  if (!EMAIL_FORMAT.test(email)) return 'Enter a valid email address (e.g. name@yourcompany.com)';
   return null;
 }
 
 export const PASSWORD_RULES = [
   { id: 'length', label: '8–128 characters', test: (p: string) => p.length >= 8 && p.length <= 128 },
-  { id: 'upper', label: 'One uppercase letter (A–Z)', test: (p: string) => /[A-Z]/.test(p) },
-  { id: 'lower', label: 'One lowercase letter (a–z)', test: (p: string) => /[a-z]/.test(p) },
-  { id: 'number', label: 'One number (0–9)', test: (p: string) => /[0-9]/.test(p) },
-  { id: 'special', label: 'One special character (!@#$…)', test: (p: string) => /[^A-Za-z0-9]/.test(p) },
+  { id: 'letter', label: 'At least one letter', test: (p: string) => /[A-Za-z]/.test(p) },
+  { id: 'numberOrSymbol', label: 'At least one number or symbol', test: (p: string) => /[^A-Za-z]/.test(p) },
 ] as const;
 
 /** Returns the first failing rule's message, or null when the password is valid. */
