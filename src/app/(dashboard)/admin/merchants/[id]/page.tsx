@@ -2,6 +2,7 @@
 import { use, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { formatAddress } from '@/lib/format'
 import {
   ArrowLeft, Package, Pencil, Trash2, MapPin, BarChart3,
   Image as ImageIcon, Phone, Mail, Globe, Store,
@@ -188,7 +189,7 @@ const handleEditOffer = (offer: any) => {
     key: 'endDate',
     header: 'End',
     render: (o: any) =>
-      new Date(o.endDate).toLocaleDateString(),
+      o.endDate ? new Date(o.endDate).toLocaleDateString() : 'No end date',
   },
   {
   key: "actions",
@@ -403,7 +404,7 @@ const handleEditOffer = (offer: any) => {
                           {branch.name ?? branch.branchName ?? 'Branch'}
                         </p>
                         <p className="truncate text-xs text-muted-foreground">
-                          {[branch.address, branch.city].filter(Boolean).join(', ') || 'No address on file'}
+                          {formatAddress(branch.address)}
                         </p>
                       </div>
                     </button>

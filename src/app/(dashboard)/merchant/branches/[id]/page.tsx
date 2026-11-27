@@ -27,6 +27,8 @@ import {
   BRANCH_DISPLAY_TYPE_STYLES,
   getBranchDisplayType,
   formatOpeningHours,
+  isOnlineBranch,
+  isPhysicalBranch,
 } from '@/lib/branch-helpers'
 import { GoogleMap, useJsApiLoader } from '@react-google-maps/api'
 import type { BranchStatus } from '@/types'
@@ -250,7 +252,7 @@ export default function BranchDetailPage({ params }: { params: Promise<{ id: str
                 <p className="text-xs text-muted-foreground">Branch Type</p>
                 <p className="font-medium">{BRANCH_TYPE_LABELS[branch.branchType as keyof typeof BRANCH_TYPE_LABELS]}</p>
               </div>
-              {branch.branchType === 'ONLINE' && (
+              {isOnlineBranch(branch.branchType) && (
                 <>
                   <div>
                     <p className="text-xs text-muted-foreground">Coverage</p>
@@ -279,7 +281,7 @@ export default function BranchDetailPage({ params }: { params: Promise<{ id: str
                   )}
                 </>
               )}
-              {branch.branchType === 'IN_STORE' && (
+              {isPhysicalBranch(branch.branchType) && (
                 <div className="sm:col-span-2">
                   <p className="text-xs text-muted-foreground">Address</p>
                   <p>{branch.addressLine1}{branch.addressLine2 ? `, ${branch.addressLine2}` : ''}</p>
@@ -356,7 +358,7 @@ export default function BranchDetailPage({ params }: { params: Promise<{ id: str
         </Card>
       </div>
 
-      {branch.branchType === 'IN_STORE' && branch.latitude && branch.longitude && (
+      {isPhysicalBranch(branch.branchType) && branch.latitude && branch.longitude && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">

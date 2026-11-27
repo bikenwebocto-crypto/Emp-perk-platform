@@ -1,5 +1,6 @@
 'use server';
 
+import { notEndedBy } from '@/lib/offers/end-date';
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { issueReportSchema } from '@/schemas';
@@ -65,7 +66,7 @@ export async function getLiveOffersAction(companyId: string, page = 1, pageSize 
         status: 'LIVE',
         isFlash: false,
         startDate: { lte: now },
-        endDate: { gte: now },
+        AND: [notEndedBy(now, true)],
         merchant: {
           status: 'ACTIVE',
           deletedAt: null,
@@ -99,7 +100,7 @@ export async function getLiveOffersAction(companyId: string, page = 1, pageSize 
         status: 'LIVE',
         isFlash: false,
         startDate: { lte: now },
-        endDate: { gte: now },
+        AND: [notEndedBy(now, true)],
         merchant: { status: 'ACTIVE', deletedAt: null },
       },
     }),

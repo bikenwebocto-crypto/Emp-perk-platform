@@ -180,6 +180,9 @@ export function LoginClient({ branding }: LoginClientProps) {
     if (searchParams.get("error") === "link_invalid") {
       setError("This link is invalid, expired or already used. Please request a new one.");
     }
+    if (searchParams.get("notice") === "password_set") {
+      setNotice("Your password has been set. Please sign in to continue.");
+    }
   }, [searchParams]);
 
   useEffect(() => {

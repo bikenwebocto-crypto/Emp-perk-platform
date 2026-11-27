@@ -36,7 +36,7 @@ function isCacheValid(): boolean {
 const DEFAULT_BRANDING: PublicBranding = {
   appName: 'PerksGo',
   tagline: null,
-  heading: 'Welcome Back',
+  heading: 'Sign in',
   description: 'Sign in to continue to your dashboard.',
   logoUrl: null,
   bannerUrl: null,

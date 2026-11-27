@@ -4,6 +4,7 @@ import { getAdminClient } from '@/lib/supabase/admin'
 import { emailService } from '@/lib/email/email'
 import { createAuditLog, type AuditLogInput } from '@/services/audit-log.service'
 import { renderCompanyAdminInvitationTemplate } from '@/emails/templates'
+import { createInviteToken } from '@/lib/auth/invite-token'
 
 export interface CompanyAdminInvitationParams {
   /** CompanyAdmin.id — the invite outcome is recorded against this admin. */
@@ -25,6 +26,8 @@ export interface CompanyAdminInvitationResult {
 /** Audit actions that record each invite attempt. The latest one is the admin's invite status. */
 export const INVITE_SENT_ACTION = 'COMPANY_ADMIN_INVITE_SENT'
 export const INVITE_FAILED_ACTION = 'COMPANY_ADMIN_INVITE_FAILED'
+/** Recorded when an invite link is opened; its jti makes the link single-use. */
+export const INVITE_USED_ACTION = 'COMPANY_ADMIN_INVITE_USED'
 
 export type CompanyAdminInviteStatus = 'SENT' | 'FAILED'
 
@@ -42,7 +45,7 @@ export async function sendCompanyAdminInvitation(
   try {
     // Public sign-up is disabled, so the email carries a one-time set-password
     // link. sync-admin still links the Supabase user to this account by email.
-    const loginUrl = await createSetPasswordUrl(params.email)
+    const loginUrl = `${getAppUrl()}/auth/invite?t=${encodeURIComponent(createInviteToken(params.adminId, params.email))}`
     const html = renderCompanyAdminInvitationTemplate({
       firstName: params.firstName,
       companyName: params.companyName,
@@ -78,13 +81,15 @@ export async function sendCompanyAdminInvitation(
 }
 
 /**
- * Build a /auth/confirm link that opens the set-password form. Creates the
+ * Get a fresh Supabase one-time token for the set-password form. Creates the
  * Supabase user via an `invite` link; if the user already exists (resend,
  * earlier invite), falls back to a `recovery` link. Throws on failure.
+ * Called when the 72h invite link is opened, so Supabase's 24h cap never applies.
  */
-async function createSetPasswordUrl(rawEmail: string): Promise<string> {
+export async function createSetPasswordToken(
+  rawEmail: string,
+): Promise<{ tokenHash: string; type: 'invite' | 'recovery' }> {
   const email = rawEmail.trim().toLowerCase()
-  const appUrl = getAppUrl()
   const admin = getAdminClient()
 
   let type: 'invite' | 'recovery' = 'invite'
@@ -99,9 +104,7 @@ async function createSetPasswordUrl(rawEmail: string): Promise<string> {
   }
   const tokenHash = data?.properties?.hashed_token
   if (!tokenHash) throw new Error('Supabase did not return a link token')
-
-  const qs = new URLSearchParams({ token_hash: tokenHash, type, email })
-  return `${appUrl}/auth/confirm?${qs.toString()}`
+  return { tokenHash, type }
 }
 
 /** Latest invite outcome per admin id (admins with no recorded attempt are omitted). */

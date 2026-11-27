@@ -47,7 +47,7 @@ export interface EmployeeOffer {
   isFlash?: boolean
 
   startDate: string
-  endDate: string
+  endDate: string | null
 
   merchant: {
     id: string

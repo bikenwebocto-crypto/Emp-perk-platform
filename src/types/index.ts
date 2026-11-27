@@ -84,9 +84,9 @@ export type RealtimeEventType =
   | 'ANALYTICS_UPDATED' | 'ISSUE_REPORTED'
   | 'NOTIFICATION_CREATED' | 'EMPLOYEE_STATUS_CHANGED';
 
-export type BranchType = 'IN_STORE' | 'ONLINE';
+export type BranchType = 'IN_STORE' | 'ONLINE' | 'BOTH';
 export type BranchStatus = 'ACTIVE' | 'INACTIVE' | 'CLOSED';
-export type BranchDisplayType = 'IN_STORE' | 'ONLINE_DELIVERY' | 'ONLINE_DIGITAL';
+export type BranchDisplayType = 'IN_STORE' | 'ONLINE_DELIVERY' | 'ONLINE_DIGITAL' | 'BOTH';
 
 // ============================================================
 // API RESPONSE TYPES
@@ -303,7 +303,7 @@ export interface OfferWithMerchant {
   discountPercent: number | null;
   minimumSpend: number | null;
   startDate: Date;
-  endDate: Date;
+  endDate: Date | null;
   status: OfferStatus;
   redemptionCode: string | null;
   merchant: {

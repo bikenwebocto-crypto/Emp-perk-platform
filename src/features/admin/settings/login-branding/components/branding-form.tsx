@@ -18,7 +18,7 @@ import { Save, Eye } from 'lucide-react'
 const DEFAULT_DATA: LoginBrandingData = {
   appName: 'PerksGo',
   tagline: '',
-  heading: 'Welcome Back',
+  heading: 'Sign in',
   description: 'Sign in to continue to your dashboard.',
   logoUrl: null,
   bannerUrl: null,
@@ -145,7 +145,7 @@ export function BrandingForm() {
                 <Input
                   value={formData.heading ?? ''}
                   onChange={(e) => updateField('heading', e.target.value)}
-                  placeholder="Welcome Back"
+                  placeholder="Sign in"
                 />
               </div>
               <div className="space-y-2">

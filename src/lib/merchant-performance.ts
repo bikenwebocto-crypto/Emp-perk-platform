@@ -253,7 +253,7 @@ export async function getMerchantBusinessOverview(
   // Guard endDate >= now: a LIVE offer whose endDate already passed
   // (scheduler hasn't flipped it to EXPIRED yet) is over, not "expiring soon".
   const expiringSoon = liveOffers
-    .filter((o) => o.endDate >= now && o.endDate <= expiryWindow)
+    .filter((o): o is typeof o & { endDate: Date } => o.endDate != null && o.endDate >= now && o.endDate <= expiryWindow)
     .map((o) => ({
       id: o.id,
       title: o.title,

@@ -1,3 +1,4 @@
+import { notEndedBy } from '@/lib/offers/end-date';
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { internalError, notFound } from '@/lib/employee-helpers'
@@ -36,7 +37,7 @@ export async function GET(
           where: {
             status: 'LIVE',
             startDate: { lte: now },
-            endDate: { gt: now },
+            AND: [notEndedBy(now)],
           },
           orderBy: [ {isFlash: 'desc'},{ isFeatured: 'desc' }, { createdAt: 'desc' }],
           take: 50,

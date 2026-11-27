@@ -28,7 +28,7 @@ const DAY_MS = 24 * HOUR_MS;
 interface OfferForNotify {
   id: string;
   title: string;
-  endDate: Date;
+  endDate: Date | null;
 }
 
 class OfferExpiryScheduler {
@@ -79,7 +79,7 @@ class OfferExpiryScheduler {
 
     // Notify only offers this run expired, and only if they expired within
     // the last 24 hours.
-    const recent = transitioned.filter((offer) => offer.endDate >= cutoff);
+    const recent = transitioned.filter((offer) => offer.endDate != null && offer.endDate >= cutoff);
     for (const offer of recent) {
       await this.notifySavedEmployees(
         offer,
@@ -127,7 +127,7 @@ class OfferExpiryScheduler {
     });
 
     for (const offer of offers) {
-      if (offer.endDate >= startToday) continue;
+      if (!offer.endDate || offer.endDate >= startToday) continue;
       await this.notifySavedEmployees(
         offer,
         'OFFER_EXPIRING',

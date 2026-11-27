@@ -1,4 +1,5 @@
 'use client'
+import { eurExact } from '@/lib/format'
 import {
   Eye,
   Bookmark,
@@ -186,7 +187,7 @@ export function buildCompanyAnalyticsConfig(
         key: 'redeemed',
         label: 'Redeemed',
         value: overview.redeemed,
-        sublabel: `Avg save $${overview.averageSaving.toFixed(2)}`,
+        sublabel: `Avg save ${eurExact.format(overview.averageSaving)}`,
         icon: Receipt,
         color: 'from-emerald-500 to-teal-600',
         bg: 'bg-emerald-100 dark:bg-emerald-950/40',

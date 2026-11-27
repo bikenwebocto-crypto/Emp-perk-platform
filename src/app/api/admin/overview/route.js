@@ -1,3 +1,4 @@
+import { notEndedBy } from '@/lib/offers/end-date';
 import { NextResponse } from 'next/server';
 import { startOfMonth, subMonths } from 'date-fns';
 import { fromZonedTime, toZonedTime } from 'date-fns-tz';
@@ -109,7 +110,7 @@ export async function GET() {
         _count: { _all: true },
       }),
       prisma.merchantOffer.count({
-        where: { status: 'LIVE', deletedAt: null, endDate: { gt: now } },
+        where: { status: 'LIVE', deletedAt: null, AND: [notEndedBy(now)] },
       }),
       prisma.merchantOffer.count({
         where: { status: { in: PENDING_OFFER_STATUSES }, deletedAt: null },

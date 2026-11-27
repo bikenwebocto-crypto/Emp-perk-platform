@@ -171,7 +171,7 @@ export function OfferReview({ entity }: ReviewComponentProps) {
           <div className="flex flex-wrap items-center gap-4 text-sm">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" />
-              <span>{formatDate(entity.startDate)} → {formatDate(entity.endDate)}</span>
+              <span>{formatDate(entity.startDate)} → {entity.endDate ? formatDate(entity.endDate) : 'No end date'}</span>
             </div>
             {entity.isFeatured && (
               <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">Featured</span>

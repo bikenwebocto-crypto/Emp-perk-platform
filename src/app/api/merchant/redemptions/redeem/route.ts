@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date()
-    if (redemption.offer.endDate < now) {
+    if (redemption.offer.endDate && redemption.offer.endDate < now) {
       return conflict('VOUCHER_EXPIRED', 'This redemption code has expired')
     }
 

@@ -1,3 +1,4 @@
+import { hasEnded } from '@/lib/offers/end-date';
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { internalError, notFound, badRequest } from "@/lib/employee-helpers";
@@ -67,7 +68,7 @@ export async function POST(
       return badRequest("This offer is no longer available.");
     }
     const now = new Date();
-    if (offer.startDate > now || offer.endDate <= now) {
+    if (offer.startDate > now || hasEnded(offer.endDate, now)) {
       return badRequest("This offer is no longer available.");
     }
 

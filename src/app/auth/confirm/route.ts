@@ -38,6 +38,12 @@ export async function GET(request: NextRequest) {
   if (tokenHash && type && VALID_TYPES.includes(type)) {
     const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type })
     if (!error) {
+      if (type === 'invite') {
+        // New accounts choose their first password on the dedicated page.
+        const setPasswordUrl = new URL('/set-password', origin)
+        setPasswordUrl.searchParams.set('flow', 'invite')
+        return NextResponse.redirect(setPasswordUrl)
+      }
       if (SET_PASSWORD_TYPES.includes(type)) {
         loginUrl.searchParams.set('mode', 'update_password')
         loginUrl.searchParams.set('flow', type)

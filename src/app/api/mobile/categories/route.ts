@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { internalError } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { safeQuery } from '@/lib/prisma/safe-query'
+import { categoryLogoUrl, isCategoryLogoPath } from '@/features/categories/logo'
 
 // GET /api/mobile/categories
 //
@@ -31,7 +32,18 @@ export async function GET(request: NextRequest) {
       { context: 'Category.findMany:mobile-active' },
     )
 
-    return NextResponse.json({ success: true, data: categories })
+    // Category.icon holds either an uploaded logo's storage path or a legacy
+    // icon name — expose the logo as a full public URL and keep icon for names only.
+    const data = categories.map((c) => ({
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      description: c.description,
+      icon: isCategoryLogoPath(c.icon) ? null : c.icon,
+      logoUrl: categoryLogoUrl(c.icon),
+    }))
+
+    return NextResponse.json({ success: true, data })
   } catch (error) {
     return internalError(error)
   }

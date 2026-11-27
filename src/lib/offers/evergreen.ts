@@ -1,4 +1,10 @@
-export function isEvergreenRange(startDate: Date | string, endDate: Date | string): boolean {
+import { hasEnded, notEndedBy } from './end-date';
+
+export function isEvergreenRange(startDate: Date | string, endDate: Date | string | null | undefined): boolean {
+  // null = stored open-ended offer (Evergreen). "" / undefined = draft with no
+  // end date yet, which is not a range.
+  if (endDate === null) return true;
+  if (!endDate) return false;
   const start = new Date(startDate);
   const end = new Date(endDate);
   if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
@@ -14,15 +20,16 @@ export function offerRank(o: { evergreen: boolean; isFlash?: boolean | null }): 
 export function isForeverOffer(offer: {
   isForever?: boolean | null;
   startDate: Date | string;
-  endDate: Date | string;
+  endDate: Date | string | null;
 }): boolean {
-  return !!offer.isForever || isEvergreenRange(offer.startDate, offer.endDate);
+  // A stored null endDate means open-ended, i.e. Evergreen.
+  return !!offer.isForever || offer.endDate === null || isEvergreenRange(offer.startDate, offer.endDate);
 }
 
 type LiveOfferForForeverPolicy = {
   id: string;
   startDate: Date | string;
-  endDate: Date | string;
+  endDate: Date | string | null;
   isForever?: boolean | null;
   isFlash?: boolean | null;
   replacesOfferId?: string | null;
@@ -38,7 +45,7 @@ export function validateMerchantForeverOfferPolicy({
   upcomingOffer: {
     id?: string | null;
     startDate: Date | string;
-    endDate: Date | string;
+    endDate: Date | string | null;
     isForever?: boolean | null;
     isFlash?: boolean | null;
   };
@@ -79,7 +86,7 @@ export function validateMerchantForeverOfferPolicy({
     }),
   );
 
-  // Flash/Regular need an Evergreen that is LIVE *and* already inside its
+  // Flash offers need an Evergreen that is LIVE *and* already inside its
   // validity window (started, not ended). A LIVE Evergreen scheduled for a
   // future start date does not unlock them yet.
   const now = new Date();
@@ -91,7 +98,7 @@ export function validateMerchantForeverOfferPolicy({
         endDate: offer.endDate,
       }) &&
       new Date(offer.startDate) <= now &&
-      new Date(offer.endDate) > now,
+      !hasEnded(offer.endDate, now),
   );
 
   if (isUpcomingForeverOffer) {
@@ -117,10 +124,10 @@ export function validateMerchantForeverOfferPolicy({
 // ── Evergreen-first auto-activation ─────────────────────────────────────────
 
 export const EVERGREEN_REQUIRED_MESSAGE =
-  "You need a LIVE Evergreen offer before creating Flash or Regular offers. Please create your Evergreen offer first.";
+  "You need a LIVE Evergreen offer before creating Flash offers. Please create your Evergreen offer first.";
 
 export const EVERGREEN_LIVE_MESSAGE =
-  "Your Evergreen offer is now LIVE! You can now create Flash and Regular offers.";
+  "Your Evergreen offer is now LIVE! You can now create Flash offers.";
 
 export const EVERGREEN_ALREADY_LIVE_MESSAGE =
   "You already have a LIVE Evergreen offer. Only one LIVE Evergreen offer is allowed — use Replace on your current Evergreen offer instead.";
@@ -158,13 +165,13 @@ export function findLiveEvergreen<T extends LiveOfferForForeverPolicy>(
 /**
  * An offer is an Evergreen (foundational) offer only when it is a Forever
  * offer (flag or ≥1-year range) AND not a Flash offer. `isFlash = false`
- * alone does NOT mean Evergreen — that is a Regular offer.
+ * alone does NOT mean Evergreen.
  */
 export function isEvergreenOffer(offer: {
   isForever?: boolean | null;
   isFlash?: boolean | null;
   startDate: Date | string;
-  endDate: Date | string;
+  endDate: Date | string | null;
 }): boolean {
   return !offer.isFlash && isForeverOffer(offer);
 }
@@ -181,7 +188,7 @@ export function shouldAutoActivateEvergreen(_params: {
     isForever?: boolean | null;
     isFlash?: boolean | null;
     startDate: Date | string;
-    endDate: Date | string;
+    endDate: Date | string | null;
   };
 }): boolean {
   return false;
@@ -207,7 +214,7 @@ export async function assertEvergreenActivationAllowed(
       merchantId,
       deletedAt: null,
       status: "LIVE",
-      endDate: { gt: now },
+      AND: [notEndedBy(now)],
       ...(excludeOfferId ? { id: { not: excludeOfferId } } : {}),
     },
     select: { id: true, title: true, isForever: true, isFlash: true, startDate: true, endDate: true },

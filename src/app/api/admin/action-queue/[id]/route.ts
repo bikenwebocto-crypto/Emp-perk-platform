@@ -1,3 +1,5 @@
+import { PHYSICAL_BRANCH_TYPES } from '@/lib/branch-helpers';
+import { notEndedBy } from '@/lib/offers/end-date';
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createAuditLog } from "@/services/audit-log.service";
@@ -27,7 +29,7 @@ async function withRedemptionBranches<
     where: {
       merchantId: offer.merchantId,
       deletedAt: null,
-      branchType: "IN_STORE",
+      branchType: { in: [...PHYSICAL_BRANCH_TYPES] },
       ...(selection.allBranches ? { isActive: true } : { id: { in: selection.branchIds } }),
     },
     select: {
@@ -347,7 +349,7 @@ export async function GET(
           merchantId: offerEntity.merchantId,
           deletedAt: null,
           status: "LIVE",
-          endDate: { gt: new Date() },
+          AND: [notEndedBy(new Date())],
           id: { not: offerEntity.id },
         },
         select: { id: true, title: true, isForever: true, isFlash: true, startDate: true, endDate: true },
@@ -479,9 +481,9 @@ export async function POST(
 function isForeverOffer(offer: {
   isForever?: boolean | null;
   startDate: Date | string;
-  endDate: Date | string;
+  endDate: Date | string | null;
 }): boolean {
-  return !!offer.isForever || isEvergreenRange(offer.startDate, offer.endDate);
+  return !!offer.isForever || offer.endDate === null || isEvergreenRange(offer.startDate, offer.endDate);
 }
 
 async function validateMerchantOfferApproval(
@@ -491,7 +493,7 @@ async function validateMerchantOfferApproval(
     id: string;
     isForever?: boolean | null;
     startDate: Date | string;
-    endDate: Date | string;
+    endDate: Date | string | null;
   },
   options: {
     isReplacement?: boolean;
@@ -501,7 +503,7 @@ async function validateMerchantOfferApproval(
   await tx.$queryRaw`SELECT id FROM "merchants" WHERE id = ${merchantId} FOR UPDATE`;
 
   const now = new Date();
-  if (new Date(upcomingOffer.endDate) <= now) {
+  if (upcomingOffer.endDate != null && new Date(upcomingOffer.endDate) <= now) {
     throw new OfferApprovalValidationError(
       "This offer's end date has already passed. Update the end date before approving.",
     );
@@ -514,7 +516,7 @@ async function validateMerchantOfferApproval(
       merchantId,
       deletedAt: null,
       status: "LIVE",
-      endDate: { gt: now },
+      AND: [notEndedBy(now)],
     },
     select: {
       id: true,
@@ -530,7 +532,7 @@ async function validateMerchantOfferApproval(
     id: string;
     isForever?: boolean | null;
     startDate: Date | string;
-    endDate: Date | string;
+    endDate: Date | string | null;
   };
   // Ignore the offer being approved in case it is already LIVE.
   const otherLiveOffers: LiveOffer[] = liveOffers.filter(
@@ -695,7 +697,7 @@ async function performApprove(queueItem: any, adminId: string, now: Date, emailW
                 merchantId: offer.merchantId,
                 deletedAt: null,
                 status: "LIVE",
-                endDate: { gt: now },
+                AND: [notEndedBy(now)],
                 id: { not: offer.id },
               },
               select: { id: true, title: true, isForever: true, isFlash: true, startDate: true, endDate: true },

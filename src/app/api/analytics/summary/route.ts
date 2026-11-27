@@ -1,3 +1,4 @@
+import { notEndedBy } from '@/lib/offers/end-date';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/supabase/server';
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest) {
         activeOffers: await prisma.merchantOffer.count({
           where: {
             status: 'LIVE',
-            endDate: { gte: new Date() },
+            AND: [notEndedBy(new Date(), true)],
             startDate: { lte: new Date() },
           },
         }),

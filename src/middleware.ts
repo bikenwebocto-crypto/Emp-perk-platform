@@ -7,6 +7,7 @@ import {
   adminLandingPath,
 } from "@/lib/access/account-access";
 import { hasVerifiedTotpFactor, requiresMfaForRole } from "@/lib/auth/mfa";
+import { getAppUrl } from "@/lib/app-url";
 
 const ROLE_DASHBOARD_MAP: Record<string, string> = {
   SUPER_ADMIN: "/admin",
@@ -85,22 +86,34 @@ async function fetchRole(
   }
 }
 
+// User-facing redirects must use the public origin. In the standalone server
+// request.url carries the container's own host (ip-…ec2.internal on ECS).
+// Missing env falls back to the request origin rather than failing every page.
+function publicOrigin(request: NextRequest): string {
+  try {
+    return getAppUrl()
+  } catch (err) {
+    console.error("[middleware] NEXT_PUBLIC_APP_URL missing; using request origin", err)
+    return request.nextUrl.origin
+  }
+}
+
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
+  const publicUrl = (path: string) => new URL(path, publicOrigin(request))
 
-  // Behind the hosting proxy the original scheme is in x-forwarded-proto.
+  // Only redirect when a proxy explicitly reports http. The NLB sends no
+  // x-forwarded-proto, so there this is a no-op: http→https belongs at the
+  // load balancer (TLS listener / port-80 redirect).
   if (
     process.env.NODE_ENV === "production" &&
     request.headers.get("x-forwarded-proto") === "http"
   ) {
-    const httpsUrl = request.nextUrl.clone()
-    httpsUrl.protocol = "https:"
-    httpsUrl.port = ""
-    return NextResponse.redirect(httpsUrl, 308)
+    return NextResponse.redirect(publicUrl(pathname + request.nextUrl.search), 308)
   }
 
   if (pathname === "/") {
-    return NextResponse.redirect(new URL("/login", request.url))
+    return NextResponse.redirect(publicUrl("/login"))
   }
   if (pathname === "/login" || pathname === "/auth/callback") {
     return NextResponse.next()
@@ -119,7 +132,7 @@ export async function middleware(request: NextRequest) {
     )
   }
   if (pathname.startsWith("/merchant/banners")) {
-    return NextResponse.redirect(new URL("/merchant", request.url))
+    return NextResponse.redirect(publicUrl("/merchant"))
   }
 
   if (!isProtected && !isApiRoute) {
@@ -168,7 +181,7 @@ export async function middleware(request: NextRequest) {
         { status: 401 }
       )
     }
-    const loginUrl = new URL("/login", request.url)
+    const loginUrl = publicUrl("/login")
     loginUrl.searchParams.set("redirectTo", pathname)
     return NextResponse.redirect(loginUrl)
   }
@@ -216,7 +229,7 @@ export async function middleware(request: NextRequest) {
 
   if (!role) {
     await supabase.auth.signOut()
-    const loginUrl = new URL("/login", request.url)
+    const loginUrl = publicUrl("/login")
     loginUrl.searchParams.set("error", "Your account role is not configured.")
     return NextResponse.redirect(loginUrl)
   }
@@ -227,11 +240,11 @@ export async function middleware(request: NextRequest) {
     const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
 
     if (!hasTotp) {
-      return NextResponse.redirect(new URL("/mfa/setup", request.url))
+      return NextResponse.redirect(publicUrl("/mfa/setup"))
     }
 
     if (assurance?.currentLevel !== "aal2") {
-      return NextResponse.redirect(new URL("/mfa/verify", request.url))
+      return NextResponse.redirect(publicUrl("/mfa/verify"))
     }
   }
 
@@ -239,7 +252,7 @@ export async function middleware(request: NextRequest) {
   const hasAccess = allowedPaths.some((path) => pathname.startsWith(path))
   if (!hasAccess) {
     return NextResponse.redirect(
-      new URL(ROLE_DASHBOARD_MAP[role] ?? "/employee", request.url),
+      publicUrl(ROLE_DASHBOARD_MAP[role] ?? "/employee"),
     )
   }
 
@@ -252,7 +265,7 @@ export async function middleware(request: NextRequest) {
       (role === "SUPER_ADMIN" && !canAdminAccessPath(roleInfo?.adminRole, pathname))
     )
   ) {
-    return NextResponse.redirect(new URL(adminLandingPath(roleInfo?.adminRole), request.url))
+    return NextResponse.redirect(publicUrl(adminLandingPath(roleInfo?.adminRole)))
   }
 
   requestHeaders.set("x-auth-role", role)

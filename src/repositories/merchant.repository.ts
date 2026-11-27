@@ -1,3 +1,4 @@
+import { notEndedBy } from '@/lib/offers/end-date';
 import { prisma } from '@/lib/prisma';
 import { BaseRepository } from './base.repository';
 import type { Prisma, Merchant } from '@prisma/client';
@@ -51,7 +52,7 @@ export class MerchantRepository extends BaseRepository<Merchant, MerchantCreateI
       include: {
         branches: { where: { isActive: true } },
         offers: {
-          where: { status: 'LIVE' as any, endDate: { gte: new Date() } },
+          where: { status: 'LIVE' as any, AND: [notEndedBy(new Date(), true)] },
           take: 1,
         },
       },
@@ -117,7 +118,7 @@ export class MerchantRepository extends BaseRepository<Merchant, MerchantCreateI
         }),
         prisma.merchantOffer.count({ where: { merchantId, deletedAt: null } }),
         prisma.merchantOffer.count({
-          where: { merchantId, deletedAt: null, status: 'LIVE', endDate: { gte: new Date() } },
+          where: { merchantId, deletedAt: null, status: 'LIVE', AND: [notEndedBy(new Date(), true)] },
         }),
         prisma.redemption.findMany({
           where: { merchantId, redeemedAt: { gte: dateFrom, lte: dateTo } },

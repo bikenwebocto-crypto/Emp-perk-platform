@@ -15,6 +15,7 @@
 // Note: per-employee redemption limit is enforced at redemption time (not at
 // visibility time) by counting the employee's existing redemptions for the offer.
 
+import { isOnlineBranch } from '@/lib/branch-helpers';
 import { prisma } from '@/lib/prisma'
 import {
   deriveCapacityStatus,
@@ -28,10 +29,10 @@ import {
  */
 export function effectiveOfferStatus<S extends string>(
   status: S,
-  endDate: Date,
+  endDate: Date | null,
   now: Date = new Date(),
 ): S | 'EXPIRED' {
-  return status === 'LIVE' && endDate <= now ? 'EXPIRED' : status
+  return status === 'LIVE' && endDate != null && endDate <= now ? 'EXPIRED' : status
 }
 
 export interface OfferVisibilityResult {
@@ -56,7 +57,7 @@ export async function isOfferVisibleToEmployees(
   if (offer.status !== 'LIVE') return { visible: false, reason: 'Offer is not live' }
   const now = new Date()
   if (offer.startDate > now) return { visible: false, reason: 'Offer has not started yet' }
-  if (offer.endDate <= now) return { visible: false, reason: 'Offer has expired' }
+  if (offer.endDate && offer.endDate <= now) return { visible: false, reason: 'Offer has expired' }
   if (offer.merchant.status !== 'ACTIVE') {
     return { visible: false, reason: 'Merchant is not active' }
   }
@@ -65,7 +66,7 @@ export async function isOfferVisibleToEmployees(
   }
   const hasActiveBranch = offer.merchant.branches.some((b) => b.isActive && b.status === 'ACTIVE')
   const hasOnlineBranch = offer.merchant.branches.some(
-    (b) => b.branchType === 'ONLINE' && b.isActive && b.status === 'ACTIVE'
+    (b) => isOnlineBranch(b.branchType) && b.isActive && b.status === 'ACTIVE'
   )
   if (!hasActiveBranch && !hasOnlineBranch) {
     return { visible: false, reason: 'Merchant has no active branches' }

@@ -7,6 +7,8 @@ import {
   validateBranchInput,
   isSignificantLocationChange,
   hasDuplicateAddress,
+  isPhysicalBranch,
+  PHYSICAL_BRANCH_TYPES,
 } from '@/lib/branch-helpers'
 import { createAuditLog } from '@/services/audit-log.service'
 import { getLiveOffersLinkedToBranch, linkedOffersMessage } from '@/lib/offers/channel.server'
@@ -128,7 +130,7 @@ export async function PATCH(
         country: updateData.country as string | undefined,
         latitude: updateData.latitude as number | null | undefined,
         longitude: updateData.longitude as number | null | undefined,
-        branchType: updateData.branchType as 'IN_STORE' | 'ONLINE' | undefined,
+        branchType: updateData.branchType as 'IN_STORE' | 'ONLINE' | 'BOTH' | undefined,
         isNationwide: updateData.isNationwide as boolean | undefined,
         deliveryRadiusKm: updateData.deliveryRadiusKm as number | null | undefined,
         websiteUrl: updateData.websiteUrl as string | null | undefined,
@@ -164,7 +166,7 @@ export async function PATCH(
     }
 
     if (
-      existing.branchType === 'IN_STORE' &&
+      isPhysicalBranch(existing.branchType) &&
       (updateData.addressLine1 !== undefined ||
         updateData.city !== undefined ||
         updateData.state !== undefined ||
@@ -179,7 +181,7 @@ export async function PATCH(
         country: (updateData.country as string) ?? existing.country,
       }
       const others = await prisma.merchantBranch.findMany({
-        where: { merchantId: merchant.id, branchType: 'IN_STORE', deletedAt: null, NOT: { id } },
+        where: { merchantId: merchant.id, branchType: { in: [...PHYSICAL_BRANCH_TYPES] }, deletedAt: null, NOT: { id } },
         select: { id: true, addressLine1: true, city: true, state: true, postalCode: true, country: true },
       })
       if (hasDuplicateAddress(newAddress, others as any)) {
@@ -191,7 +193,7 @@ export async function PATCH(
 
     const locationCheck = isSignificantLocationChange(existing, updateData)
     let requiresApproval = false
-    if (locationCheck.changed && existing.status === 'ACTIVE' && existing.branchType === 'IN_STORE') {
+    if (locationCheck.changed && existing.status === 'ACTIVE' && isPhysicalBranch(existing.branchType)) {
       requiresApproval = true
     }
 

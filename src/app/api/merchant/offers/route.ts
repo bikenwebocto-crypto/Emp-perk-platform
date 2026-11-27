@@ -1,3 +1,4 @@
+import { notEndedBy } from '@/lib/offers/end-date';
 import { categoryLockError } from '@/lib/offers/category-lock'
 import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -18,7 +19,12 @@ import {
 } from "@/lib/offer-replacement";
 import { logReplacementAudit, notifyReplacement } from "@/lib/offer-replacement-notifications";
 import { createAuditLog } from '@/services/audit-log.service';
-import { generateUniqueOfferCode, isValidOfferCode } from '@/lib/offer-code';
+import {
+  generateUniqueOfferCode,
+  isPromoCodeTakenByLiveOffer,
+  isValidOfferCode,
+  PROMO_CODE_TAKEN_MESSAGE,
+} from '@/lib/offer-code';
 import { parseRepeatAfterHoursInput } from '@/lib/redemption-tracking';
 import { validateFlashWindow } from '@/lib/offers/flash';
 import {
@@ -144,7 +150,7 @@ function runQualityChecks(body: any): {
     }
   }
   if (!body.startDate) errors.startDate = "Start date is required";
-  if (!body.endDate) errors.endDate = "End date is required";
+  if (!body.endDate && !body.isForever) errors.endDate = "End date is required";
   if (
     body.startDate &&
     body.endDate &&
@@ -458,7 +464,7 @@ export async function GET(request: NextRequest) {
           merchantId: merchant.id,
           status: "LIVE",
           startDate: { lte: new Date() },
-          endDate: { gt: new Date() },
+          AND: [notEndedBy(new Date())],
           deletedAt: null,
         },
         select: { startDate: true, endDate: true, isForever: true, isFlash: true },
@@ -539,7 +545,7 @@ export async function POST(request: NextRequest) {
     if (categoryLock) return categoryLock;
     if (!merchant.categoryId && !body.saveAsDraft) {
       return NextResponse.json(
-        { success: false, error: { code: "MISSING_CATEGORY", message: "Your business category is not set. Please contact support." } },
+        { success: false, error: { code: "MISSING_CATEGORY", message: "Your business category is not set. Please contact hello@perksandmore.com." } },
         { status: 400 },
       );
     }
@@ -606,9 +612,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (!title || !offerType || !startDate || !endDate) {
+    if (!title || !offerType || !startDate || (!endDate && !isForever)) {
       return badRequest(
-        "Missing required fields: title, offerType, startDate, endDate",
+        "Missing required fields: title, offerType, startDate, endDate (except Evergreen offers)",
       );
     }
 
@@ -656,6 +662,13 @@ export async function POST(request: NextRequest) {
     if (redemptionType === 'ONLINE_CODE' && !saveAsDraft && !String(redemptionCode ?? '').trim()) {
       return badRequest("Offer code is required for ONLINE_CODE offers");
     }
+    if (
+      redemptionType === 'ONLINE_CODE' &&
+      String(redemptionCode ?? '').trim() &&
+      (await isPromoCodeTakenByLiveOffer(String(redemptionCode)))
+    ) {
+      return badRequest(PROMO_CODE_TAKEN_MESSAGE);
+    }
     if (redemptionType === 'BOOKING_LINK' && !bookingUrl && !saveAsDraft) {
       return badRequest("Booking URL is required for BOOKING_LINK offers");
     }
@@ -700,7 +713,7 @@ export async function POST(request: NextRequest) {
         where: {
           merchantId: merchant.id,
           status: "LIVE",
-          endDate: { gt: new Date() },
+          AND: [notEndedBy(new Date())],
           deletedAt: null,
         },
         select: {
@@ -834,7 +847,7 @@ export async function POST(request: NextRequest) {
           // redemption: redemptionType ?? null,
           status: targetStatus,
           startDate: new Date(startDate),
-          endDate: new Date(endDate),
+          endDate: endDate ? new Date(endDate) : null,
           submittedAt: saveAsDraft ? null : new Date(),
           ...(autoActivate ? { liveAt: activatedAt } : {}),
           replacesOfferId: replacesOfferId ?? null,

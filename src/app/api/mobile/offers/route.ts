@@ -1,3 +1,4 @@
+import { notEndedBy } from '@/lib/offers/end-date';
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { redemptionResponseFields } from '@/lib/offers/channel'
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
       status: 'LIVE',
       // flash offers are served by /api/mobile/flash
       startDate: { lte: now },
-      endDate: { gt: now },
+      AND: [notEndedBy(now)],
       merchant: {
         status: 'ACTIVE',
         deletedAt: null,

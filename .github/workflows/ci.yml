@@ -203,6 +203,11 @@ jobs:
           task-definition: task-definition.json
           container-name: ${{ vars.ECS_CONTAINER_NAME_STAGING }}
           image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_STAGING }}:${{ github.sha }}
+          # ON-04: ECS sets HOSTNAME to the instance's ec2.internal name, which
+          # overrides the Dockerfile ENV. Pin it in the task definition so the
+          # standalone server binds 0.0.0.0 and never advertises the internal host.
+          environment-variables: |
+            HOSTNAME=0.0.0.0
 
       # ----------------------------------------------------------
       # ECS - Deploy

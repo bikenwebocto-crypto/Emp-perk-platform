@@ -1,3 +1,4 @@
+import { hasEnded } from '@/lib/offers/end-date';
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getRepeatAfterHours } from "@/lib/redemption-tracking";
@@ -154,7 +155,7 @@ export async function GET(
 
     const now = new Date();
     const hasLiveForever = offers.some(
-      (o) => o.status === "LIVE" && o.endDate > now && isForeverOffer(o),
+      (o) => o.status === "LIVE" && !hasEnded(o.endDate, now) && isForeverOffer(o),
     );
 
     return NextResponse.json({

@@ -1,3 +1,4 @@
+import { PHYSICAL_BRANCH_TYPES } from '@/lib/branch-helpers';
 import { prisma } from '@/lib/prisma'
 import { normalizeOpeningHours } from '@/lib/branch-helpers'
 
@@ -71,7 +72,7 @@ interface FetchBranchesOptions {
 export async function fetchStoreBranches(opts: FetchBranchesOptions): Promise<StoreBranch[]> {
   const where: Record<string, unknown> = {
     deletedAt: null,
-    branchType: 'IN_STORE',
+    branchType: { in: [...PHYSICAL_BRANCH_TYPES] },
   }
   if (opts.merchantId) where.merchantId = opts.merchantId
   if (opts.status) where.status = opts.status

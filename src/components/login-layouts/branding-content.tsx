@@ -52,7 +52,7 @@ export function BrandingContent({
 
       {showHeading && (
         <h1 className="mb-3 text-3xl font-bold md:text-4xl" style={{ color: textColor }}>
-          {heading || "Welcome Back"}
+          {heading || "Sign in"}
         </h1>
       )}
 

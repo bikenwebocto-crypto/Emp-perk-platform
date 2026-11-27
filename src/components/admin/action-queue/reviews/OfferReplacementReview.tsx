@@ -258,7 +258,7 @@ function OfferSummary({ offer, label, accent }: { offer: any; label: string; acc
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Clock className="h-3 w-3" />
-          {formatDate(offer.startDate)} → {formatDate(offer.endDate)}
+          {formatDate(offer.startDate)} → {offer.endDate ? formatDate(offer.endDate) : 'No end date'}
         </div>
         {offer.content?.description && (
           <p className="line-clamp-3 text-xs text-muted-foreground">{offer.content.description}</p>

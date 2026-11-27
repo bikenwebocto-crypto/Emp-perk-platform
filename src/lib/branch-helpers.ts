@@ -56,11 +56,17 @@ export const BRANCH_TYPE_OPTIONS: { value: BranchType; label: string; descriptio
     label: 'Online',
     description: 'Digital or delivery branch. Only one per merchant.',
   },
+  {
+    value: 'BOTH',
+    label: 'In-Store & Online',
+    description: 'Physical store that also sells online. Requires address and coordinates.',
+  },
 ]
 
 export const BRANCH_TYPE_LABELS: Record<BranchType, string> = {
   IN_STORE: 'In-Store',
   ONLINE: 'Online',
+  BOTH: 'In-Store & Online',
 }
 
 export const BRANCH_STATUS_LABELS: Record<BranchStatus, string> = {
@@ -75,6 +81,7 @@ export function getBranchDisplayType(branch: {
   deliveryRadiusKm?: number | null
 }): BranchDisplayType {
   if (branch.branchType === 'IN_STORE') return 'IN_STORE'
+  if (branch.branchType === 'BOTH') return 'BOTH'
   if (branch.isNationwide || (branch.deliveryRadiusKm ?? 0) > 0) return 'ONLINE_DELIVERY'
   return 'ONLINE_DIGITAL'
 }
@@ -83,12 +90,14 @@ export const BRANCH_DISPLAY_TYPE_LABELS: Record<BranchDisplayType, string> = {
   IN_STORE: 'In-Store',
   ONLINE_DELIVERY: 'Online (Delivery)',
   ONLINE_DIGITAL: 'Online (Digital)',
+  BOTH: 'In-Store & Online',
 }
 
 export const BRANCH_DISPLAY_TYPE_STYLES: Record<BranchDisplayType, string> = {
   IN_STORE: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-500',
   ONLINE_DELIVERY: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-500',
   ONLINE_DIGITAL: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-500',
+  BOTH: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-500',
 }
 
 export const BRANCH_STATUS_STYLES: Record<BranchStatus, string> = {
@@ -150,9 +159,9 @@ export function validateBranchInput(input: BranchValidationInput, partial = fals
   }
 
   const isDelivery =
-    input.branchType === 'ONLINE' && (input.isNationwide === true || (input.deliveryRadiusKm ?? 0) > 0)
+    (input.branchType === 'ONLINE' || input.branchType === 'BOTH') && (input.isNationwide === true || (input.deliveryRadiusKm ?? 0) > 0)
 
-  if (input.branchType === 'ONLINE') {
+  if (input.branchType === 'ONLINE' || input.branchType === 'BOTH') {
     if (isDelivery) {
       if (!input.isNationwide && (!input.deliveryRadiusKm || input.deliveryRadiusKm <= 0)) {
         errors.deliveryRadiusKm = 'Delivery radius is required for delivery merchants'
@@ -293,4 +302,19 @@ export function formatOpeningHours(hours: any): string {
       .join(' • ')
   }
   return 'Custom schedule'
+}
+
+// A BOTH branch is a physical store that also sells online, so it counts as
+// in-store and as online wherever branches are matched.
+export const PHYSICAL_BRANCH_TYPES = ['IN_STORE', 'BOTH'] as const satisfies readonly BranchType[]
+export const ONLINE_BRANCH_TYPES = ['ONLINE', 'BOTH'] as const satisfies readonly BranchType[]
+
+/** Has a physical store (IN_STORE or BOTH). */
+export function isPhysicalBranch(type: BranchType | string | null | undefined): boolean {
+  return type === 'IN_STORE' || type === 'BOTH'
+}
+
+/** Sells online (ONLINE or BOTH). */
+export function isOnlineBranch(type: BranchType | string | null | undefined): boolean {
+  return type === 'ONLINE' || type === 'BOTH'
 }

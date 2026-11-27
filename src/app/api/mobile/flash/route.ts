@@ -1,3 +1,4 @@
+import { notEndedBy } from '@/lib/offers/end-date';
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { redemptionResponseFields } from '@/lib/offers/channel'
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
       status: 'LIVE',
       isFlash: true,
       startDate: { lte: now },
-      endDate: { gt: now },
+      AND: [notEndedBy(now)],
       merchant: {
         status: 'ACTIVE',
         deletedAt: null,
@@ -149,7 +150,7 @@ export async function GET(request: NextRequest) {
         startDate: o.startDate,
         endDate: o.endDate,
         // Seconds left in the flash window, so the app can run a countdown.
-        secondsLeft: Math.max(0, Math.floor((o.endDate.getTime() - now.getTime()) / 1000)),
+        secondsLeft: o.endDate ? Math.max(0, Math.floor((o.endDate.getTime() - now.getTime()) / 1000)) : null,
         isFeatured: o.isFeatured,
         isExclusive: o.isExclusive,
         isFlash: o.isFlash,

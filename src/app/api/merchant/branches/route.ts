@@ -8,6 +8,7 @@ import {
   hasDuplicateAddress,
   isSignificantLocationChange,
   DEFAULT_OPENING_HOURS,
+  PHYSICAL_BRANCH_TYPES,
 } from '@/lib/branch-helpers'
 import { createAuditLog } from '@/services/audit-log.service'
 import { channels, publishBusinessNotification } from '@/services/business-notification.service'
@@ -61,7 +62,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (type && type !== 'ALL') {
-      where.branchType = type as 'IN_STORE' | 'ONLINE'
+      where.branchType = type as 'IN_STORE' | 'ONLINE' | 'BOTH'
     }
 
     if (!includeClosed) {
@@ -186,9 +187,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (branchType === 'IN_STORE') {
+    if (branchType === 'IN_STORE' || branchType === 'BOTH') {
       const existingAddresses = await prisma.merchantBranch.findMany({
-        where: { merchantId: merchant.id, deletedAt: null, branchType: 'IN_STORE' },
+        where: { merchantId: merchant.id, deletedAt: null, branchType: { in: [...PHYSICAL_BRANCH_TYPES] } },
         select: { id: true, addressLine1: true, city: true, state: true, postalCode: true, country: true },
       })
       if (

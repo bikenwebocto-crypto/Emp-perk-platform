@@ -18,7 +18,7 @@ interface ArchivedRow {
   title: string
   status: string
   startDate: string
-  endDate: string
+  endDate: string | null
   updatedAt: string
   replacesOffer: { id: string; title: string } | null
   _count: { redemptions: number }
@@ -37,8 +37,8 @@ async function fetchArchived(params: URLSearchParams): Promise<ApiResponse> {
   return json
 }
 
-function formatDate(s: string) {
-  return new Date(s).toLocaleDateString()
+function formatDate(s: string | null) {
+  return s ? new Date(s).toLocaleDateString() : 'No end date'
 }
 
 export default function ArchivedOffersPage() {

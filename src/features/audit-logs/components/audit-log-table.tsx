@@ -8,8 +8,8 @@ interface AuditLog {
   action: string
   entityType: string
   entityId: string
-  adminName: string
-  ipAddress: string
+  actorName: string
+  ipAddress: string | null
   createdAt: string
 }
 
@@ -36,7 +36,7 @@ export function AuditLogTable({ logs, isLoading }: AuditLogTableProps) {
           <tr className="border-b text-left text-muted-foreground">
             <th className="pb-3 font-medium">Action</th>
             <th className="pb-3 font-medium">Entity</th>
-            <th className="pb-3 font-medium">Admin</th>
+            <th className="pb-3 font-medium">Actor</th>
             <th className="pb-3 font-medium">IP Address</th>
             <th className="pb-3 font-medium">Date</th>
           </tr>
@@ -51,9 +51,9 @@ export function AuditLogTable({ logs, isLoading }: AuditLogTableProps) {
                 <span className="font-medium">{l.entityType}</span>
                 <span className="ml-1 font-mono text-xs text-muted-foreground">#{l.entityId.slice(0, 8)}</span>
               </td>
-              <td className="py-3">{l.adminName}</td>
-              <td className="py-3 font-mono text-xs text-muted-foreground">{l.ipAddress}</td>
-              <td className="py-3 text-muted-foreground">{new Date(l.createdAt).toLocaleDateString()}</td>
+              <td className="py-3">{l.actorName}</td>
+              <td className="py-3 font-mono text-xs text-muted-foreground">{l.ipAddress ?? "—"}</td>
+              <td className="py-3 text-muted-foreground">{new Date(l.createdAt).toLocaleString()}</td>
             </tr>
           ))}
         </tbody>

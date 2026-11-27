@@ -69,7 +69,7 @@ async function checkVoucherExists(
       merchantId: offerRedemption.offer.merchant.id,
       discountValue,
       discountType: offerRedemption.offer.offerType,
-      expiresAt: offerRedemption.offer.endDate.toISOString(),
+      expiresAt: offerRedemption.offer.endDate?.toISOString() ?? null,
     },
   }
 }
@@ -115,7 +115,7 @@ async function checkVoucherActive(code: string): Promise<ValidationResult> {
       merchantId: offerRedemption.offer.merchant.id,
       discountValue,
       discountType: offerRedemption.offer.offerType,
-      expiresAt: offerRedemption.offer.endDate.toISOString(),
+      expiresAt: offerRedemption.offer.endDate?.toISOString() ?? null,
     },
   }
 }
@@ -151,11 +151,11 @@ async function checkVoucherDates(code: string): Promise<ValidationResult> {
     }
   }
 
-  if (offerRedemption.offer.endDate < now) {
+  if (offerRedemption.offer.endDate && offerRedemption.offer.endDate < now) {
     return {
       valid: false,
       errorCode: 'VOUCHER_EXPIRED',
-      errorMessage: `Voucher has expired (expired: ${offerRedemption.offer.endDate.toISOString()})`,
+      errorMessage: `Voucher has expired (expired: ${offerRedemption.offer.endDate!.toISOString()})`,
     }
   }
 
@@ -171,7 +171,7 @@ async function checkVoucherDates(code: string): Promise<ValidationResult> {
       merchantId: offerRedemption.offer.merchant.id,
       discountValue,
       discountType: offerRedemption.offer.offerType,
-      expiresAt: offerRedemption.offer.endDate.toISOString(),
+      expiresAt: offerRedemption.offer.endDate?.toISOString() ?? null,
     },
   }
 }
@@ -221,7 +221,7 @@ async function checkVoucherUsageLimits(code: string): Promise<ValidationResult> 
       merchantId: offerRedemption.offer.merchant.id,
       discountValue,
       discountType: offerRedemption.offer.offerType,
-      expiresAt: offerRedemption.offer.endDate.toISOString(),
+      expiresAt: offerRedemption.offer.endDate?.toISOString() ?? null,
     },
   }
 }
@@ -401,11 +401,11 @@ export async function validateVoucher(
 
     // 6. Check offer expiry
     const now = new Date()
-    if (redemption.offer.endDate < now) {
+    if (redemption.offer.endDate && redemption.offer.endDate < now) {
       return {
         valid: false,
         errorCode: 'VOUCHER_EXPIRED',
-        errorMessage: `Voucher has expired (expired: ${redemption.offer.endDate.toISOString()})`,
+        errorMessage: `Voucher has expired (expired: ${redemption.offer.endDate!.toISOString()})`,
       }
     }
 
@@ -425,7 +425,7 @@ export async function validateVoucher(
         merchantId: redemption.offer.merchant.id,
         discountValue: Number(redemption.discountAmount),
         discountType: redemption.offer.offerType,
-        expiresAt: redemption.offer.endDate.toISOString(),
+        expiresAt: redemption.offer.endDate?.toISOString() ?? null,
       },
     }
   }

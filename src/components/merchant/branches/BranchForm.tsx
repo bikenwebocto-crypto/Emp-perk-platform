@@ -158,13 +158,13 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
       showToast({ type: 'error', title: 'Website URL must start with http:// or https://' })
       return
     }
-    if (isOnline && onlineMode === 'RADIUS' && !((values.deliveryRadiusKm ?? 0) > 0)) {
+    if (hasOnline && onlineMode === 'RADIUS' && !((values.deliveryRadiusKm ?? 0) > 0)) {
       showToast({ type: 'error', title: 'Enter a delivery radius greater than 0 km' })
       return
     }
     // Normalise online coverage fields from the selected mode so the server
     // sees a consistent combination.
-    const submitted: BranchFormValues = isOnline
+    const submitted: BranchFormValues = hasOnline
       ? {
           ...values,
           isNationwide: onlineMode === 'NATIONWIDE',
@@ -174,8 +174,10 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
     onSubmit(submitted)
   }
 
+  // ONLINE = online-only; BOTH = a physical store that also sells online.
   const isOnline = values.branchType === 'ONLINE'
-  const isDelivery = isOnline && onlineMode !== 'DIGITAL'
+  const hasOnline = values.branchType !== 'IN_STORE'
+  const isDelivery = hasOnline && onlineMode !== 'DIGITAL'
   const needsAddress = !isOnline || isDelivery
 
   const [isLocating, setIsLocating] = useState(false)
@@ -260,7 +262,7 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             {BRANCH_TYPE_OPTIONS.map((opt) => {
               const active = values.branchType === opt.value
               return (
@@ -294,7 +296,7 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
           )}
           {errors.branchType && <p className="text-xs text-destructive">{errors.branchType}</p>}
 
-          {isOnline && (
+          {hasOnline && (
             <div className="space-y-3 rounded-md border bg-muted/30 p-3">
               <p className="flex items-center gap-2 text-sm font-medium">
                 <Globe className="h-4 w-4 text-muted-foreground" /> How do customers get your products?
@@ -357,7 +359,7 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
             {errors.name && <p className="mt-1 text-xs text-destructive">{errors.name}</p>}
           </div>
 
-          {isOnline && (
+          {hasOnline && (
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Website URL</label>
               <Input
@@ -465,7 +467,7 @@ export function BranchForm({ initialValues, errors = {}, submitting, isEdit, onS
             </div>
           </div>
 
-          {isOnline && (
+          {hasOnline && (
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>
               <textarea
@@ -747,15 +749,15 @@ export function valuesToPayload(v: BranchFormValues) {
     openingHours: v.openingHours,
     isPrimary: v.isPrimary,
     branchType: v.branchType,
-    deliveryRadiusKm: v.branchType === 'ONLINE' ? v.deliveryRadiusKm : null,
-    isNationwide: v.branchType === 'ONLINE' ? v.isNationwide : false,
+    deliveryRadiusKm: v.branchType !== 'IN_STORE' ? v.deliveryRadiusKm : null,
+    isNationwide: v.branchType !== 'IN_STORE' ? v.isNationwide : false,
     storefrontImageUrl: v.storefrontImageUrl.trim() || null,
     branchImages: v.branchImages,
     parkingInfo: v.parkingInfo.trim() || null,
     wheelchairAccess: v.wheelchairAccess,
     landmark: v.landmark.trim() || null,
     description: v.description.trim() || null,
-    websiteUrl: v.branchType === 'ONLINE' ? v.websiteUrl.trim() || null : null,
+    websiteUrl: v.branchType !== 'IN_STORE' ? v.websiteUrl.trim() || null : null,
     status: v.status,
   }
 }

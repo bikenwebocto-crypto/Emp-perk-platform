@@ -1,3 +1,4 @@
+import { notEndedBy } from '@/lib/offers/end-date';
 import { prisma } from '@/lib/prisma';
 import { BaseRepository } from './base.repository';
 import type { Prisma, MerchantOffer } from '@prisma/client';
@@ -32,7 +33,7 @@ export class OfferRepository extends BaseRepository<MerchantOffer, OfferCreateIn
       where: {
         status: 'LIVE' as any,
         startDate: { lte: now },
-        endDate: { gte: now },
+        AND: [notEndedBy(now, true)],
         merchant: {
           status: 'ACTIVE' as any,
           deletedAt: null,
@@ -102,7 +103,7 @@ export class OfferRepository extends BaseRepository<MerchantOffer, OfferCreateIn
         deletedAt: null,
         status: 'LIVE' as any,
         startDate: { lte: now },
-        endDate: { gte: now },
+        AND: [notEndedBy(now, true)],
       },
       orderBy: { createdAt: 'desc' },
     });

@@ -80,7 +80,7 @@ const offerTypeConfig: Record<string, { label: string; icon: any; gradient: stri
 
 const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-function formatDate(date: string | Date) {
+function formatDate(date: string | Date | null) {
   if (!date) return '-'
   return new Date(date).toLocaleDateString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric',
@@ -319,6 +319,7 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
           gradient="from-amber-500 to-orange-600"
           label="Days Remaining"
           value={(() => {
+            if (!offer.endDate) return "∞"
             const end = new Date(offer.endDate)
             const now = new Date()
             const diff = Math.ceil((end.getTime() - now.getTime()) / 86400000)
@@ -444,7 +445,7 @@ export default function OfferDetailPage({ params }: { params: Promise<{ id: stri
           </CardHeader>
           <CardContent className="space-y-3 p-4 text-sm">
             <DetailRow icon={Calendar} label="Start Date" value={formatDate(offer.startDate)} />
-            <DetailRow icon={Calendar} label="End Date" value={formatDate(offer.endDate)} />
+            <DetailRow icon={Calendar} label="End Date" value={offer.endDate ? formatDate(offer.endDate) : "No end date (Evergreen)"} />
             <div className="rounded-lg bg-muted/40 p-3">
               <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Repeat className="h-3.5 w-3.5" />

@@ -516,7 +516,7 @@ export function RedeemModal({
                 <p className="text-xs text-muted-foreground">Valid</p>
                 <p className="font-medium">
                   {new Date(o.startDate).toLocaleDateString()} –{" "}
-                  {new Date(o.endDate).toLocaleDateString()}
+                  {o.endDate ? new Date(o.endDate).toLocaleDateString() : "No end date"}
                 </p>
               </div>
               {o.maxRedemptions != null && (

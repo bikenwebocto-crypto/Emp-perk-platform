@@ -90,7 +90,7 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
     }
   };
 
-  const flashTimeLeft = offer.isFlash ? formatTimeLeft(offer.endDate) : null;
+  const flashTimeLeft = offer.isFlash && offer.endDate ? formatTimeLeft(offer.endDate) : null;
 
   const handleOpen = () => onOpen?.(offer);
 
@@ -258,7 +258,7 @@ export function OfferCard({ offer, onRedeem, onOpen }: Props) {
         {/* Footer */}
         <div className="flex items-center justify-between border-t pt-2">
           <span className="text-[11px] text-muted-foreground">
-            {offer.isExpired ? "Expired" : "Expires"} {new Date(offer.endDate).toLocaleDateString()}
+            {offer.endDate ? `${offer.isExpired ? "Expired" : "Expires"} ${new Date(offer.endDate).toLocaleDateString()}` : "No expiry"}
           </span>
           {offer.isExpired ? (
             <Button

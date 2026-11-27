@@ -1,3 +1,4 @@
+import { PHYSICAL_BRANCH_TYPES } from '@/lib/branch-helpers';
 import { prisma } from '@/lib/prisma'
 import { normalizeOpeningHours } from '@/lib/branch-helpers'
 
@@ -67,7 +68,7 @@ export async function fetchAdminStores(
 ): Promise<AdminStoresResponse> {
   const where: Record<string, unknown> = {
     deletedAt: null,
-    branchType: 'IN_STORE',
+    branchType: { in: [...PHYSICAL_BRANCH_TYPES] },
   }
 
   if (opts.merchantId) where.merchantId = opts.merchantId
@@ -161,7 +162,7 @@ export async function fetchAdminStoreFilters(): Promise<{
   merchants: { id: string; name: string }[]
 }> {
   const branches = await prisma.merchantBranch.findMany({
-    where: { deletedAt: null, branchType: 'IN_STORE' },
+    where: { deletedAt: null, branchType: { in: [...PHYSICAL_BRANCH_TYPES] } },
     select: {
       city: true,
       state: true,

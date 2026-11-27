@@ -1,3 +1,4 @@
+import { notEndedBy } from '@/lib/offers/end-date';
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getEmployeeFromSession, unauthorized, internalError, companyInactive, notFound, badRequest } from '@/lib/employee-session'
@@ -34,7 +35,7 @@ export async function GET(_request: NextRequest) {
         where: {
           status: 'LIVE',
           startDate: { lte: now },
-          endDate: { gt: now },
+          AND: [notEndedBy(now)],
           merchant: {
             status: 'ACTIVE',
             deletedAt: null,

@@ -1,3 +1,4 @@
+import { isOnlineBranch, isPhysicalBranch } from "@/lib/branch-helpers";
 /**
  * Offer channel (In-store / Online / Both) and branch selection.
  *
@@ -70,8 +71,8 @@ export function countActiveBranches(
 ): ActiveBranchCounts {
   const active = (rows ?? []).filter((b) => b.status === undefined || b.status === "ACTIVE");
   return {
-    inStore: active.filter((b) => b.branchType === "IN_STORE").length,
-    online: active.filter((b) => b.branchType === "ONLINE").length,
+    inStore: active.filter((b) => isPhysicalBranch(b.branchType)).length,
+    online: active.filter((b) => isOnlineBranch(b.branchType)).length,
   };
 }
 

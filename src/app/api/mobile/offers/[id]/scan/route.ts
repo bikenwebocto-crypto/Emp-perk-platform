@@ -1,3 +1,4 @@
+import { hasEnded } from '@/lib/offers/end-date';
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
@@ -86,7 +87,7 @@ export async function POST(
         { status: 400 },
       )
     }
-    if (offer.endDate <= now) {
+    if (hasEnded(offer.endDate, now)) {
       return NextResponse.json(
         { success: false, error: { code: 'EXPIRED_OFFER', message: 'Offer has expired' } },
         { status: 400 },

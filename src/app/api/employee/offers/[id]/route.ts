@@ -78,7 +78,7 @@ export async function GET(
         isFeatured: offer.isFeatured,
         isExclusive: offer.isExclusive,
         startDate: offer.startDate.toISOString(),
-        endDate: offer.endDate.toISOString(),
+        endDate: offer.endDate?.toISOString() ?? null,
         merchant: offer.merchant,
         isVisible: visibility.visible,
         visibilityReason: visibility.reason,

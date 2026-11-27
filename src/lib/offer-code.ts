@@ -57,3 +57,33 @@ export function isValidOfferCode(code: string): boolean {
 export function normalizeOfferCode(code: string): string {
   return code.trim().toUpperCase()
 }
+
+export const PROMO_CODE_TAKEN_MESSAGE =
+  'This promo code is already used by another live offer. Please choose a different code.'
+
+/**
+ * True when another LIVE (non-deleted) offer already uses this promo code.
+ * Codes compare case-insensitively. Pass the offer being edited as `excludeOfferId`.
+ */
+export async function isPromoCodeTakenByLiveOffer(
+  code: string,
+  excludeOfferId?: string | null,
+): Promise<boolean> {
+  const normalized = normalizeOfferCode(code)
+  if (!normalized) return false
+  const candidates = await prisma.offerRedemption.findMany({
+    where: {
+      offer: {
+        status: 'LIVE',
+        deletedAt: null,
+        ...(excludeOfferId ? { id: { not: excludeOfferId } } : {}),
+      },
+      configuration: { path: ['code'], not: null as any },
+    },
+    select: { configuration: true },
+  })
+  return candidates.some((r) => {
+    const c = (r.configuration as { code?: unknown } | null)?.code
+    return typeof c === 'string' && normalizeOfferCode(c) === normalized
+  })
+}

@@ -551,7 +551,7 @@ model MerchantOffer {
   offerType     String      @db.VarChar(50)
   status        OfferStatus @default(DRAFT)
   startDate     DateTime
-  endDate       DateTime
+  endDate       DateTime? /// null = open-ended (Evergreen offers)
   submittedAt   DateTime?
   reviewedAt    DateTime?
   liveAt        DateTime?
@@ -1423,6 +1423,8 @@ enum RealtimeEventType {
 enum BranchType {
   IN_STORE
   ONLINE
+  /// Physical store that also sells online.
+  BOTH
 }
 
 enum BranchStatus {

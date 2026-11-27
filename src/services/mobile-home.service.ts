@@ -30,6 +30,7 @@
 //     geolocation flow lands it can be used to bias every section without
 //     breaking the wire format.
 
+import { notEndedBy } from '@/lib/offers/end-date';
 import { prisma } from '@/lib/prisma'
 import { redemptionResponseFields, type OfferChannel } from '@/lib/offers/channel'
 import { haversineKm, branchCoordinate } from '@/lib/distance'
@@ -77,7 +78,8 @@ export interface MobileHomeOffer {
   discountValue: number
   discountPercent: number | null
   startDate: string
-  endDate: string
+  /** null = open-ended (Evergreen). */
+  endDate: string | null
   isFeatured: boolean
   isExclusive: boolean
   distance: number | null
@@ -163,7 +165,7 @@ const liveOfferWhere = (now: Date) => ({
   status: 'LIVE' as const,
   isFlash: false,
   startDate: { lte: now },
-  endDate: { gt: now },
+  AND: [notEndedBy(now)],
   merchant: {
     status: 'ACTIVE' as const,
     deletedAt: null,
@@ -227,7 +229,7 @@ function mapOffer(
     title: string
     offerType: string
     startDate: Date
-    endDate: Date
+    endDate: Date | null
     isFeatured: boolean
     isExclusive: boolean
     content: {
@@ -269,7 +271,7 @@ function mapOffer(
     discountValue,
     discountPercent: pricingConfig.percent as number ?? null,
     startDate: toIso(o.startDate),
-    endDate: toIso(o.endDate),
+    endDate: o.endDate ? toIso(o.endDate) : null,
     isFeatured: o.isFeatured,
     isExclusive: o.isExclusive,
     distance,
@@ -383,7 +385,7 @@ async function buildBrandsNearYou(
             where: {
               status: 'LIVE',
               startDate: { lte: new Date() },
-              endDate: { gt: new Date() },
+              AND: [notEndedBy(new Date())],
             },
           },
         },

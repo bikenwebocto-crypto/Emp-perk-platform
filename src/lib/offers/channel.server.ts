@@ -1,3 +1,5 @@
+import { PHYSICAL_BRANCH_TYPES } from '@/lib/branch-helpers';
+import { notEndedBy } from '@/lib/offers/end-date';
 import { prisma } from "@/lib/prisma";
 import {
   branchSelectionError,
@@ -24,7 +26,7 @@ export async function getLiveOffersLinkedToBranch(
 ): Promise<{ id: string; title: string }[]> {
   if (branch.branchType === "ONLINE") return [];
   const offers = await prisma.merchantOffer.findMany({
-    where: { merchantId, deletedAt: null, status: "LIVE", endDate: { gt: new Date() } },
+    where: { merchantId, deletedAt: null, status: "LIVE", AND: [notEndedBy(new Date())] },
     select: {
       id: true,
       title: true,
@@ -48,7 +50,7 @@ export async function getLiveOffersLinkedToBranch(
       const others = await prisma.merchantBranch.count({
         where: {
           merchantId,
-          branchType: "IN_STORE",
+          branchType: { in: [...PHYSICAL_BRANCH_TYPES] },
           status: "ACTIVE",
           isActive: true,
           deletedAt: null,
@@ -80,7 +82,8 @@ export async function getActiveBranchCounts(merchantId: string): Promise<ActiveB
     _count: { _all: true },
   });
   const count = (t: string) => rows.find((r) => r.branchType === t)?._count._all ?? 0;
-  return { inStore: count("IN_STORE"), online: count("ONLINE") };
+  // BOTH branches count as in-store and as online.
+  return { inStore: count("IN_STORE") + count("BOTH"), online: count("ONLINE") + count("BOTH") };
 }
 
 /** Error message when the merchant lacks the active branch(es) the channel needs, else null. */
@@ -96,7 +99,7 @@ export async function getSelectableBranchIds(merchantId: string): Promise<string
   const branches = await prisma.merchantBranch.findMany({
     where: {
       merchantId,
-      branchType: "IN_STORE",
+      branchType: { in: [...PHYSICAL_BRANCH_TYPES] },
       deletedAt: null,
       status: { not: "CLOSED" },
     },

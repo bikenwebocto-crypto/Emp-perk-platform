@@ -1,5 +1,6 @@
 'use server';
 
+import { notEndedBy } from '@/lib/offers/end-date';
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { offerSchema, branchSchema } from '@/schemas';
@@ -40,7 +41,7 @@ export async function createOfferAction(merchantId: string, formData: FormData) 
         merchantId,
         deletedAt: null,
         status: 'LIVE',
-        endDate: { gte: new Date() },
+        AND: [notEndedBy(new Date(), true)],
       },
     });
 

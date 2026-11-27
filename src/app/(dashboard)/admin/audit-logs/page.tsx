@@ -1,39 +1,43 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { PageHeader } from '@/components/shared/page-header'
 import { FilterBar } from '@/components/shared/filter-bar'
+import { Button } from '@/components/ui/button'
 import { AuditLogTable } from '@/features/audit-logs/components/audit-log-table'
+import { useAuditLogs } from '@/hooks/queries/use-audit-logs'
 
-type EntityFilter = 'ALL' | 'merchant' | 'company' | 'employee' | 'offer' | 'system'
+type EntityFilter = 'ALL' | 'merchant' | 'company' | 'company_admin' | 'employee' | 'offer' | 'system'
 
-const mockLogs = [
-  { id: 'log-001', action: 'MERCHANT_APPROVED', entityType: 'merchant', entityId: 'mer-101', adminName: 'Admin User', ipAddress: '192.168.1.1', createdAt: '2026-05-28T10:30:00' },
-  { id: 'log-002', action: 'COMPANY_ACTIVATED', entityType: 'company', entityId: 'com-301', adminName: 'Admin User', ipAddress: '192.168.1.1', createdAt: '2026-05-28T09:15:00' },
-  { id: 'log-003', action: 'OFFER_CREATED', entityType: 'offer', entityId: 'off-201', adminName: 'Sarah Manager', ipAddress: '10.0.0.5', createdAt: '2026-05-27T16:45:00' },
-  { id: 'log-004', action: 'EMPLOYEE_INVITED', entityType: 'employee', entityId: 'emp-101', adminName: 'Sarah Manager', ipAddress: '10.0.0.5', createdAt: '2026-05-27T14:20:00' },
-  { id: 'log-005', action: 'MERCHANT_SUSPENDED', entityType: 'merchant', entityId: 'mer-005', adminName: 'Admin User', ipAddress: '192.168.1.1', createdAt: '2026-05-26T11:00:00' },
-  { id: 'log-006', action: 'SYSTEM_CONFIG_UPDATED', entityType: 'system', entityId: 'cfg-001', adminName: 'Super Admin', ipAddress: '192.168.1.100', createdAt: '2026-05-26T08:30:00' },
-  { id: 'log-007', action: 'BULK_IMPORT_COMPLETED', entityType: 'employee', entityId: 'imp-001', adminName: 'Admin User', ipAddress: '192.168.1.1', createdAt: '2026-05-25T17:00:00' },
-  { id: 'log-008', action: 'OFFER_ARCHIVED', entityType: 'offer', entityId: 'off-104', adminName: 'Sarah Manager', ipAddress: '10.0.0.5', createdAt: '2026-05-25T13:15:00' },
-  { id: 'log-009', action: 'COMPANY_SUSPENDED', entityType: 'company', entityId: 'com-005', adminName: 'Admin User', ipAddress: '192.168.1.1', createdAt: '2026-05-24T10:00:00' },
-  { id: 'log-010', action: 'PASSWORD_RESET', entityType: 'system', entityId: 'usr-001', adminName: 'Super Admin', ipAddress: '192.168.1.100', createdAt: '2026-05-24T09:00:00' },
-]
+const PAGE_SIZE = 25
 
 export default function AuditLogsPage() {
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [entityFilter, setEntityFilter] = useState<EntityFilter>('ALL')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [page, setPage] = useState(1)
 
-  const filtered = useMemo(() => {
-    return mockLogs.filter((log) => {
-      if (search && !log.action.toLowerCase().includes(search.toLowerCase())) return false
-      if (entityFilter !== 'ALL' && log.entityType !== entityFilter) return false
-      if (dateFrom && new Date(log.createdAt) < new Date(dateFrom)) return false
-      if (dateTo && new Date(log.createdAt) > new Date(dateTo + 'T23:59:59')) return false
-      return true
-    })
-  }, [search, entityFilter, dateFrom, dateTo])
+  // Don't query on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(t)
+  }, [search])
+
+  // Any filter change starts again from the first page.
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch, entityFilter, dateFrom, dateTo])
+
+  const { data, isLoading, isError, error } = useAuditLogs({
+    search: debouncedSearch,
+    entityType: entityFilter,
+    from: dateFrom,
+    to: dateTo,
+    page,
+    pageSize: PAGE_SIZE,
+  })
+  const meta = data?.meta
 
   return (
     <div className="space-y-6">
@@ -44,7 +48,20 @@ export default function AuditLogsPage() {
           onSearchChange={setSearch}
           searchPlaceholder="Search actions..."
           filters={[
-            { key: 'entity', label: 'All Entities', options: [{ label: 'Merchant', value: 'merchant' }, { label: 'Company', value: 'company' }, { label: 'Employee', value: 'employee' }, { label: 'Offer', value: 'offer' }, { label: 'System', value: 'system' }], value: entityFilter, onChange: (v) => setEntityFilter(v as EntityFilter) },
+            {
+              key: 'entity',
+              label: 'All Entities',
+              options: [
+                { label: 'Merchant', value: 'merchant' },
+                { label: 'Company', value: 'company' },
+                { label: 'Company admin', value: 'company_admin' },
+                { label: 'Employee', value: 'employee' },
+                { label: 'Offer', value: 'offer' },
+                { label: 'System', value: 'system' },
+              ],
+              value: entityFilter,
+              onChange: (v) => setEntityFilter(v as EntityFilter),
+            },
           ]}
         />
         <div className="flex items-center gap-2">
@@ -53,7 +70,28 @@ export default function AuditLogsPage() {
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-9 rounded-md border border-input bg-background px-3 text-sm" />
         </div>
       </div>
-      <AuditLogTable logs={filtered} />
+      {isError ? (
+        <p className="py-8 text-center text-sm text-destructive">
+          {error instanceof Error ? error.message : 'Failed to load audit logs'}
+        </p>
+      ) : (
+        <AuditLogTable logs={data?.data ?? []} isLoading={isLoading} />
+      )}
+      {meta && meta.total > 0 && (
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <span>
+            {meta.total} {meta.total === 1 ? 'entry' : 'entries'} · page {meta.page} of {meta.totalPages}
+          </span>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              Previous
+            </Button>
+            <Button variant="outline" size="sm" disabled={page >= meta.totalPages} onClick={() => setPage((p) => p + 1)}>
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

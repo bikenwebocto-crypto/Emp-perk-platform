@@ -143,7 +143,7 @@ const liveOffers = (liveData?.data ?? []).filter((o: any) => o.status === 'LIVE'
       key: 'endDate',
       header: 'End',
       sortValue: (o: any) => (o.endDate ? new Date(o.endDate).getTime() : undefined),
-      render: (o: any) => new Date(o.endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+      render: (o: any) => !o.endDate ? 'No end date' : new Date(o.endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
     },
     {
       key: 'actions',

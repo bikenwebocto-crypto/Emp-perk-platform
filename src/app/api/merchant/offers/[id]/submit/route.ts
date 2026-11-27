@@ -1,3 +1,4 @@
+import { notEndedBy } from '@/lib/offers/end-date';
 import { categoryLockError } from '@/lib/offers/category-lock'
 import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -49,7 +50,11 @@ import {
   withRepeatAfterHours,
 } from "@/lib/redemption-tracking";
 import { getCurrentUser } from "@/lib/supabase/server";
-import { isValidOfferCode } from "@/lib/offer-code";
+import {
+  isPromoCodeTakenByLiveOffer,
+  isValidOfferCode,
+  PROMO_CODE_TAKEN_MESSAGE,
+} from "@/lib/offer-code";
 
 function unauthorized() {
   return NextResponse.json(
@@ -150,7 +155,7 @@ function runQualityChecks(body: any): {
   }
 
   if (!body.startDate) errors.startDate = "Start date is required";
-  if (!body.endDate) errors.endDate = "End date is required";
+  if (!body.endDate && !body.isForever) errors.endDate = "End date is required";
   if (
     body.startDate &&
     body.endDate &&
@@ -426,7 +431,7 @@ export async function POST(
     const categoryId = (merchant ?? offer.merchant).categoryId;
     if (!categoryId) {
       return NextResponse.json(
-        { success: false, error: { code: "MISSING_CATEGORY", message: "Your business category is not set. Please contact support." } },
+        { success: false, error: { code: "MISSING_CATEGORY", message: "Your business category is not set. Please contact hello@perksandmore.com." } },
         { status: 400 },
       );
     }
@@ -536,6 +541,20 @@ export async function POST(
     });
     console.log("[SUBMIT OFFER] qcResult.passed:", qcResult.passed);
 
+    // Promo codes must be unique across live offers.
+    const submittedCode = String(
+      body.redemptionCode ??
+        (offer.redemption?.configuration as { code?: unknown } | null)?.code ??
+        "",
+    ).trim();
+    if (
+      (body.redemptionType ?? offer.redemption?.redemptionType) === "ONLINE_CODE" &&
+      submittedCode &&
+      (await isPromoCodeTakenByLiveOffer(submittedCode, id))
+    ) {
+      return badRequest(PROMO_CODE_TAKEN_MESSAGE);
+    }
+
     // Evergreen (non-replacement) submissions go LIVE without admin approval;
     // Flash / Regular / replacements keep the existing approval workflow.
     const autoActivate = shouldAutoActivateEvergreen({
@@ -559,7 +578,7 @@ export async function POST(
       where: {
         merchantId: offer.merchant.id,
         status: "LIVE",
-        endDate: { gt: new Date() },
+        AND: [notEndedBy(new Date())],
         deletedAt: null,
       },
       select: {
@@ -837,6 +856,8 @@ export async function POST(
           merchantOfferUpdatable.startDate = new Date(body.startDate);
         if (body.endDate)
           merchantOfferUpdatable.endDate = new Date(body.endDate);
+        else if (body.endDate === null && (body.isForever ?? offer.isForever))
+          merchantOfferUpdatable.endDate = null;
         if (body.isFlash !== undefined)
           merchantOfferUpdatable.isFlash = !!body.isFlash;
         if (body.isForever !== undefined || body.startDate !== undefined || body.endDate !== undefined) {

@@ -79,7 +79,7 @@ export async function POST(request, { params }) {
     if (!offer) return fail("Offer not found", "NOT_FOUND", 404);
 
     const now = new Date();
-    if (offer.status !== "LIVE" || offer.startDate > now || offer.endDate <= now) {
+    if (offer.status !== "LIVE" || offer.startDate > now || (offer.endDate != null && offer.endDate <= now)) {
       return fail("This offer is no longer available.", "OFFER_UNAVAILABLE");
     }
     if (offer.merchant.status !== "ACTIVE" || offer.merchant.deletedAt) {

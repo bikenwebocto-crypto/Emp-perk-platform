@@ -1,4 +1,5 @@
 "use client";
+import { isOnlineBranch, isPhysicalBranch } from "@/lib/branch-helpers";
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -91,8 +92,8 @@ async function fetchActiveBranchCounts(): Promise<ActiveBranchCounts> {
   const rows: { branchType: string; status: string }[] = json.data ?? [];
   const active = rows.filter((b) => b.status === "ACTIVE");
   return {
-    inStore: active.filter((b) => b.branchType === "IN_STORE").length,
-    online: active.filter((b) => b.branchType === "ONLINE").length,
+    inStore: active.filter((b) => isPhysicalBranch(b.branchType)).length,
+    online: active.filter((b) => isOnlineBranch(b.branchType)).length,
   };
 }
 
@@ -221,8 +222,6 @@ function urlToPendingImage(url: string, index: number): PendingImage {
     url,
   };
 }
-
-const FOREVER_YEARS = 5;
 
 const TITLE_MAX_CHARS = 40;
 const DESCRIPTION_MAX_WORDS = 400;
@@ -477,13 +476,6 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
           next.minimumSpend = "";
           maxManuallySet.current = false;
         }
-        if (field === "startDate" && prev.isForever && e.target.value) {
-          const end = new Date(e.target.value);
-          if (!isNaN(end.getTime())) {
-            end.setFullYear(end.getFullYear() + FOREVER_YEARS);
-            next.endDate = dateToLocalInput(end);
-          }
-        }
         return next;
       });
       if (errors[field])
@@ -553,19 +545,16 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     setShowStrength(true);
   };
 
-  /** Forever on → start = now (if unset), end = start + 5 years. Off → clear the long end date. */
+  /** Forever on → start = now (if unset), no end date. Off → clear the long end date. */
   const toggleForever = (on: boolean) => {
     setForm((prev) => {
       if (on) {
-        const start = prev.startDate || dateToLocalInput(new Date());
-        const end = new Date(start);
-        end.setFullYear(end.getFullYear() + FOREVER_YEARS);
         return {
           ...prev,
           isForever: true,
           isFlash: false,
-          startDate: start,
-          endDate: dateToLocalInput(end),
+          startDate: prev.startDate || dateToLocalInput(new Date()),
+          endDate: "",
         };
       }
       // Leaving a ≥1-year range would immediately re-mark the offer as Forever.
@@ -735,7 +724,8 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       errs.shortDescription = `Short description must be ${DESCRIPTION_MAX_WORDS} words or fewer`;
     if (countWords(form.description) > DESCRIPTION_MAX_WORDS)
       errs.description = `Description must be ${DESCRIPTION_MAX_WORDS} words or fewer`;
-    if (!offerKind) errs.offerKind = "Choose Evergreen or Flash";
+    // Legacy dated offers (no kind) can still be edited or replaced as they are.
+    if (!offerKind) { if (!isEdit && !isReplacement) errs.offerKind = "Choose Evergreen or Flash"; }
     else if (kindLocked(offerKind))
       errs.offerKind = EVERGREEN_REQUIRED_MESSAGE;
     if (!form.offerType) errs.offerType = "Offer type is required";
@@ -796,7 +786,9 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     }
 
     if (!form.startDate.trim()) errs.startDate = "Start date is required";
-    if (!form.endDate.trim()) errs.endDate = "End date is required";
+    if (form.isForever) {
+      // Evergreen offers are open-ended: no end date to validate.
+    } else if (!form.endDate.trim()) errs.endDate = "End date is required";
     else if (
       form.startDate &&
       new Date(form.endDate) <= new Date(form.startDate)
@@ -864,7 +856,8 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     // datetime-local values have no timezone; convert in the browser so the
     // server stores the merchant's local time correctly (it runs in UTC).
     startDate: localInputToIso(form.startDate),
-    endDate: localInputToIso(form.endDate),
+    // Evergreen offers are open-ended: send null, never a made-up end date.
+    endDate: form.isForever ? null : localInputToIso(form.endDate),
     daysOfWeek: form.daysOfWeek
       .split(",")
       .map((s) => parseInt(s.trim()))
@@ -1306,7 +1299,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
           <CardContent className="p-4 text-sm">
             <p className="font-medium">Business category not set</p>
             <p className="mt-1 text-muted-foreground">
-              Your business category is not set. Please contact support. You
+              Your business category is not set. Please contact hello@perksandmore.com. You
               can still save a draft, but the offer cannot be submitted until a
               category is assigned.
             </p>

@@ -1,3 +1,4 @@
+import { isOnlineBranch } from '@/lib/branch-helpers';
 import type { EmployeeOffer } from '@/components/employee/offers/employee-offer'
 
 export interface OfferRow {
@@ -7,7 +8,7 @@ export interface OfferRow {
   isFeatured: boolean
   isExclusive: boolean
   isFlash?: boolean
-  endDate: Date
+  endDate: Date | null
   startDate: Date
   status: string
   deletedAt: Date | null
@@ -59,12 +60,12 @@ export interface VisibilityResult {
 export function evaluateOfferVisibility(o: OfferRow, now: Date): VisibilityResult {
   if (o.status !== 'LIVE') return { visible: false, reason: 'Offer is not live' }
   if (o.startDate > now) return { visible: false, reason: 'Offer has not started yet' }
-  if (o.endDate <= now) return { visible: false, reason: 'Offer has expired' }
+  if (o.endDate && o.endDate <= now) return { visible: false, reason: 'Offer has expired' }
   if (o.merchant.status !== 'ACTIVE') return { visible: false, reason: 'Merchant is not active' }
   if (o.merchant.deletedAt) return { visible: false, reason: 'Merchant no longer exists' }
   const hasActiveBranch = o.merchant.branches.some((b) => b.isActive && b.status === 'ACTIVE')
   const hasOnlineBranch = o.merchant.branches.some(
-    (b) => b.branchType === 'ONLINE' && b.isActive && b.status === 'ACTIVE',
+    (b) => isOnlineBranch(b.branchType) && b.isActive && b.status === 'ACTIVE',
   )
   if (!hasActiveBranch && !hasOnlineBranch) {
     return { visible: false, reason: 'Merchant has no active branches' }
@@ -110,7 +111,7 @@ export function mapOfferRow(
     isExclusive: o.isExclusive,
     isFlash: !!o.isFlash,
     startDate: o.startDate.toISOString(),
-    endDate: o.endDate.toISOString(),
+    endDate: o.endDate?.toISOString() ?? null,
     merchant: o.merchant,
     isVisible: visibility.visible,
     visibilityReason: visibility.reason,

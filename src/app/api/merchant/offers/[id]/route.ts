@@ -3,7 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMerchantFromSession } from '@/lib/merchant-session'
 import { Prisma } from "@prisma/client";
-import { clampOfferCodeLength, generateUniqueOfferCode, isValidOfferCode } from '@/lib/offer-code';
+import {
+  clampOfferCodeLength,
+  generateUniqueOfferCode,
+  isPromoCodeTakenByLiveOffer,
+  isValidOfferCode,
+  PROMO_CODE_TAKEN_MESSAGE,
+} from '@/lib/offer-code';
 import { isEvergreenRange } from '@/lib/offers/evergreen';
 import {
   branchSelectionFromConfig,
@@ -187,6 +193,13 @@ export async function PATCH(
     if (typeof body.redemptionCode === 'string' && body.redemptionCode.trim() && !isValidOfferCode(body.redemptionCode.trim())) {
       return badRequest("3 to 13 letters and numbers");
     }
+    if (
+      typeof body.redemptionCode === 'string' &&
+      body.redemptionCode.trim() &&
+      (await isPromoCodeTakenByLiveOffer(body.redemptionCode, id))
+    ) {
+      return badRequest(PROMO_CODE_TAKEN_MESSAGE);
+    }
 
     // Channel (In-store / Online / Both) + branches; the channel decides redemptionType.
     const branchSelection = parseBranchSelection(body);
@@ -242,10 +255,12 @@ export async function PATCH(
     merchantOfferUpdatable.categoryId = merchant.categoryId ?? null;
     if (body.startDate) merchantOfferUpdatable.startDate = new Date(body.startDate);
     if (body.endDate) merchantOfferUpdatable.endDate = new Date(body.endDate);
+    // Evergreen offers are open-ended.
+    else if (body.endDate === null && (body.isForever ?? existing.isForever)) merchantOfferUpdatable.endDate = null;
     if (body.isFlash !== undefined) merchantOfferUpdatable.isFlash = !!body.isFlash;
 
     const nextStartDate = body.startDate ?? existing.startDate;
-    const nextEndDate = body.endDate ?? existing.endDate;
+    const nextEndDate = body.endDate === undefined ? existing.endDate : body.endDate;
     const effectiveForeverValue = Boolean(body.isForever ?? existing.isForever) || isEvergreenRange(nextStartDate, nextEndDate);
     if (body.isForever !== undefined || body.startDate !== undefined || body.endDate !== undefined) {
       merchantOfferUpdatable.isForever = effectiveForeverValue;

@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
               endDate: offer.endDate,
               isFlash: offer.isFlash,
               evergreen: isEvergreenRange(offer.startDate, offer.endDate),
-              isExpired: offer.status === 'EXPIRED' || offer.endDate < now,
+              isExpired: offer.status === 'EXPIRED' || (offer.endDate != null && offer.endDate < now),
               isDeleted: !!offer.deletedAt,
               merchant: offer.merchant,
             }

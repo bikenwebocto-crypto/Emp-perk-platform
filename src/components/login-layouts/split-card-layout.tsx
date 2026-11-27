@@ -119,31 +119,6 @@ export function SplitCardLayout({
                 </span>
               )} */}
             </div>
-            {/* {!compact && (
-              <nav className="flex items-center gap-8 text-sm text-white/70">
-                <a className="cursor-pointer transition-colors hover:text-white">
-                  Marketplace
-                </a>
-                <a className="cursor-pointer transition-colors hover:text-white">
-                  Drops
-                </a>
-                <a className="cursor-pointer transition-colors hover:text-white">
-                  Brands
-                </a>
-                <a className="cursor-pointer transition-colors hover:text-white">
-                  Contact
-                </a>
-                <button className="cursor-pointer transition-colors hover:text-white">
-                  Login
-                </button>
-                <button
-                  className="cursor-pointer rounded-full px-5 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
-                  style={{ backgroundColor: colors.primary }}
-                >
-                  Sign Up
-                </button>
-              </nav>
-            )} */}
           </header>
 
           {/* Hero grid */}
@@ -200,7 +175,7 @@ export function SplitCardLayout({
             compact ? "text-2xl" : "text-2xl md:text-4xl"
           }`}
         >
-          {branding.heading || "Welcome Back"}
+          {branding.heading || "Sign in"}
         </h1>
         <p
           className={`mt-2 text-slate-500 ${
@@ -225,7 +200,7 @@ export function SplitCardLayout({
               )}
               {branding.showHeading !== false && (
                 <h1 className="mt-2 text-2xl font-bold" style={{ color: cardTextColor }}>
-                  {branding.heading || "Welcome Back"}
+                  {branding.heading || "Sign in"}
                 </h1>
               )}
               {branding.showDescription !== false && (

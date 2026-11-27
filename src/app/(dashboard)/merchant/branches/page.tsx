@@ -27,6 +27,8 @@ import {
   BRANCH_DISPLAY_TYPE_LABELS,
   BRANCH_DISPLAY_TYPE_STYLES,
   getBranchDisplayType,
+  isOnlineBranch,
+  isPhysicalBranch,
 } from '@/lib/branch-helpers'
 import type { BranchType } from '@/types'
 import { branchSetupStatus, countActiveBranches } from '@/lib/offers/channel'
@@ -69,7 +71,7 @@ const branches = useMemo(() => {
   const queryClient = useQueryClient()
   const branchSort = useTableSort<any>(branches, {
     name: (b) => b.name,
-    location: (b) => (b.branchType === 'IN_STORE' ? `${b.city ?? ''} ${b.state ?? ''} ${b.country ?? ''}`.trim() : null),
+    location: (b) => (isPhysicalBranch(b.branchType) ? `${b.city ?? ''} ${b.state ?? ''} ${b.country ?? ''}`.trim() : null),
     type: (b) => BRANCH_DISPLAY_TYPE_LABELS[getBranchDisplayType(b)],
     status: (b) => b.status,
     createdAt: (b) => (b.createdAt ? new Date(b.createdAt).getTime() : null),
@@ -185,6 +187,7 @@ const hasFilter =
             <option value="ALL">All Types</option>
             <option value="IN_STORE">In-Store</option>
             <option value="ONLINE">Online</option>
+            <option value="BOTH">In-Store &amp; Online</option>
           </select>
         </div>
       </div>
@@ -272,7 +275,7 @@ const hasFilter =
                               <Star className="h-3 w-3 fill-amber-400 text-amber-500" aria-label="Primary" />
                             )}
                           </div>
-                          {b.branchType === 'ONLINE' && (
+                          {isOnlineBranch(b.branchType) && (
                             <p className="text-xs text-muted-foreground">
                               {b.isNationwide
                                 ? 'Nationwide'
@@ -285,7 +288,7 @@ const hasFilter =
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      {b.branchType === 'IN_STORE' ? (
+                      {isPhysicalBranch(b.branchType) ? (
                         <div className="text-xs">
                           <p>{b.city}{b.state ? `, ${b.state}` : ''}</p>
                           <p className="text-muted-foreground">{b.country}</p>

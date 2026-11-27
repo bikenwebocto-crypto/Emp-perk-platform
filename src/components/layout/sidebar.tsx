@@ -17,7 +17,7 @@ import {
   LayoutDashboard, Store, Users, FileText, BarChart3, Settings, CreditCard,
   ShoppingBag, MapPin, Gift, Building2, UserCircle, Bell, Upload, LogOut,
   Zap, Bookmark, Palette, Trash2, Lightbulb, Inbox, UserCog,
-  CalendarClock, ShieldAlert, ShieldCheck, UserCheck,
+  CalendarClock, ShieldAlert, ShieldCheck, UserCheck, Tags,
 } from 'lucide-react'
 import { canAdminAccessPath } from '@/lib/access/account-access'
 import { supabase } from '@/lib/supabase/client'
@@ -55,6 +55,7 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Merchant Suggestions', href: '/admin/merchant-suggestions', icon: Lightbulb },
     { label: 'Demo Bookings', href: '/admin/demo-bookings', icon: CalendarClock },
     { label: 'Stores', href: '/admin/stores', icon: MapPin },
+    { label: 'Categories', href: '/admin/categories', icon: Tags },
     { label: 'Companies', href: '/admin/companies', icon: Building2 },
     { label: 'Leads', href: '/admin/leads', icon: Inbox },
     { label: 'Employees', href: '/admin/employees', icon: Users },

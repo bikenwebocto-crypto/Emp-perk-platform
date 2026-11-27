@@ -21,7 +21,7 @@ interface LiveOffer {
   id: string;
   title: string;
   offerType: string;
-  endDate: string;
+  endDate: string | null;
   pricing?: { configuration?: Record<string, unknown> };
   capacity?: { redeemedCount?: number; maxRedemptions?: number };
   views?: number;
@@ -48,7 +48,8 @@ function formatOfferValue(offer: LiveOffer): string {
   return `€${amount.toFixed(2)} OFF`;
 }
 
-function formatExpiry(dateStr: string): string {
+function formatExpiry(dateStr: string | null): string {
+  if (!dateStr) return "No expiry";
   return new Date(dateStr).toLocaleDateString("en-GB", {
     day: "numeric",
     month: "short",
