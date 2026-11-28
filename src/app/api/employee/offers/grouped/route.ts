@@ -80,6 +80,7 @@ export async function GET(_request: NextRequest) {
           merchant: {
             status: 'ACTIVE',
             deletedAt: null,
+            category: { is: { isActive: true } },
             branches: {
               some: {
                 isActive: true,

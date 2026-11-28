@@ -2,7 +2,7 @@ import { getAppUrl } from '@/lib/app-url'
 import { emailService } from '@/lib/email/email'
 import { createInviteToken } from '@/lib/auth/invite-token'
 import { createAuditLog } from '@/services/audit-log.service'
-import { firstName as firstWord, m01Welcome } from '@/emails/templates/merchant'
+import { firstName as firstWord, m01Welcome, m01bSelfSignupWelcome } from '@/emails/templates/merchant'
 
 export const MERCHANT_INVITE_SENT_ACTION = 'MERCHANT_INVITE_SENT'
 export const MERCHANT_INVITE_FAILED_ACTION = 'MERCHANT_INVITE_FAILED'
@@ -47,6 +47,49 @@ export async function sendMerchantInvitation(params: {
     entityId: params.merchantId,
     metadata: { email: params.email, error: result.error ?? null },
   })
+
+  return result
+}
+
+export const MERCHANT_WELCOME_SENT_ACTION = 'MERCHANT_WELCOME_SENT'
+export const MERCHANT_WELCOME_FAILED_ACTION = 'MERCHANT_WELCOME_FAILED'
+
+/** Welcome email for merchants who signed up themselves (M-01b). Never throws. */
+export async function sendMerchantSelfSignupWelcome(params: {
+  merchantId: string
+  email: string
+  contactName?: string | null
+  businessName: string
+}): Promise<{ success: boolean; error?: string }> {
+  let result: { success: boolean; error?: string }
+  try {
+    const { subject, html } = m01bSelfSignupWelcome({
+      firstName: firstWord(params.contactName),
+      businessName: params.businessName,
+      loginEmail: params.email,
+    })
+    const sent = await emailService.sendEmail({ to: params.email, subject, html })
+    result = sent.success
+      ? { success: true }
+      : { success: false, error: String(sent.error ?? 'Email provider rejected the message') }
+  } catch (err) {
+    result = { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+
+  if (!result.success) console.error('[MERCHANT_WELCOME] email failed', params.email, result.error)
+
+  try {
+    await createAuditLog({
+      actorType: 'system',
+      actorId: null,
+      action: result.success ? MERCHANT_WELCOME_SENT_ACTION : MERCHANT_WELCOME_FAILED_ACTION,
+      entityType: 'merchant',
+      entityId: params.merchantId,
+      metadata: { email: params.email, error: result.error ?? null },
+    })
+  } catch (err) {
+    console.error('[MERCHANT_WELCOME] audit log failed', err)
+  }
 
   return result
 }

@@ -12,8 +12,6 @@ import { showToast } from "@/hooks/use-toast";
 import {
   Plus,
   X,
-  Check,
-  Ban,
   ToggleLeft,
   ToggleRight,
   Trash2,
@@ -33,6 +31,7 @@ import type { DeferredFile } from "@/components/shared/ImageUploader";
 import { BANNER_IMAGE_OPTIONS } from "@/lib/upload/image";
 import Link from "next/link";
 import { EditBannerDialog } from "@/features/banners/components/edit-banner-dialog";
+import { AddBannerBookingDialog } from "@/features/banners/components/add-banner-booking-dialog";
 import { BannerStatusBadge } from "@/features/banners/components/banner-status-badge";
 import type { BannerAvailability } from "@/features/banners/utils/banner-availability";
 import { formatBannerDate } from "@/features/banners/utils/format-date";
@@ -167,8 +166,7 @@ export default function AdminBannersPage() {
   const [deleteBooking, setDeleteBooking] = useState<Booking | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
 
-  const [reviewBooking, setReviewBooking] = useState<Booking | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
+  const [showAddBooking, setShowAddBooking] = useState(false);
 
   const [editBooking, setEditBooking] = useState<Booking | null>(null);
   const [editBookingForm, setEditBookingForm] = useState({
@@ -269,27 +267,6 @@ const toggleMutation = useMutation({
       description: e?.message,
     }),
 });
-
-  const reviewMutation = useMutation({
-    mutationFn: async ({ id, ...body }: Record<string, unknown>) => {
-      const res = await fetch(`/api/admin/banners/bookings/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? "Failed to review");
-      return json;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-banner-bookings"] });
-      setReviewBooking(null);
-      setRejectReason("");
-      showToast({ type: "success", title: "Booking reviewed" });
-    },
-    onError: (e: any) =>
-      showToast({ type: "error", title: "Failed", description: e?.message }),
-  });
 
   const editBookingBanner = banners.find(
     (b: Banner) => b.position === editBookingForm.position && b.isActive,
@@ -396,18 +373,6 @@ const toggleMutation = useMutation({
     setEditBanner(banner);
   }
 
-  function handleApprove(booking: Booking) {
-    reviewMutation.mutate({ id: booking.id, status: "APPROVED" });
-  }
-
-  function handleReject() {
-    if (!reviewBooking) return;
-    reviewMutation.mutate({
-      id: reviewBooking.id,
-      status: "REJECTED",
-      rejectedReason: rejectReason || undefined,
-    });
-  }
   function handleDelete() {
     if (!deleteBooking || !deleteReason.trim()) return;
     deleteMutation.mutate({
@@ -485,7 +450,7 @@ const toggleMutation = useMutation({
     <div className="space-y-6">
       <PageHeader
         title="Banner Management"
-        description="Manage banner slots and review booking requests"
+        description="Manage banner slots and the banners shown to employees"
       />
 
       <div className="flex gap-1 border-b">
@@ -870,10 +835,10 @@ const toggleMutation = useMutation({
       {tab === "bookings" && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Booking Requests</CardTitle>
+            <CardTitle className="text-base">Banners</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="mb-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <select
                 className="rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 value={bookingsStatus}
@@ -883,11 +848,12 @@ const toggleMutation = useMutation({
                 }}
               >
                 <option value="">All Status</option>
-                <option value="PENDING">Pending</option>
-                <option value="APPROVED">Approved</option>
-                <option value="REJECTED">Rejected</option>
+                <option value="APPROVED">Live / Approved</option>
                 <option value="CANCELLED">Cancelled</option>
               </select>
+              <Button size="sm" onClick={() => setShowAddBooking(true)}>
+                <Plus className="mr-1 h-4 w-4" /> Add Banner
+              </Button>
             </div>
 
             {bookingsLoading ? (
@@ -1007,39 +973,6 @@ const toggleMutation = useMutation({
                                       </p>
                                     )}
 
-                                    {b.status === "PENDING" && (
-                                      <div className="flex gap-2 pt-1">
-                                        <LoadingButton
-                                          size="sm"
-                                          loading={reviewMutation.isPending}
-                                          onClick={() => handleApprove(b)}
-                                        >
-                                          <Check className="mr-1 h-3 w-3" />{" "}
-                                          Approve
-                                        </LoadingButton>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="text-destructive border-destructive/50"
-                                          onClick={() => {
-                                            setReviewBooking(b);
-                                            setRejectReason("");
-                                          }}
-                                        >
-                                          <Ban className="mr-1 h-3 w-3" />{" "}
-                                          Reject
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          onClick={() => openEditBooking(b)}
-                                        >
-                                          <Pencil className="mr-1 h-3 w-3" />{" "}
-                                          Edit
-                                        </Button>
-                                      </div>
-                                    )}
-
                                     {b.status === "APPROVED" && (
                                       <div className="flex gap-2 pt-1">
                                         <Button
@@ -1107,57 +1040,11 @@ const toggleMutation = useMutation({
               </div>
             )}
 
-            {reviewBooking && (
-              <Card className="mt-4 border-destructive/30">
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between text-base">
-                    <span>Reject Booking</span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setReviewBooking(null)}
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Rejecting booking for{" "}
-                    <strong>{reviewBooking.banner.name}</strong> by{" "}
-                    {reviewBooking.merchant.businessName}
-                  </p>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      Rejection Reason
-                    </label>
-                    <textarea
-                      rows={3}
-                      className="w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={rejectReason}
-                      onChange={(e) => setRejectReason(e.target.value)}
-                      placeholder="Optional reason for rejection"
-                    />
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => setReviewBooking(null)}
-                    >
-                      Cancel
-                    </Button>
-                    <LoadingButton
-                      variant="destructive"
-                      onClick={handleReject}
-                      loading={reviewMutation.isPending}
-                      loadingText="Rejecting…"
-                    >
-                      Reject Booking
-                    </LoadingButton>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            <AddBannerBookingDialog
+              open={showAddBooking}
+              onOpenChange={setShowAddBooking}
+              banners={banners}
+            />
 
             <Dialog
               open={!!editBooking}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { safeQuery } from '@/lib/prisma/safe-query'
+import { getCurrentUser } from '@/lib/supabase/server'
 
 function internalError(error: unknown) {
   console.error('Banners list API error:', error)
@@ -12,6 +13,15 @@ function internalError(error: unknown) {
 
 export async function GET(_request: NextRequest) {
   try {
+    // Banners are admin-managed in V1; the employee feed uses /api/employee/banners.
+    const user = await getCurrentUser()
+    if (!user || user.userType !== 'admin') {
+      return NextResponse.json(
+        { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } },
+        { status: 401 }
+      )
+    }
+
     const banners = await safeQuery(
       () =>
         prisma.banner.findMany({

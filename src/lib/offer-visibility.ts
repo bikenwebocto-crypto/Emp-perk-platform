@@ -11,6 +11,7 @@
 // 3. offer.endDate > now
 // 4. merchant.status = 'ACTIVE' (and not deleted)
 // 5. merchant has at least one active branch (or an ONLINE branch if delivery/digital only)
+// 6. merchant's primary category is active
 //
 // Note: per-employee redemption limit is enforced at redemption time (not at
 // visibility time) by counting the employee's existing redemptions for the offer.
@@ -49,6 +50,7 @@ export async function isOfferVisibleToEmployees(
       merchant: {
         include: {
           branches: { where: { deletedAt: null } },
+          category: { select: { isActive: true } },
         },
       },
     },
@@ -63,6 +65,9 @@ export async function isOfferVisibleToEmployees(
   }
   if (offer.merchant.deletedAt) {
     return { visible: false, reason: 'Merchant no longer exists' }
+  }
+  if (!offer.merchant.category?.isActive) {
+    return { visible: false, reason: 'Merchant category is inactive' }
   }
   const hasActiveBranch = offer.merchant.branches.some((b) => b.isActive && b.status === 'ACTIVE')
   const hasOnlineBranch = offer.merchant.branches.some(

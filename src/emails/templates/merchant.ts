@@ -64,6 +64,20 @@ export function m01Welcome(d: Base & { loginEmail: string; setPasswordUrl: strin
   )
 }
 
+// M-01b Welcome for self sign-up (merchant already chose a password; no set-password link)
+export function m01bSelfSignupWelcome(d: Base & { loginEmail: string }) {
+  return build(
+    'Welcome to Perks & More',
+    'Your merchant account is ready. Sign in to get started.',
+    hi(d.firstName) +
+      p(`Thank you for joining Perks &amp; More. Your merchant account for ${e(d.businessName)} is ready.`) +
+      p(`Your sign-in email is ${b(d.loginEmail)}. Use the password you chose when you signed up.`) +
+      button('Sign in to your account', url('/login')) +
+      p('Next steps: complete your business profile and submit your first offer so employees can find you in the app.') +
+      p('If you did not create this account, please contact us.'),
+  )
+}
+
 // M-04 Set password reminder (48h after M-01; same link)
 export function m04SetPasswordReminder(d: Base & { loginEmail: string; setPasswordUrl: string; expiresAt: Date }) {
   return build(

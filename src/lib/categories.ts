@@ -12,3 +12,12 @@ export const selectableCategoryWhere = {
     name: { equals: MERCHANT_APPLICATION_OTHER_OPTION, mode: 'insensitive' },
   },
 } satisfies Prisma.CategoryWhereInput
+
+/**
+ * Merchant-level filter: a merchant (and therefore its offers) is only shown
+ * in the employee / mobile app while its primary category is active.
+ * Merchants without a category are hidden too.
+ */
+export const visibleMerchantCategoryWhere = {
+  category: { is: { isActive: true } },
+} satisfies Prisma.MerchantWhereInput

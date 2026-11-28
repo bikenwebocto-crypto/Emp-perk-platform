@@ -42,7 +42,9 @@ export async function GET() {
     if (!merchant) return notFound()
 
     const overview = await getMerchantBusinessOverview(merchant.id)
-    return NextResponse.json({ success: true, data: overview })
+    // Banners are admin-managed in V1; don't expose booking/spend data to merchants.
+    const { banners: _banners, ...merchantOverview } = overview
+    return NextResponse.json({ success: true, data: merchantOverview })
   } catch (error) {
     return internalError(error)
   }

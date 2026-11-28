@@ -59,6 +59,7 @@ export async function POST(
         merchant: {
           include: {
             branches: { where: { deletedAt: null, status: 'ACTIVE' } },
+            category: { select: { isActive: true } },
           },
         },
         pricing: { select: { configuration: true } },
@@ -105,6 +106,13 @@ export async function POST(
     if (offer.merchant.deletedAt) {
       return NextResponse.json(
         { success: false, error: { code: 'MERCHANT_INACTIVE', message: 'Merchant no longer exists' } },
+        { status: 400 },
+      )
+    }
+
+    if (!offer.merchant.category?.isActive) {
+      return NextResponse.json(
+        { success: false, error: { code: 'CATEGORY_INACTIVE', message: 'Merchant category is inactive' } },
         { status: 400 },
       )
     }

@@ -3,6 +3,20 @@ import { isPhysicalBranch } from '@/lib/branch-helpers';
 import { notEndedBy } from '@/lib/offers/end-date';
 import { isEvergreenOffer } from '@/lib/offers/evergreen';
 import { branchSelectionFromConfig, channelUsesBranches } from '@/lib/offers/channel';
+import { visibleMerchantCategoryWhere } from '@/lib/categories';
+
+/**
+ * The merchant's category is primary: when it is inactive (or missing) the
+ * merchant and all its offers are hidden from the employee / mobile app.
+ */
+export async function filterMerchantsWithActiveCategory(ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return ids;
+  const rows = await prisma.merchant.findMany({
+    where: { id: { in: ids }, ...visibleMerchantCategoryWhere },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
 
 /**
  * Where a merchant's LIVE Evergreen offer is valid (Doc 1 §05 one-perk rule):
@@ -85,7 +99,7 @@ export async function getVisibleMerchantIds(
   merchantIds?: string[],
   now: Date = new Date(),
 ): Promise<string[]> {
-  return [...(await getEvergreenCoverage(merchantIds, now)).keys()];
+  return filterMerchantsWithActiveCategory([...(await getEvergreenCoverage(merchantIds, now)).keys()]);
 }
 
 /** True when this merchant should be visible in the employee app. */
@@ -103,7 +117,7 @@ export async function getVisibleScope(
   merchantIds?: string[],
 ): Promise<{ merchantIds: string[]; branchIds: string[] }> {
   const coverage = await getEvergreenCoverage(merchantIds, now);
-  const ids = [...coverage.keys()];
+  const ids = await filterMerchantsWithActiveCategory([...coverage.keys()]);
   if (ids.length === 0) return { merchantIds: [], branchIds: [] };
   const branches = await prisma.merchantBranch.findMany({
     where: { merchantId: { in: ids }, deletedAt: null, status: 'ACTIVE' },

@@ -339,6 +339,8 @@ async function buildBanners(now: Date): Promise<MobileHomeBanner[]> {
               { expiresAt: { gt: now } },
             ],
           },
+          // Merchant's primary category inactive → its banners are hidden.
+          merchant: { category: { is: { isActive: true } } },
         },
         include: {
           content: true,

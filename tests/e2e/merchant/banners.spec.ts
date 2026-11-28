@@ -8,7 +8,9 @@ function merchantOrSkip() {
   return m!
 }
 
-test.describe('merchant banners', () => {
+// V1: merchant banner booking is disabled (middleware 404/redirect); banners are
+// admin-managed with no approval step. Re-enable for Phase B.
+test.describe.skip('merchant banners', () => {
   test('available banner slots list responds', async ({ browser }) => {
     const merchant = merchantOrSkip()
     const s = await authed(browser, merchant)

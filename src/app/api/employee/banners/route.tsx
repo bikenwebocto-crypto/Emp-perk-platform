@@ -25,6 +25,8 @@ export async function GET(_request: NextRequest) {
             endDate: { gte: new Date() },
             // Admin deactivating a position takes its banners down immediately.
             banner: { isActive: true },
+            // Merchant's primary category inactive → its banners are hidden.
+            merchant: { category: { is: { isActive: true } } },
           },
           include: {
             content: true,

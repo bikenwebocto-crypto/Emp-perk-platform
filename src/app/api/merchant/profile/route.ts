@@ -67,7 +67,7 @@ export async function GET() {
       where: { id: merchant.id },
       include: {
          account: { select: { email: true } },  
-        category: { select: { id: true, name: true, slug: true } },
+        category: { select: { id: true, name: true, slug: true, isActive: true } },
         // _count: { select: { offers: true, branches: true, redemptions: true } },
       },
     })
@@ -283,7 +283,7 @@ export async function PATCH(request: NextRequest) {
     const updated = await prisma.merchant.findUnique({
       where: { id: merchant.id },
       include: {
-        category: { select: { id: true, name: true, slug: true } },
+        category: { select: { id: true, name: true, slug: true, isActive: true } },
         _count: { select: { offers: true, branches: true, redemptions: true } },
       },
     })

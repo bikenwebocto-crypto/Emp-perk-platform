@@ -22,7 +22,8 @@ function internalError(error: unknown) {
 export async function GET() {
   try {
     const user = await getCurrentUser()
-    if (!user) return unauthorized()
+    // Banners are admin-managed in V1: merchants/employees can't browse positions or prices.
+    if (!user || user.userType !== 'admin') return unauthorized()
 
     const positions = await safeQuery(
       () =>

@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
       merchant: {
         status: 'ACTIVE',
         deletedAt: null,
+        category: { is: { isActive: true } },
         branches: { some: { isActive: true, status: 'ACTIVE', deletedAt: null } },
       },
     }

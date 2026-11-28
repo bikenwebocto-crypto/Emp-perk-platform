@@ -9,6 +9,7 @@ import { getPasswordError } from '@/lib/validation/credentials';
 import { validateUserEmail } from '@/services/user-validation.service';
 import { normalizeEmail, rollbackAuthUser } from '@/services/employee-invite.service';
 import { selectableCategoryWhere } from '@/lib/categories';
+import { sendMerchantSelfSignupWelcome } from '@/services/merchant-invitation.service';
 
 // Public self sign-up from the login page, merchants only. Merchants created
 // here are live immediately: no approval queue item, ACTIVE account + profile.
@@ -164,6 +165,14 @@ export async function POST(request: NextRequest) {
     console.error('Sign-up error:', error);
     return fail(500, 'INTERNAL', 'Internal server error');
   }
+
+  // Welcome email (M-01b). Never blocks sign-up; failures are logged + audited.
+  await sendMerchantSelfSignupWelcome({
+    merchantId: userId,
+    email,
+    contactName: data.contactName,
+    businessName: data.businessName,
+  });
 
   return NextResponse.json({ success: true, data: { role } }, { status: 201 });
 }

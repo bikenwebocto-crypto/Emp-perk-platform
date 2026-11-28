@@ -69,6 +69,8 @@ interface DashboardData {
   branchSetupMessage: string | null
   /** First evergreen offer currently waiting for admin review (first-time merchants). */
   pendingEvergreen: PendingEvergreen | null
+  /** Set when the merchant's primary category is inactive (offers hidden from employees). */
+  inactiveCategoryName: string | null
   stats: {
     liveOffers: { value: number; change: number; trend: 'up' | 'down' }
     activeViews: { value: number; change: number; trend: 'up' | 'down' }
@@ -110,9 +112,8 @@ function timeAgo(date: string | Date) {
 }
 
 async function fetchDashboard(): Promise<DashboardData> {
-  const [analyticsRes, overviewRes, redemptionsRes, profileRes, branchesRes, offersRes] = await Promise.all([
+  const [analyticsRes, redemptionsRes, profileRes, branchesRes, offersRes] = await Promise.all([
     fetch('/api/merchant/analytics/summary'),
-    fetch('/api/merchant/profile/business-overview'),
     fetch('/api/merchant/redemptions?pageSize=5'),
     fetch('/api/merchant/profile'),
     fetch('/api/merchant/branches?status=active'),
@@ -137,15 +138,18 @@ async function fetchDashboard(): Promise<DashboardData> {
   )
 
   const analyticsJson = analyticsRes.ok ? await analyticsRes.json() : null
-  const overviewJson = overviewRes.ok ? await overviewRes.json() : null
   const redemptionsJson = redemptionsRes.ok ? await redemptionsRes.json() : null
   const profileJson = profileRes.ok ? await profileRes.json() : null
 
   const summary = analyticsJson?.data?.summary
   const topOffers: any[] = analyticsJson?.data?.topOffers ?? []
-  const banners = overviewJson?.data?.banners
   const redemptionRows: any[] = redemptionsJson?.data ?? []
   const businessName: string = profileJson?.data?.businessName ?? 'Your Business'
+  const category = profileJson?.data?.category as { name?: string; isActive?: boolean } | null | undefined
+  const inactiveCategoryName: string | null =
+    profileJson?.data && (!category || category.isActive === false)
+      ? category?.name ?? 'Not set'
+      : null
 
   const totalViews = topOffers.reduce((sum: number, o: any) => sum + (o.views ?? 0), 0)
 
@@ -185,12 +189,13 @@ async function fetchDashboard(): Promise<DashboardData> {
     onboardingStep: !branchSetup.complete ? 'branch' : liveOffers === 0 ? 'offer' : null,
     branchSetupMessage: branchSetup.message,
     pendingEvergreen,
+    inactiveCategoryName,
     stats: {
       liveOffers: { value: summary?.liveOffers ?? 0, change: 0, trend: 'up' },
       activeViews: { value: totalViews, change: 0, trend: 'up' },
       redemptionCount: { value: summary?.totalRedemptions ?? 0, change: 0, trend: 'up' },
       monthlySavings: { value: formatCurrency(summary?.totalDiscount ?? 0), change: 0, trend: 'up' },
-      activeBookings: { value: banners?.active?.length ?? 0 },
+      activeBookings: { value: 0 }, // banners are admin-managed in V1
     },
     redemptions,
     activities,
@@ -336,6 +341,7 @@ export default function MerchantDashboard() {
     onboardingStep: null as MerchantOnboardingStep,
     branchSetupMessage: null as string | null,
     pendingEvergreen: null as PendingEvergreen | null,
+    inactiveCategoryName: null as string | null,
     stats: {
       liveOffers: { value: 0, change: 0, trend: 'up' as const },
       activeViews: { value: 0, change: 0, trend: 'up' as const },
@@ -393,6 +399,28 @@ export default function MerchantDashboard() {
           </div>
         </div>
       </div>
+
+      {!isLoading && d.inactiveCategoryName && (
+        <div
+          role="alert"
+          className="flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+            <div className="space-y-0.5">
+              <p className="text-sm font-semibold">
+                Your category &ldquo;{d.inactiveCategoryName}&rdquo; is inactive
+              </p>
+              <p className="text-sm opacity-90">
+                Your business and offers are hidden from employees in the app. Request a category change from admin to become visible again.
+              </p>
+            </div>
+          </div>
+          <Link href="/merchant/profile">
+            <Button size="sm" variant="outline" className="shrink-0">Request category change</Button>
+          </Link>
+        </div>
+      )}
 
       {(
       <>
