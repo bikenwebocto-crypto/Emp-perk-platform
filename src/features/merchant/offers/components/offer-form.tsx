@@ -25,7 +25,7 @@ import { OfferImageGallery } from "@/components/merchant/offers/OfferImageGaller
 import { OfferMobilePreview } from "@/components/merchant/offers/OfferMobilePreview";
 import { showToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import { EVERGREEN_REPLACE_CONFIRM_CODE } from "@/lib/offers/evergreen";
+import { EVERGREEN_PENDING_CODE, EVERGREEN_REPLACE_CONFIRM_CODE } from "@/lib/offers/evergreen";
 import { uploadImage, OFFER_IMAGE_OPTIONS } from "@/lib/upload/image";
 import { deleteOfferImage } from "@/lib/upload-offer-image";
 import { FieldLabel, InfoTip } from "@/components/ui/info-tip";
@@ -1020,6 +1020,10 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
 
   /** Opens the replace-Evergreen popup if the server asked for confirmation. */
   const needsEvergreenConfirm = (err: any): boolean => {
+    if (err?.code === EVERGREEN_PENDING_CODE) {
+      showToast({ type: "error", title: "Evergreen replacement already pending", description: err.message });
+      return true;
+    }
     if (err?.code !== EVERGREEN_REPLACE_CONFIRM_CODE) return false;
     setEvergreenConfirm({ title: err.currentOffer?.title ?? "" });
     return true;
@@ -2339,7 +2343,11 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         title="Replace your live Evergreen offer?"
         message={`Only one Evergreen offer can be live per account. Your current Evergreen offer${
           evergreenConfirm?.title ? ` "${evergreenConfirm.title}"` : ""
-        } will become inactive once this new offer is approved by admin and goes LIVE.`}
+        } stays LIVE until admin approves this replacement. On approval it becomes inactive and this offer goes LIVE${
+          form.allBranches || !usesBranches
+            ? " for all branches."
+            : ` for ${form.branchIds.length} selected branch${form.branchIds.length === 1 ? "" : "es"} — branches not selected will be hidden from the app.`
+        }`}
         confirmLabel="Yes, submit for approval"
         variant="default"
         loading={pendingAction === "submit"}

@@ -248,3 +248,34 @@ export async function assertEvergreenActivationAllowed(
   }
   return { replacedOfferId: current?.id ?? null, replacedOfferTitle: current?.title ?? null };
 }
+
+// ── One pending Evergreen replacement ───────────────────────────────────────
+
+export const EVERGREEN_PENDING_CODE = "EVERGREEN_REPLACEMENT_PENDING";
+
+export const evergreenPendingMessage = (title: string) =>
+  `Your Evergreen offer "${title}" is already waiting for admin approval. Only one Evergreen replacement can be pending at a time — wait for the admin's decision, or withdraw it, before submitting another.`;
+
+/**
+ * The merchant's Evergreen offer currently AWAITING_APPROVAL (other than
+ * `excludeOfferId`), if any. Together with the one-LIVE rule this caps a
+ * merchant at one LIVE Evergreen plus one pending replacement.
+ */
+export async function findPendingEvergreen(
+  db: any,
+  merchantId: string,
+  excludeOfferId?: string | null,
+): Promise<{ id: string; title: string } | null> {
+  const pending = await db.merchantOffer.findMany({
+    where: {
+      merchantId,
+      deletedAt: null,
+      status: "AWAITING_APPROVAL",
+      isFlash: false,
+      ...(excludeOfferId ? { id: { not: excludeOfferId } } : {}),
+    },
+    select: { id: true, title: true, isForever: true, isFlash: true, startDate: true, endDate: true },
+  });
+  const hit = pending.find((o: Parameters<typeof isEvergreenOffer>[0]) => isEvergreenOffer(o));
+  return hit ? { id: hit.id, title: hit.title } : null;
+}

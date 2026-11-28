@@ -18,6 +18,7 @@ import {
   parseEvergreenLinkChoice,
 } from '@/lib/offers/channel.server'
 import { EVERGREEN_BRANCH_LINK_CODE } from '@/lib/offers/channel'
+import { getBranchCoverageStatuses } from '@/lib/offers/visible-merchants'
 import { channels, publishBusinessNotification } from '@/services/business-notification.service'
 
 function unauthorized() {
@@ -98,7 +99,11 @@ export async function GET(
     const { id } = await params
     const branch = await loadBranch(id, merchant.id)
     if (!branch) return notFound()
-    return NextResponse.json({ success: true, data: branch })
+    const { evergreen, statuses } = await getBranchCoverageStatuses(merchant.id, [branch])
+    return NextResponse.json({
+      success: true,
+      data: { ...branch, evergreenCoverage: statuses.get(branch.id), liveEvergreen: evergreen },
+    })
   } catch (error) {
     return internalError(error)
   }

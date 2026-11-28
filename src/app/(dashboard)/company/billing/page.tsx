@@ -1,6 +1,5 @@
-import { BillingUnavailable } from '@/components/shared/billing-unavailable'
+import { notFound } from 'next/navigation'
 
-// Billing is not part of this model — the page only shows a notice.
 export default function Page() {
-  return <BillingUnavailable />
+  notFound()
 }

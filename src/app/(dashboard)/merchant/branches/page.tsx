@@ -165,6 +165,37 @@ const hasFilter =
         </div>
       )}
 
+      {data && (() => {
+        const liveEvergreen = data.meta?.liveEvergreen as { id: string; title: string } | null | undefined
+        const uncovered = allBranches.filter((b) => isBranchActive(b) && b.evergreenCoverage === 'NOT_COVERED')
+        if (!liveEvergreen) {
+          return (
+            <div role="status" className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="flex-1">
+                <span className="font-medium">No live Evergreen offer.</span> None of your branches are shown in the employee app until an Evergreen offer is approved and live.
+              </p>
+              <Link href="/merchant/offers/new"><Button size="sm" variant="outline">Create Evergreen offer</Button></Link>
+            </div>
+          )
+        }
+        if (uncovered.length > 0) {
+          return (
+            <div role="status" className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="flex-1">
+                <span className="font-medium">
+                  {uncovered.length} active branch{uncovered.length === 1 ? ' is' : 'es are'} not covered
+                </span>{' '}
+                by your live Evergreen offer &quot;{liveEvergreen.title}&quot; and {uncovered.length === 1 ? 'is' : 'are'} hidden from the employee app: {uncovered.map((b) => b.name).join(', ')}. Replace your Evergreen offer to cover {uncovered.length === 1 ? 'it' : 'them'} (needs admin approval).
+              </p>
+              <Link href="/merchant/offers"><Button size="sm" variant="outline">Go to offers</Button></Link>
+            </div>
+          )
+        }
+        return null
+      })()}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -247,6 +278,7 @@ const hasFilter =
                 <SortableTh label="Location" sortKey="location" {...sortProps} className="px-4 py-3 font-medium" />
                 <SortableTh label="Type" sortKey="type" {...sortProps} className="px-4 py-3 font-medium" />
                 <SortableTh label="Status" sortKey="status" {...sortProps} className="px-4 py-3 font-medium" />
+                <th className="px-4 py-3 font-medium">Evergreen coverage</th>
                 <SortableTh label="Created" sortKey="createdAt" {...sortProps} className="px-4 py-3 font-medium" />
                 <th className="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
@@ -312,6 +344,9 @@ const hasFilter =
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${BRANCH_STATUS_STYLES[b.status as keyof typeof BRANCH_STATUS_STYLES]}`}>
                         {BRANCH_STATUS_LABELS[b.status as keyof typeof BRANCH_STATUS_LABELS]}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <CoverageBadge coverage={b.evergreenCoverage} active={isActive} />
                     </td>
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                       {new Date(b.createdAt).toLocaleDateString('en-GB')}
@@ -392,5 +427,29 @@ const hasFilter =
         onCancel={() => setConfirmDelete(null)}
       />
     </div>
+  )
+}
+
+/** Whether the LIVE Evergreen covers this branch, i.e. whether it shows in the employee app. */
+function CoverageBadge({ coverage, active }: { coverage?: string; active: boolean }) {
+  if (!active) return <span className="text-xs text-muted-foreground" title="Inactive branches are never shown in the app">Inactive</span>
+  if (coverage === 'COVERED') {
+    return (
+      <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-950/50 dark:text-green-300" title="Covered by your live Evergreen offer, shown in the app">
+        Covered
+      </span>
+    )
+  }
+  if (coverage === 'NOT_COVERED') {
+    return (
+      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-300" title="Not in your live Evergreen's branch scope, hidden from the app">
+        Not covered
+      </span>
+    )
+  }
+  return (
+    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground" title="No live Evergreen offer, hidden from the app">
+      No live Evergreen
+    </span>
   )
 }

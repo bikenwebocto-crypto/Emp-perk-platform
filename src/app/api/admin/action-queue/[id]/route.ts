@@ -366,9 +366,31 @@ export async function GET(
       liveEvergreen = found ? { id: found.id, title: found.title } : null;
     }
 
+    // For the approve popup: where this Evergreen will be valid, and which
+    // active in-store branches it would leave uncovered (approval is blocked then).
+    let evergreenScope: {
+      channel: string | null;
+      allBranches: boolean;
+      branches: string[];
+      uncovered: string[];
+    } | null = null;
+    if (isOfferQueue(queueItem.type) && offerEntity?.id && offerEntity?.merchantId && isEvergreenOffer(offerEntity)) {
+      evergreenScope = {
+        channel: offerEntity.redemptionChannel ?? null,
+        allBranches: !!offerEntity.redemptionAllBranches,
+        branches: (offerEntity.redemptionBranches ?? []).map((b: { name: string }) => b.name),
+        uncovered: await getEvergreenUncoveredBranches(
+          prisma,
+          offerEntity.merchantId,
+          offerEntity,
+          offerEntity.redemption,
+        ),
+      };
+    }
+
     return NextResponse.json({
       success: true,
-      data: { queueItem, entity, auditLogs, liveEvergreen },
+      data: { queueItem, entity, auditLogs, liveEvergreen, evergreenScope },
     });
   } catch (error) {
     return internalError(error);

@@ -128,3 +128,30 @@ export async function getVisibleScope(
     .map((b) => b.id);
   return { merchantIds: ids, branchIds };
 }
+
+/**
+ * Per-branch Evergreen coverage for the merchant dashboard:
+ *   COVERED      → the LIVE Evergreen covers it, so it shows in the employee app
+ *   NOT_COVERED  → a LIVE Evergreen exists but its branch scope leaves this branch out
+ *   NO_EVERGREEN → the merchant has no LIVE Evergreen, so no branch shows
+ */
+export type BranchCoverageStatus = 'COVERED' | 'NOT_COVERED' | 'NO_EVERGREEN';
+
+export async function getBranchCoverageStatuses<B extends { id: string; branchType?: string | null }>(
+  merchantId: string,
+  branches: B[],
+  now: Date = new Date(),
+): Promise<{
+  evergreen: { id: string; title: string } | null;
+  statuses: Map<string, BranchCoverageStatus>;
+}> {
+  const coverage = (await getEvergreenCoverage([merchantId], now)).get(merchantId);
+  const evergreen = coverage
+    ? await prisma.merchantOffer.findUnique({ where: { id: coverage.offerId }, select: { id: true, title: true } })
+    : null;
+  const statuses = new Map<string, BranchCoverageStatus>();
+  for (const b of branches) {
+    statuses.set(b.id, !coverage ? 'NO_EVERGREEN' : isBranchCovered(coverage, b) ? 'COVERED' : 'NOT_COVERED');
+  }
+  return { evergreen, statuses };
+}

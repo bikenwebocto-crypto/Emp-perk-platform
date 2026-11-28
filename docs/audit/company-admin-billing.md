@@ -2,7 +2,16 @@
 
 - **Figma:** Perks-and-More-Admin, node `121:9973` ("Company Admin / Billing (read-only) / New / Row")
 - **Frames audited:** `121:9728` Billing screen (includes `121:9796` Company Admin sidebar), `121:9957` Dev notes
-- **Date:** 2026-11-27 · Audit only, no code changed
+- **Audit date:** 2026-11-27
+- **Implementation follow-up:** 2026-11-28
+
+## Implementation follow-up
+
+- The company-admin Billing route now returns not found in V1; the Billing sidebar item remains hidden.
+- Near Stores and Analytics were removed from the company-admin navigation and their page routes now return not found.
+- The company-admin navigation and complaint list now use Support, with New Ticket, a day-first Date column, and no Raised By/Priority columns.
+- Settings is visible in the company-admin navigation.
+- The company Billing API still needs its separate V1 review; Phase B billing UI remains deferred.
 
 ## Design intent (from the dev notes)
 
@@ -19,13 +28,13 @@ The whole frame is tagged **REMOVE · later** with the note "Later, when billing
 
 | Figma frame | Code file/route | Status | What's different | Needs schema change? | Priority | Effort |
 |---|---|---|---|---|---|---|
-| Billing screen, V1 behaviour (`121:9728`) | [src/app/(dashboard)/company/billing/page.tsx](../../src/app/(dashboard)/company/billing/page.tsx) → `/company/billing` | ADJUST | Design says the route returns **not found** in V1. Code renders the page with a `BillingUnavailable` card ("Billing is not available in this model."). Fix: call `notFound()`. | No | Must | S |
+| Billing screen, V1 behaviour (`121:9728`) | [src/app/(dashboard)/company/billing/page.tsx](../../src/app/(dashboard)/company/billing/page.tsx) → `/company/billing` | OK | The route returns **not found** in V1, as required by the design. | No | — | — |
 | Billing API (V1) | [src/app/api/company/billing/route.ts](../../src/app/api/company/billing/route.ts) → `GET /api/company/billing` | ADJUST | Still returns live billing data. Defaults are wrong against the design: `pricePerEmployee` defaults to 5, cycle to `monthly` and plan to `Trial`; design is €1.86, billed annually. It also exposes `paymentMethodLast4`, but the design has no card payments. Should be 404 in V1, or at least unused. | No | Should | S |
 | Sidebar: Billing item (`121:9796`) | [src/components/layout/sidebar.tsx:92](../../src/components/layout/sidebar.tsx#L92) | OK | Billing item is commented out, which matches "no Billing item in the sidebar". | No | — | — |
-| Sidebar: Near Stores (tagged REMOVE) | [sidebar.tsx:89](../../src/components/layout/sidebar.tsx#L89), `src/app/(dashboard)/company/near-stores/` | REMOVE | Shown in code. Figma tags it REMOVE. | No | Must | S |
-| Sidebar: Analytics (tagged REMOVE) | [sidebar.tsx:91](../../src/components/layout/sidebar.tsx#L91), `src/app/(dashboard)/company/analytics/` | REMOVE | Shown in code. Figma tags it REMOVE. | No | Must | S |
-| Sidebar: "Support" label | [sidebar.tsx:90](../../src/components/layout/sidebar.tsx#L90) | ADJUST | Code label is **Tickets**. Figma label is **Support**. | No | Should | S |
-| Sidebar: Settings | [sidebar.tsx:94](../../src/components/layout/sidebar.tsx#L94), `src/app/(dashboard)/company/settings/` | ADJUST | Figma shows a Settings item last. In code it is commented out, although the page exists. | No | Should | S |
+| Sidebar: Near Stores (tagged REMOVE) | [sidebar.tsx](../../src/components/layout/sidebar.tsx), `/company/near-stores` | OK | Removed from company-admin navigation and route. | No | — | — |
+| Sidebar: Analytics (tagged REMOVE) | [sidebar.tsx](../../src/components/layout/sidebar.tsx), `/company/analytics` | OK | Removed from company-admin navigation and route. | No | — | — |
+| Sidebar: "Support" label | [sidebar.tsx](../../src/components/layout/sidebar.tsx) | OK | Company-admin navigation and page use **Support**. | No | — | — |
+| Sidebar: Settings | [sidebar.tsx](../../src/components/layout/sidebar.tsx), `src/app/(dashboard)/company/settings/` | OK | Settings is visible in the company-admin navigation. | No | — | — |
 | Sidebar: profile block | `sidebar.tsx` header | ADJUST (verify) | Figma shows avatar, name, email and a company-name chip ("GLOBAL SOLUTIONS LTD"). Check that the chip is rendered. | No | Later | S |
 | Your plan card (Phase B) | none | MISSING (later) | Not built. Existing data: `plan`, `billingCycle`, `pricePerEmployee`, `renewalDate`, `billingStatus`. Employee count is computed. | Default values only | Later | M |
 | Status pills Active / Invoice overdue / On hold | `BillingStatus` enum (`ACTIVE`, `INVOICE_OVERDUE`, `ON_HOLD`) | OK (schema) | The enum matches the three statuses. There is no UI yet. | No | Later | S |
@@ -41,10 +50,10 @@ The whole frame is tagged **REMOVE · later** with the note "Later, when billing
 
 | Status | Count |
 |---|---|
-| OK | 2 |
-| ADJUST | 5 |
+| OK | 7 |
+| ADJUST | 2 |
 | MISSING (Phase B, later) | 3 |
-| REMOVE | 2 |
+| REMOVE | 0 |
 | Extra (out of scope) | 1 |
 
 ## Schema changes needed

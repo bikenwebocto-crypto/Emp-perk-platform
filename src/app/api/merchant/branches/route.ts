@@ -14,6 +14,7 @@ import { createAuditLog } from '@/services/audit-log.service'
 import { channels, publishBusinessNotification } from '@/services/business-notification.service'
 import { EVERGREEN_BRANCH_LINK_CODE } from '@/lib/offers/channel'
 import { applyEvergreenBranchLink, parseEvergreenLinkChoice } from '@/lib/offers/channel.server'
+import { getBranchCoverageStatuses } from '@/lib/offers/visible-merchants'
 
 function unauthorized() {
   return NextResponse.json(
@@ -125,9 +126,13 @@ export async function GET(request: NextRequest) {
       ],
     })
 
+    // Whether each branch is covered by the LIVE Evergreen (= shown in the employee app).
+    const { evergreen, statuses } = await getBranchCoverageStatuses(merchant.id, branches)
+
     return NextResponse.json({
       success: true,
-      data: branches,
+      data: branches.map((b) => ({ ...b, evergreenCoverage: statuses.get(b.id) ?? 'NO_EVERGREEN' })),
+      meta: { liveEvergreen: evergreen },
     })
   } catch (error) {
     return internalError(error)

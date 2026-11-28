@@ -43,6 +43,9 @@ import {
   EvergreenActivationError,
   assertEvergreenActivationAllowed,
   findLiveEvergreen,
+  findPendingEvergreen,
+  evergreenPendingMessage,
+  EVERGREEN_PENDING_CODE,
   isEvergreenOffer,
   isEvergreenRange,
   isForeverOffer,
@@ -817,6 +820,24 @@ export async function POST(request: NextRequest) {
         startDate,
         endDate,
       });
+      // One pending replacement: a second Evergreen can't be queued while one
+      // is already awaiting admin approval.
+      const pendingEvergreen = upcomingIsEvergreen
+        ? await findPendingEvergreen(prisma, merchant.id, body.excludeId || null)
+        : null;
+      if (pendingEvergreen) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: EVERGREEN_PENDING_CODE,
+              message: evergreenPendingMessage(pendingEvergreen.title),
+              pendingOffer: pendingEvergreen,
+            },
+          },
+          { status: 409 },
+        );
+      }
       const currentEvergreen =
         upcomingIsEvergreen && !replacesOfferId ? findLiveEvergreen(liveOffers) : null;
       if (currentEvergreen && !confirmReplaceEvergreen) {

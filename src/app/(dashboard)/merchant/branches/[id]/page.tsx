@@ -243,6 +243,34 @@ export default function BranchDetailPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
+      {branch.evergreenCoverage && (
+        <div
+          role="status"
+          className={`rounded-md border p-3 text-sm ${
+            branch.evergreenCoverage === 'COVERED'
+              ? 'border-green-300 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200'
+              : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200'
+          }`}
+        >
+          {branch.evergreenCoverage === 'COVERED' ? (
+            <>
+              <span className="font-medium">Covered by your live Evergreen offer</span> &quot;{branch.liveEvergreen?.title}&quot;.
+              {branch.isActive && branch.status === 'ACTIVE'
+                ? ' This branch is shown in the employee app.'
+                : ' Activate the branch to show it in the employee app.'}
+            </>
+          ) : branch.evergreenCoverage === 'NOT_COVERED' ? (
+            <>
+              <span className="font-medium">Not covered</span> by your live Evergreen offer &quot;{branch.liveEvergreen?.title}&quot;, so this branch is hidden from the employee app. Replace your Evergreen offer to include it (needs admin approval).
+            </>
+          ) : (
+            <>
+              <span className="font-medium">No live Evergreen offer.</span> This branch will show in the employee app once your Evergreen offer is approved and live.
+            </>
+          )}
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>

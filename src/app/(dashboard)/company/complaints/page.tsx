@@ -9,18 +9,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/shared/page-header";
 import { useTablePagination } from "@/hooks/use-table-pagination";
 import { Plus, AlertTriangle } from "lucide-react";
-import { PRIORITY_STYLES } from "@/features/complaints/constants";
+import { formatDateDMY } from "@/lib/format";
 
 interface Complaint {
   id: string;
   complaintType: string;
   category: string | null;
   status: string;
-  priority: string;
   createdAt: string;
   offer: { id: string; title: string };
   merchant: { id: string; businessName: string };
-  employee: { id: string; firstName: string; lastName: string } | null;
 }
 
 interface ComplaintsResponse {
@@ -85,12 +83,12 @@ export default function CompanyComplaintsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Complaints"
-        description="Complaints filed by your team and by you"
+        title="Support"
+        description="Support requests filed by your team and by you"
         actions={
           <Link href="/company/complaints/new">
             <Button>
-              <Plus className="mr-1 h-4 w-4" /> File Application Support
+              <Plus className="mr-1 h-4 w-4" /> New Ticket
             </Button>
           </Link>
         }
@@ -135,14 +133,12 @@ export default function CompanyComplaintsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/30 text-left text-xs font-medium uppercase text-muted-foreground">
-                  <th className="px-4 py-3">Raised By</th>
+                  <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Offer</th>
                   <th className="px-4 py-3">Merchant</th>
                   <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Category</th>
                   <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Priority</th>
-                  <th className="px-4 py-3">Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -154,10 +150,8 @@ export default function CompanyComplaintsPage() {
                       (window.location.href = `/company/complaints/${c.id}`)
                     }
                   >
-                    <td className="px-4 py-3 font-medium">
-                      {c.employee
-                        ? `${c.employee.firstName} ${c.employee.lastName}`
-                        : "You (Company Admin)"}
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {formatDateDMY(c.createdAt)}
                     </td>
                     <td className="px-4 py-3">{c.offer?.title ?? "—"}</td>
                     <td className="px-4 py-3 text-muted-foreground">
@@ -177,16 +171,6 @@ export default function CompanyComplaintsPage() {
                       >
                         {c.status.replace(/_/g, " ")}
                       </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_STYLES[c.priority] ?? ""}`}
-                      >
-                        {c.priority}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {new Date(c.createdAt).toLocaleDateString()}
                     </td>
                   </tr>
                 ))}

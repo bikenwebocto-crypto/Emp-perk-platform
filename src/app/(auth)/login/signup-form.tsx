@@ -17,6 +17,29 @@ interface SignupFormProps {
 }
 
 const SOCIALS = ["instagram", "facebook", "twitter", "tiktok"] as const;
+const URL_FIELDS = ["website", ...SOCIALS];
+const CY_PREFIX = "+357";
+const CY_DIGITS = 8;
+
+/** "example.com" -> "https://example.com"; leaves http(s):// and empty values alone. */
+const withHttps = (raw: string) => {
+  const val = raw.trim();
+  if (!val || /^https?:\/\//i.test(val)) return val;
+  return `https://${val.replace(/^\/+/, "")}`;
+};
+
+/** Move the user to the first field with an error (opens collapsed sections). */
+function revealFirstError(errs: Errors) {
+  const ids = Object.keys(errs).filter((k) => errs[k]).map((k) => `su-${k}`);
+  const first = Array.from(document.querySelectorAll<HTMLElement>("[id^='su-']")).find((el) => ids.includes(el.id));
+  if (!first) return;
+  const details = first.closest("details");
+  if (details) details.open = true;
+  requestAnimationFrame(() => {
+    first.scrollIntoView({ behavior: "smooth", block: "center" });
+    first.focus({ preventScroll: true });
+  });
+}
 
 function Field({
   id, label, required, error, children,
@@ -48,23 +71,35 @@ export function SignupForm({ onCreated, onBack }: SignupFormProps) {
       .catch(() => setCategories([]));
   }, [categories.length]);
 
-  const v = (k: string) => values[k] ?? "";
+  // `current` lets handleSubmit validate the just-normalised values in the same tick.
+  let current = values;
+  const v = (k: string) => current[k] ?? "";
   const set = (k: string) => (e: { target: { value: string } }) => {
     setValues((prev) => ({ ...prev, [k]: e.target.value }));
     if (errors[k]) setErrors((prev) => ({ ...prev, [k]: "" }));
   };
-  const text = (k: string, label: string, opts: { required?: boolean; type?: string; placeholder?: string } = {}) => (
-    <Field id={`su-${k}`} label={label} required={opts.required} error={errors[k]}>
-      <Input
-        id={`su-${k}`}
-        type={opts.type ?? "text"}
-        placeholder={opts.placeholder}
-        aria-invalid={!!errors[k]}
-        value={v(k)}
-        onChange={set(k)}
-      />
-    </Field>
-  );
+  const text = (k: string, label: string, opts: { required?: boolean; type?: string; placeholder?: string } = {}) => {
+    const isUrl = URL_FIELDS.includes(k);
+    return (
+      <Field id={`su-${k}`} label={label} required={opts.required} error={errors[k]}>
+        <Input
+          id={`su-${k}`}
+          type={opts.type ?? "text"}
+          placeholder={opts.placeholder}
+          aria-invalid={!!errors[k]}
+          value={v(k)}
+          onChange={set(k)}
+          onBlur={isUrl ? () => setValues((prev) => ({ ...prev, [k]: withHttps(prev[k] ?? "") })) : undefined}
+        />
+      </Field>
+    );
+  };
+
+  const phoneDigits = v("contactPhone");
+  const phoneWarning =
+    phoneDigits && phoneDigits.length !== CY_DIGITS
+      ? `Cyprus numbers have ${CY_DIGITS} digits (${phoneDigits.length}/${CY_DIGITS})`
+      : "";
 
   const validate = (): Errors => {
     const e: Errors = {};
@@ -74,12 +109,16 @@ export function SignupForm({ onCreated, onBack }: SignupFormProps) {
     const pwErr = getPasswordError(v("password"));
     if (pwErr) e.password = pwErr;
     if (v("password") !== v("confirmPassword")) e.confirmPassword = "Passwords do not match";
-    if (v("contactPhone").trim() && !isValidPhone(v("contactPhone"))) e.contactPhone = "Invalid phone number";
+    const digits = v("contactPhone");
+    if (digits) {
+      if (digits.length !== CY_DIGITS) e.contactPhone = `Enter a ${CY_DIGITS}-digit Cyprus number`;
+      else if (!isValidPhone(`${CY_PREFIX}${digits}`)) e.contactPhone = "Not a valid Cyprus phone number";
+    }
     req("businessName", "Business name");
     req("contactName", "Contact name");
-    for (const k of ["website", ...SOCIALS]) {
-      const val = v(k).trim();
-      if (val && !/^https?:\/\/\S+\.\S+/.test(val)) e[k] = "Enter a full URL (https://…)";
+    for (const k of URL_FIELDS) {
+      const val = withHttps(v(k));
+      if (val && !/^https?:\/\/[^\s.]+\.\S+/.test(val)) e[k] = "Enter a valid web address, e.g. example.com";
     }
     return e;
   };
@@ -87,9 +126,19 @@ export function SignupForm({ onCreated, onBack }: SignupFormProps) {
   const handleSubmit = async (ev: FormEvent) => {
     ev.preventDefault();
     setFormError(null);
+    // Auto-add https:// so the user doesn't have to type it.
+    const normalized = { ...values };
+    for (const k of URL_FIELDS) if (normalized[k]) normalized[k] = withHttps(normalized[k]);
+    current = normalized;
+    setValues(normalized);
+
     const found = validate();
     setErrors(found);
-    if (Object.values(found).some(Boolean)) return;
+    if (Object.values(found).some(Boolean)) {
+      setFormError("Please fix the highlighted fields.");
+      revealFirstError(found);
+      return;
+    }
 
     const opt = (k: string) => v(k).trim() || null;
     const socialLinks = Object.fromEntries(SOCIALS.map((s) => [s, opt(s)]));
@@ -101,7 +150,7 @@ export function SignupForm({ onCreated, onBack }: SignupFormProps) {
     const payload = {
       type: "MERCHANT" as const, ...base,
       businessName: v("businessName").trim(), contactName: v("contactName").trim(),
-      contactPhone: opt("contactPhone"), categoryId: opt("categoryId"), description: opt("description"),
+      contactPhone: v("contactPhone") ? `${CY_PREFIX}${v("contactPhone")}` : null, categoryId: opt("categoryId"), description: opt("description"),
     };
 
     setSubmitting(true);
@@ -118,6 +167,7 @@ export function SignupForm({ onCreated, onBack }: SignupFormProps) {
           const mapped: Errors = {};
           for (const [k, msgs] of Object.entries(details)) if (msgs?.[0]) mapped[k === "phone" ? "contactPhone" : k] = msgs[0];
           setErrors((prev) => ({ ...prev, ...mapped }));
+          revealFirstError(mapped);
         }
         setFormError(body?.error?.message ?? "Sign-up failed. Please try again.");
         return;
@@ -148,7 +198,34 @@ export function SignupForm({ onCreated, onBack }: SignupFormProps) {
         <>
             {text("businessName", "Business name", { required: true })}
             {text("contactName", "Contact name", { required: true })}
-            {text("contactPhone", "Contact phone", { type: "tel" })}
+            <Field id="su-contactPhone" label="Contact phone (Cyprus)" error={errors.contactPhone}>
+              <div className="flex">
+                <span className="inline-flex items-center rounded-l-md border border-r-0 border-input bg-gray-50 px-3 text-sm text-gray-600">
+                  🇨🇾 {CY_PREFIX}
+                </span>
+                <Input
+                  id="su-contactPhone"
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel-national"
+                  placeholder="99123456"
+                  maxLength={CY_DIGITS}
+                  className="rounded-l-none"
+                  aria-invalid={!!errors.contactPhone}
+                  value={phoneDigits}
+                  onChange={(e) => {
+                    // Digits only; drop a pasted +357 / 00357 prefix.
+                    const digits = e.target.value.replace(/\D/g, "").replace(/^(00)?357(?=\d{8})/, "").slice(0, CY_DIGITS);
+                    set("contactPhone")({ target: { value: digits } });
+                  }}
+                />
+              </div>
+              {!errors.contactPhone && (
+                phoneWarning
+                  ? <p className="text-xs text-amber-600">{phoneWarning}</p>
+                  : <p className="text-xs text-gray-500">{CY_DIGITS}-digit Cyprus number, e.g. 99123456</p>
+              )}
+            </Field>
             <Field id="su-categoryId" label="Category" error={errors.categoryId}>
               <select
                 id="su-categoryId"

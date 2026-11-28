@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { Loader2 } from 'lucide-react'
 import {
-  LayoutDashboard, Store, Users, FileText, BarChart3, Settings, CreditCard,
+  LayoutDashboard, Store, Users, FileText, BarChart3, Settings,
   ShoppingBag, MapPin, Gift, Building2, UserCircle, Bell, Upload, LogOut,
   Zap, Bookmark, Palette, Trash2, Lightbulb, Inbox, UserCog,
   CalendarClock, ShieldAlert, ShieldCheck, UserCheck, Tags, ScrollText,
@@ -87,12 +87,10 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Overview', href: '/company', icon: LayoutDashboard, exact: true },
     { label: 'Company', href: '/company/details', icon: Building2 },
     { label: 'Employees', href: '/company/employees', icon: Users },
-    { label: 'Near Stores', href: '/company/near-stores', icon: MapPin },
-    { label: 'Tickets', href: '/company/complaints', icon: FileText },
-    { label: 'Analytics', href: '/company/analytics', icon: BarChart3 },
+    { label: 'Support', href: '/company/complaints', icon: FileText },
     // { label: 'Billing', href: '/company/billing', icon: CreditCard },
     { label: 'Notifications', href: '/company/notifications', icon: Bell },
-    // { label: 'Settings', href: '/company/settings', icon: Settings },
+    { label: 'Settings', href: '/company/settings', icon: Settings },
   ],
   employee: [
     { label: 'Home', href: '/employee', icon: LayoutDashboard, exact: true },

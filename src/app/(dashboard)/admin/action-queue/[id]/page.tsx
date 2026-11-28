@@ -37,7 +37,7 @@ import {
   RejectDialog,
   type ReviewComponentKey,
 } from '@/components/admin/action-queue/reviews'
-import { ApproveConfirmDialog } from '@/components/admin/action-queue/reviews/ApproveConfirmDialog'
+import { ApproveConfirmDialog, type EvergreenScope } from '@/components/admin/action-queue/reviews/ApproveConfirmDialog'
 import {
   QUEUE_TYPE_MAP,
   getEntityKindFromReferenceType,
@@ -135,6 +135,7 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
   const [editMode, setEditMode] = useState(false)
   const [showRejectDialog, setShowRejectDialog] = useState(false)
   const [liveEvergreen, setLiveEvergreen] = useState<{ id: string; title: string } | null>(null)
+  const [evergreenScope, setEvergreenScope] = useState<EvergreenScope | null>(null)
   // Approval waiting for the admin to confirm in the popup.
   const [pendingApproval, setPendingApproval] = useState<
     { action: 'APPROVE' | 'EDIT_AND_APPROVE'; extra?: Record<string, any> } | null
@@ -155,6 +156,7 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
       setEntity(json.data.entity ?? null)
       setAuditLogs(json.data.auditLogs ?? [])
       setLiveEvergreen(json.data.liveEvergreen ?? null)
+      setEvergreenScope(json.data.evergreenScope ?? null)
     } catch (err: any) {
       showToast({ type: 'error', title: 'Failed to load review data', description: err?.message })
     } finally {
@@ -480,6 +482,7 @@ export default function UnifiedReviewPage({ params }: { params: Promise<{ id: st
         onConfirm={confirmApproval}
         processing={processing}
         replacedEvergreen={liveEvergreen}
+        evergreenScope={evergreenScope}
       />
 
       <RejectDialog
