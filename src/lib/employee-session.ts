@@ -35,10 +35,10 @@ export async function getEmployeeFromSession(): Promise<EmployeeSessionResult> {
 
   const companyStatus = user.companyStatus
 
-  if (!companyStatus || companyStatus === 'CANCELLED') {
+  if (!companyStatus) {
     return null
   }
-  if (companyStatus === 'PAUSED' || companyStatus === 'SUSPENDED') {
+  if (companyStatus !== 'ACTIVE') {
     return {
       inactive: true,
       companyStatus,

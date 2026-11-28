@@ -5,6 +5,8 @@ import { clientIpFromRequest, getRateLimiter } from '@/lib/rate-limit';
 import { corsHeaders, isOriginAllowed } from '@/lib/leads/cors';
 import { parseLeadSubmission, readLeadBody, type LeadInput } from '@/lib/leads/parse';
 import { channels, publishBusinessToAdmins } from '@/services/business-notification.service';
+import { selectableCategoryWhere } from '@/lib/categories';
+import { isValidMerchantLeadCategory } from '@/lib/leads/category-options';
 
 const RATE_LIMIT = { limit: 10, windowMs: 10 * 60 * 1000 } as const;
 
@@ -91,6 +93,16 @@ export async function POST(request: NextRequest) {
     const parsed = parseLeadSubmission(read.body);
     if (!parsed.ok) return validationError(origin, parsed.errors);
     const input = parsed.input;
+
+    if (input.type === 'MERCHANT') {
+      const categories = await prisma.category.findMany({
+        where: selectableCategoryWhere,
+        select: { name: true },
+      });
+      if (!isValidMerchantLeadCategory(String(input.data.industry ?? ''), categories.map((category) => category.name))) {
+        return validationError(origin, { category: 'Choose a current business category or Other.' });
+      }
+    }
 
     // A contact message is never deduplicated: every message is kept as its own lead,
     // even from someone who already has an account.

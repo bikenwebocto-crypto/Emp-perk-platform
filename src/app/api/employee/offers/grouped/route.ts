@@ -1,6 +1,7 @@
 import { notEndedBy } from '@/lib/offers/end-date';
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { selectableCategoryWhere } from '@/lib/categories'
 import { getEmployeeFromSession, unauthorized, internalError, companyInactive } from '@/lib/employee-session'
 import { mapOfferRow } from '@/services/offer-mapper.service'
 import { safeQuery } from '@/lib/prisma/safe-query'
@@ -63,8 +64,8 @@ export async function GET(_request: NextRequest) {
       safeQuery(
         () =>
           prisma.category.findMany({
-            where: { isActive: true },
-            orderBy: { displayOrder: 'asc' },
+            where: selectableCategoryWhere,
+            orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
             select: { id: true, name: true, icon: true },
           }),
         [],

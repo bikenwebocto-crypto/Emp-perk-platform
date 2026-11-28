@@ -25,6 +25,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import type { CompanyAdminSummary } from "@/types";
 import { TableActionButton } from "./primitives";
 import type { CityReadiness, CompanyDetailPermissions, ImportPreview } from "./types";
+import { formatDateTimeDMY } from "@/lib/format";
 
 export function CityReadinessBanner({ readiness }: { readiness: CityReadiness }) {
   return (
@@ -77,9 +78,11 @@ export function CompanyHeaderCard({ company }: { company: any }) {
 
 interface CompanyInfoCardProps {
   company: any;
+  /** Company-admin view: note that these contact details are internal to Perks & More. */
+  internalNote?: boolean;
 }
 
-export function CompanyInfoCard({ company }: CompanyInfoCardProps) {
+export function CompanyInfoCard({ company, internalNote = false }: CompanyInfoCardProps) {
   return (
     <Card>
       <CardHeader>
@@ -87,9 +90,14 @@ export function CompanyInfoCard({ company }: CompanyInfoCardProps) {
           <Building2 className="h-4 w-4" />
           Company Information
           <span className="text-xs font-normal text-muted-foreground">
-            (organization contact details — not the login email)
+            (Organization contact details, not the login email)
           </span>
         </CardTitle>
+        {internalNote && (
+          <p className="text-xs text-muted-foreground">
+            Only Perks &amp; More sees this. It is not shown in the app.
+          </p>
+        )}
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
@@ -98,7 +106,7 @@ export function CompanyInfoCard({ company }: CompanyInfoCardProps) {
             <p className="font-medium">{company.name}</p>
           </div>
           <div>
-            <p className="text-muted-foreground">Contact Email</p>
+            <p className="text-muted-foreground">Contact email</p>
             <p className="flex items-center gap-1 font-medium">
               <Mail className="h-3.5 w-3.5 text-muted-foreground" />
               {company.email}
@@ -158,19 +166,26 @@ export function CompanyInfoCard({ company }: CompanyInfoCardProps) {
 interface PrimaryAdminCardProps {
   primaryAdmin: CompanyAdminSummary | null;
   onAssign: () => void;
+  /** Company-admin view: note that these details are internal to Perks & More. */
+  internalNote?: boolean;
 }
 
-export function PrimaryAdminCard({ primaryAdmin, onAssign }: PrimaryAdminCardProps) {
+export function PrimaryAdminCard({ primaryAdmin, onAssign, internalNote = false }: PrimaryAdminCardProps) {
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Star className="h-4 w-4 text-amber-500" />
-          Primary Administrator
+          Primary administrator
           <span className="text-xs font-normal text-muted-foreground">
-            (owns the company login and dashboard access)
+            (Owns the company login and dashboard access)
           </span>
         </CardTitle>
+        {internalNote && (
+          <p className="text-xs text-muted-foreground">
+            Only Perks &amp; More sees this. It is not shown in the app.
+          </p>
+        )}
       </CardHeader>
       <CardContent>
         {primaryAdmin ? (
@@ -205,7 +220,7 @@ export function PrimaryAdminCard({ primaryAdmin, onAssign }: PrimaryAdminCardPro
                 <p className="text-muted-foreground">Last Login</p>
                 <p className="text-xs font-medium">
                   {primaryAdmin.lastLoginAt
-                    ? new Date(primaryAdmin.lastLoginAt).toLocaleString()
+                    ? formatDateTimeDMY(primaryAdmin.lastLoginAt)
                     : "Never"}
                 </p>
               </div>
@@ -213,7 +228,7 @@ export function PrimaryAdminCard({ primaryAdmin, onAssign }: PrimaryAdminCardPro
                 <p className="text-muted-foreground">Badge</p>
                 <div>
                   <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
-                    <KeyRound className="h-3 w-3" /> Primary Admin
+                    <KeyRound className="h-3 w-3" /> Primary admin
                   </span>
                 </div>
               </div>
@@ -374,7 +389,7 @@ export function AdministratorsCard({
                       </td>
                       <td className="py-2 pr-3 text-xs text-muted-foreground">
                         {a.lastLoginAt
-                          ? new Date(a.lastLoginAt).toLocaleString()
+                          ? formatDateTimeDMY(a.lastLoginAt)
                           : "Never"}
                       </td>
                       <td className="py-2 pr-3 text-right">

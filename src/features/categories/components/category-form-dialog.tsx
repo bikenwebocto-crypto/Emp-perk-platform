@@ -127,7 +127,7 @@ export function CategoryFormDialog({ category, onClose }: CategoryFormDialogProp
               id="category-name"
               value={name}
               maxLength={100}
-              placeholder="e.g. Food & Dining"
+              placeholder="e.g. Food & Drinks"
               onChange={(e) => { setName(e.target.value); setErrors((er) => ({ ...er, name: undefined })) }}
             />
             {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}

@@ -4,6 +4,7 @@ import { internalError } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { safeQuery } from '@/lib/prisma/safe-query'
 import { categoryLogoUrl, isCategoryLogoPath } from '@/features/categories/logo'
+import { selectableCategoryWhere } from '@/lib/categories'
 
 // GET /api/mobile/categories
 //
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
     const categories = await safeQuery(
       () =>
         prisma.category.findMany({
-          where: { isActive: true },
+          where: selectableCategoryWhere,
           orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
           select: {
             id: true,

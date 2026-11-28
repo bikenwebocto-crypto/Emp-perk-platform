@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     account: { findUnique: vi.fn() },
+    companyAdmin: { findFirst: vi.fn() },
   },
 }))
 
@@ -36,5 +37,27 @@ describe('GET /api/auth/session (middleware-authenticated path)', () => {
       select: { authUserId: true },
     })
     expect(res.status).not.toBe(401)
+  })
+
+  it('includes the company lifecycle status for company admins', async () => {
+    ;(prisma.account.findUnique as any)
+      .mockResolvedValueOnce({ authUserId: 'company-admin-123' })
+      .mockResolvedValueOnce({
+        authUserId: 'company-admin-123',
+        role: 'COMPANY_ADMIN',
+        profileType: 'COMPANY',
+      })
+    ;(prisma.companyAdmin.findFirst as any).mockResolvedValue({
+      company: { status: 'APPROVED_PENDING_PAYMENT' },
+    })
+
+    const res = await GET(requestWith({ 'x-middleware-email': 'admin@acmetest.test' }))
+    const body = await res.json()
+
+    expect(body.user.companyStatus).toBe('APPROVED_PENDING_PAYMENT')
+    expect(prisma.companyAdmin.findFirst).toHaveBeenCalledWith({
+      where: { accountId: 'company-admin-123' },
+      select: { company: { select: { status: true } } },
+    })
   })
 })

@@ -14,10 +14,21 @@ async function hashPassword(password: string): Promise<string> {
 }
 
 async function main() {
+  // This script wipes every table, audit history included. Never against production.
+  if (process.env.NODE_ENV === 'production' || process.env.ALLOW_DESTRUCTIVE_SEED !== '1') {
+    console.error(
+      'Refusing to seed: this deletes all data including audit history. Set ALLOW_DESTRUCTIVE_SEED=1 against a disposable dev database (never production).',
+    );
+    process.exit(1);
+  }
+
   console.log('🌱 Seeding database (Cyprus edition)...');
 
-  // Clean existing data in dependency order (children before parents)
+  // Clean existing data in dependency order (children before parents).
+  // The first statement opts this transaction out of the audit append-only
+  // trigger (migration 20261128000000); it applies to this transaction only.
   await prisma.$transaction([
+    prisma.$executeRaw`SELECT set_config('app.audit_maintenance', 'on', true)`,
     prisma.complaintAction.deleteMany(),
     prisma.complaintEscalation.deleteMany(),
     prisma.complaint.deleteMany(),
@@ -201,11 +212,20 @@ async function main() {
   }
 
   // ── Categories (global master data) ────────────────────
-  const catNames = ['Food & Dining', 'Retail', 'Technology', 'Health & Fitness', 'Entertainment', 'Travel', 'Fashion', 'Shopping Malls', 'Family & Kids', 'Home Improvement', 'Toys & Games'];
+  const catNames = [
+    'Online Shopping & E-commerce',
+    'Food & Drinks',
+    'Fashion & Shopping',
+    'Beauty & Wellness',
+    'Health & Fitness',
+    'Entertainment & Experiences',
+    'Travel & Leisure',
+  ];
+  const categoryIcons = ['shopping-bag', 'utensils', 'shirt', 'heart', 'heart', 'film', 'plane'];
   const catData = catNames.map((name, i) => ({
     name,
-    slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    icon: ['utensils', 'shopping-bag', 'laptop', 'heart', 'film', 'plane', 'shirt', 'building', 'users', 'wrench', 'gamepad'][i],
+    slug: name.toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+    icon: categoryIcons[i],
     displayOrder: i,
   }));
   await prisma.category.createMany({ data: catData });

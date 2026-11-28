@@ -30,6 +30,8 @@ import {
   type RecoveryAccount,
 } from '@/lib/mfa-recovery/accounts'
 import * as emails from '@/lib/mfa-recovery/emails'
+import { redactAuditPayload } from '@/services/audit-log.service'
+import { reportAuditAlert } from '@/lib/monitoring/audit-health'
 
 // Admin-managed MFA recovery. Every state change is a compare-and-set
 // (updateMany guarded by the expected current status), so concurrent calls
@@ -80,20 +82,32 @@ async function audit(
     metadata?: Record<string, unknown>
   },
 ) {
-  // Metadata must never carry OTPs, factor secrets or passwords.
-  await db.mfaRecoveryAuditLog.create({
-    data: {
-      recoveryRequestId: entry.request?.id ?? null,
-      subjectAccountId: entry.subjectAccountId ?? entry.request?.accountId ?? null,
-      actorAccountId: entry.actor?.accountId ?? null,
-      actorRole: actorRoleLabel(entry.actor),
+  // Metadata must never carry OTPs, factor secrets or passwords; redaction is
+  // a second line of defence in case a caller slips.
+  try {
+    await db.mfaRecoveryAuditLog.create({
+      data: {
+        recoveryRequestId: entry.request?.id ?? null,
+        subjectAccountId: entry.subjectAccountId ?? entry.request?.accountId ?? null,
+        actorAccountId: entry.actor?.accountId ?? null,
+        actorRole: actorRoleLabel(entry.actor),
+        action: entry.action,
+        previousStatus: entry.previousStatus ?? null,
+        newStatus: entry.newStatus ?? null,
+        metadata: (entry.metadata ? redactAuditPayload(entry.metadata) : undefined) as
+          | Prisma.InputJsonValue
+          | undefined,
+        ipAddress: entry.actor?.ip?.slice(0, 45) ?? null,
+      },
+    })
+  } catch (err) {
+    reportAuditAlert('mfa_audit_insert_failed', {
       action: entry.action,
-      previousStatus: entry.previousStatus ?? null,
-      newStatus: entry.newStatus ?? null,
-      metadata: (entry.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
-      ipAddress: entry.actor?.ip?.slice(0, 45) ?? null,
-    },
-  })
+      recoveryRequestId: entry.request?.id ?? null,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    throw err
+  }
 }
 
 function isUniqueViolation(error: unknown): boolean {

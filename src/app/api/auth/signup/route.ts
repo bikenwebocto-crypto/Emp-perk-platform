@@ -1,3 +1,4 @@
+import { clientIpFromRequest } from '@/lib/rate-limit'
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
@@ -7,9 +8,10 @@ import { cleanSocialLinks } from '@/lib/social-links';
 import { getPasswordError } from '@/lib/validation/credentials';
 import { validateUserEmail } from '@/services/user-validation.service';
 import { normalizeEmail, rollbackAuthUser } from '@/services/employee-invite.service';
+import { selectableCategoryWhere } from '@/lib/categories';
 
-// Public self sign-up from the login page. Merchants and companies created here
-// are live immediately: no approval queue item, ACTIVE account + profile.
+// Public self sign-up from the login page, merchants only. Merchants created
+// here are live immediately: no approval queue item, ACTIVE account + profile.
 
 const attempts = new Map<string, { count: number; resetAt: number }>();
 const WINDOW_MS = 60 * 60 * 1000;
@@ -48,28 +50,17 @@ const common = {
   country: optStr(120),
 };
 
-const signupSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('MERCHANT'),
-    businessName: z.string().trim().min(2).max(200),
-    contactName: z.string().trim().min(1).max(200),
-    contactPhone: optStr(30),
-    categoryId: optStr(64),
-    description: optStr(2000),
-    ...common,
-  }),
-  z.object({
-    type: z.literal('COMPANY'),
-    name: z.string().trim().min(2).max(200),
-    firstName: z.string().trim().min(1).max(100),
-    lastName: z.string().trim().min(1).max(100),
-    phone: optStr(30),
-    employeeCount: z.number().int().min(0).max(1_000_000).optional().nullable(),
-    industry: optStr(100),
-    taxId: optStr(60),
-    ...common,
-  }),
-]);
+// Merchant only. Companies are created by platform admins and their admins
+// get the invite email (single-use 72h set-password link).
+const signupSchema = z.object({
+  type: z.literal('MERCHANT'),
+  businessName: z.string().trim().min(2).max(200),
+  contactName: z.string().trim().min(1).max(200),
+  contactPhone: optStr(30),
+  categoryId: optStr(64),
+  description: optStr(2000),
+  ...common,
+});
 
 function fail(status: number, code: string, message: string, details?: unknown) {
   return NextResponse.json({ success: false, error: { code, message, details } }, { status });
@@ -80,9 +71,7 @@ const slugify = (s: string) =>
 
 export async function POST(request: NextRequest) {
   const ip =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    request.headers.get('x-real-ip') ??
-    'unknown';
+    clientIpFromRequest(request);
   if (!checkRateLimit(ip)) {
     return fail(429, 'RATE_LIMITED', 'Too many sign-up attempts. Please try again later.');
   }
@@ -103,12 +92,14 @@ export async function POST(request: NextRequest) {
   const passwordError = getPasswordError(data.password);
   if (passwordError) return fail(400, 'VALIDATION', passwordError, { password: [passwordError] });
 
-  const rawPhone = data.type === 'MERCHANT' ? data.contactPhone : data.phone;
+  const rawPhone = data.contactPhone;
   const phone = toE164(rawPhone);
   if (rawPhone && !phone) return fail(400, 'VALIDATION', 'Invalid phone number', { phone: ['Invalid phone number'] });
 
-  if (data.type === 'MERCHANT' && data.categoryId) {
-    const category = await prisma.category.findUnique({ where: { id: data.categoryId } });
+  if (data.categoryId) {
+    const category = await prisma.category.findFirst({
+      where: { id: data.categoryId, ...selectableCategoryWhere },
+    });
     if (!category) return fail(400, 'INVALID_CATEGORY', 'Selected category does not exist.');
   }
 
@@ -117,7 +108,7 @@ export async function POST(request: NextRequest) {
     return fail(409, 'EMAIL_ALREADY_EXISTS', 'An account with this email already exists.', { email: ['Already registered'] });
   }
 
-  const role = data.type === 'MERCHANT' ? 'MERCHANT' : 'COMPANY_ADMIN';
+  const role = 'MERCHANT';
   const { data: created, error: authError } = await getAdminClient().auth.admin.createUser({
     email,
     password: data.password,
@@ -143,66 +134,25 @@ export async function POST(request: NextRequest) {
 
   try {
     await prisma.$transaction(async (tx) => {
-      if (data.type === 'MERCHANT') {
-        await tx.account.create({
-          data: { authUserId: userId, email, role: 'MERCHANT', profileType: 'MERCHANT', status: 'ACTIVE' },
-        });
-        await tx.merchant.create({
-          data: {
-            id: userId,
-            accountId: userId,
-            businessName: data.businessName,
-            slug: slugify(data.businessName),
-            contactName: data.contactName,
-            contactPhone: phone,
-            categoryId: data.categoryId || null,
-            description: data.description || null,
-            website: data.website || null,
-            socialLinks,
-            ...address,
-            status: 'ACTIVE',
-            onboardingStep: 'COMPLETE',
-            approvedAt: now,
-          },
-        });
-        return;
-      }
-
-      const company = await tx.company.create({
+      await tx.account.create({
+        data: { authUserId: userId, email, role: 'MERCHANT', profileType: 'MERCHANT', status: 'ACTIVE' },
+      });
+      await tx.merchant.create({
         data: {
-          name: data.name,
-          slug: slugify(data.name),
-          email,
-          phone,
+          id: userId,
+          accountId: userId,
+          businessName: data.businessName,
+          slug: slugify(data.businessName),
+          contactName: data.contactName,
+          contactPhone: phone,
+          categoryId: data.categoryId || null,
+          description: data.description || null,
           website: data.website || null,
           socialLinks,
-          employeeCount: data.employeeCount ?? 0,
-          industry: data.industry || null,
-          taxId: data.taxId || null,
           ...address,
           status: 'ACTIVE',
+          onboardingStep: 'COMPLETE',
           approvedAt: now,
-        },
-      });
-      await tx.account.create({
-        data: { authUserId: userId, email, role: 'COMPANY_ADMIN', profileType: 'COMPANY', status: 'ACTIVE' },
-      });
-      await tx.companyAdmin.create({
-        data: {
-          id: userId, companyId: company.id, accountId: userId,
-          firstName: data.firstName, lastName: data.lastName, isPrimary: true, isActive: true,
-        },
-      });
-      await tx.companyStatusHistory.create({
-        data: {
-          companyId: company.id, fromStatus: null, toStatus: 'ACTIVE',
-          changedBy: userId, changedByType: 'SELF_SIGNUP', reason: 'Self sign-up (no approval required)',
-        },
-      });
-      await tx.companyBilling.create({
-        data: {
-          companyId: company.id, plan: 'growth', pricePerEmployee: 5.0, isTrial: true,
-          trialEndsAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
         },
       });
     });

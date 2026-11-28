@@ -271,6 +271,10 @@ model CompanyAdmin {
   isPrimary        Boolean               @default(false)
   isActive         Boolean               @default(true)
   lastLoginAt      DateTime?
+  /// Outcome of the latest invitation email ('SENT' | 'FAILED'). Business state;
+  /// the audit log keeps the full attempt history but is not read for decisions.
+  inviteStatus     String?               @db.VarChar(16)
+  inviteStatusAt   DateTime?
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
   accountId        String?               @db.Uuid
@@ -1811,12 +1815,26 @@ model DemoBooking {
   notes           String?           @db.VarChar(2000)
   status          DemoBookingStatus @default(PENDING)
   meetingLink     String?           @db.VarChar(500)
+  /// Set when the 24h reminder is claimed/sent; the scheduler's dedup key.
+  reminderSentAt  DateTime?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
   @@index([leadId])
   @@index([status, startsAt])
   @@map("demo_bookings")
+}
+
+/// Single-use ledger for invite links. The primary key on jti makes spending a
+/// link race-safe; replaces the former lookup of COMPANY_ADMIN_INVITE_USED audit rows.
+model InviteTokenUse {
+  jti       String   @id @db.VarChar(128)
+  kind      String   @db.VarChar(50)
+  subjectId String   @db.Uuid
+  usedAt    DateTime @default(now())
+
+  @@index([kind, subjectId])
+  @@map("invite_token_uses")
 }
 
 /// Fixed-window counter backing src/lib/rate-limit.ts. Swappable for Redis by

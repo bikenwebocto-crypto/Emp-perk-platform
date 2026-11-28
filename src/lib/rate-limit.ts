@@ -88,13 +88,51 @@ export function setRateLimiter(limiter: RateLimiter | null): void {
   activeLimiter = limiter;
 }
 
-/** Best-effort client IP for per-IP limiting behind a proxy. */
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+const IPV6 = /^[0-9a-fA-F:.]{2,45}$/;
+
+function isIp(value: string): boolean {
+  return value.length <= 45 && (IPV4.test(value) || (value.includes(':') && IPV6.test(value)));
+}
+
+/**
+ * Number of trusted reverse proxies in front of the app (TRUSTED_PROXY_HOPS,
+ * default 1). 0 = no proxy: forwarded headers are ignored entirely.
+ */
+export function trustedProxyHops(): number {
+  const raw = process.env.TRUSTED_PROXY_HOPS;
+  if (raw === undefined || raw.trim() === '') return 1;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 1;
+}
+
+/**
+ * Client IP derived only from headers our own proxies set, or null.
+ *
+ * Each trusted proxy APPENDS the address it received the connection from, so
+ * the leftmost x-forwarded-for entries are client-controlled and must not be
+ * trusted. With N trusted hops the real client is the Nth entry from the right.
+ */
+export function clientIpOrNull(request: {
+  headers: { get(name: string): string | null };
+}): string | null {
+  const hops = trustedProxyHops();
+  if (hops === 0) return null;
+
+  const xff = request.headers.get('x-forwarded-for');
+  if (xff) {
+    const parts = xff.split(',').map((p) => p.trim()).filter(Boolean);
+    const candidate = parts.length >= hops ? parts[parts.length - hops] : undefined;
+    return candidate && isIp(candidate) ? candidate : null;
+  }
+
+  const realIp = request.headers.get('x-real-ip')?.trim();
+  return realIp && isIp(realIp) ? realIp : null;
+}
+
+/** Best-effort client IP for per-IP limiting behind a trusted proxy. */
 export function clientIpFromRequest(request: {
   headers: { get(name: string): string | null };
 }): string {
-  return (
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    request.headers.get('x-real-ip')?.trim() ||
-    'unknown'
-  );
+  return clientIpOrNull(request) ?? 'unknown';
 }

@@ -26,7 +26,7 @@ export async function POST(
     }
 
     if (result.firstView) {
-      void createAuditLog({
+      await createAuditLog({
         actorType: 'employee',
         actorId: auth.employee.id,
         action: 'OFFER_VIEWED',

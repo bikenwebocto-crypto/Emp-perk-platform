@@ -17,6 +17,8 @@
  */
 
 import { prisma } from '@/lib/prisma';
+import { createAuditLog } from '@/services/audit-log.service';
+import { reportAuditAlert } from '@/lib/monitoring/audit-health';
 import { OfferExpiryScheduler } from './offer-expiry-scheduler';
 import { DemoBookingReminderScheduler } from './demo-booking-reminder-scheduler';
 
@@ -83,10 +85,7 @@ class QueueWorker {
 
     try {
       // Mark as in-progress
-      await prisma.actionQueueItem.update({
-        where: { id: item.id },
-        data: { status: 'IN_PROGRESS' },
-      });
+      await this.transition(item, 'IN_PROGRESS');
 
       switch (item.type) {
         case 'NEW_MERCHANT_APPLICATION':
@@ -120,9 +119,8 @@ class QueueWorker {
       }
 
       // Mark as completed
-      await prisma.actionQueueItem.update({
-        where: { id: item.id },
-        data: { status: 'COMPLETED', completedAt: new Date() },
+      await this.transition(item, 'COMPLETED', { completedAt: new Date() }, {
+        durationMs: Date.now() - startTime,
       });
 
       console.log(
@@ -130,13 +128,54 @@ class QueueWorker {
       );
     } catch (error) {
       console.error(`[QueueWorker] Failed to process ${item.type}:${item.id}:`, error);
+      reportAuditAlert('queue_backlog', {
+        reason: 'item_failed',
+        itemId: item.id,
+        itemType: item.type,
+        error: error instanceof Error ? error.message : String(error),
+      });
 
       // Mark as failed
-      await prisma.actionQueueItem.update({
-        where: { id: item.id },
-        data: { status: 'FAILED' },
-      });
+      await this.transition(item, 'FAILED', {}, {
+        error: error instanceof Error ? error.message : String(error),
+      }).catch((auditErr) =>
+        console.error(`[QueueWorker] Could not record failure for ${item.id}:`, auditErr),
+      );
     }
+  }
+
+  /**
+   * Move an item to a new status and record the transition in the same
+   * transaction, so the worker never changes queue state without evidence.
+   */
+  private async transition(
+    item: { id: string; type: string; status?: string; referenceId?: string | null; referenceType?: string | null },
+    to: 'IN_PROGRESS' | 'COMPLETED' | 'FAILED',
+    extra: Record<string, unknown> = {},
+    metadata: Record<string, unknown> = {},
+  ): Promise<void> {
+    const from = item.status ?? null;
+    await prisma.$transaction(async (tx) => {
+      await tx.actionQueueItem.update({
+        where: { id: item.id },
+        data: { status: to, ...extra } as any,
+      });
+      await createAuditLog({
+        actorType: 'system',
+        action: `ACTION_QUEUE_${to}`,
+        entityType: 'action_queue_item',
+        entityId: item.id,
+        changes: { status: { from, to } },
+        metadata: {
+          source: 'queue-worker',
+          itemType: item.type,
+          referenceType: item.referenceType ?? null,
+          referenceId: item.referenceId ?? null,
+          ...metadata,
+        },
+      }, tx);
+    });
+    item.status = to;
   }
 
   private sleep(ms: number): Promise<void> {

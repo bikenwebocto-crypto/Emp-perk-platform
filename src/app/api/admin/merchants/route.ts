@@ -139,11 +139,13 @@ export async function POST(request: NextRequest) {
     const user = await getCurrentUser(timer);
     timer.point("user auth check");
     if (!user) return unauthorized();
+    if (!user.profileId) return unauthorized();
+    const adminId = user.profileId;
 
     timer.section("Validation");
     timer.point("adminUser.findUnique");
     const adminRecord = await prisma.adminUser.findUnique({
-      where: { id: user.id },
+      where: { id: user.profileId },
     });
 
     const body = await request.json();
@@ -179,59 +181,60 @@ export async function POST(request: NextRequest) {
           ? "SUSPENDED"
           : undefined;
 
-    timer.point("merchant.update");
-    const merchant = await prisma.merchant.update({
-      where: { id: merchantId },
-      data: {
-        status: status as any,
-        rejectionReason,
-        adminNote: adminNote ?? existing.adminNote,
-        notes: notes ?? existing.notes,
-        approvedAt: status === "ACTIVE" ? new Date() : undefined,
-        liveAt:
-          status === "ACTIVE" && !existing.liveAt ? new Date() : undefined,
-        onboardingStep:
-          status === "ACTIVE" ? "COMPLETE" : existing.onboardingStep,
-      },
-    });
-
-    // Keep the merchant account in sync with the merchant lifecycle so auth
-    // and status pages reflect the same source of truth.
-    if (existing.accountId && nextAccountStatus) {
-      timer.point("account.update (sync status)");
-      await prisma.account.update({
-        where: { authUserId: existing.accountId },
-        data: { status: nextAccountStatus },
+    timer.point("merchant.update + status sync + history + audit");
+    const merchant = await prisma.$transaction(async (tx) => {
+      const updated = await tx.merchant.update({
+        where: { id: merchantId },
+        data: {
+          status: status as any,
+          rejectionReason,
+          adminNote: adminNote ?? existing.adminNote,
+          notes: notes ?? existing.notes,
+          approvedAt: status === "ACTIVE" ? new Date() : undefined,
+          liveAt:
+            status === "ACTIVE" && !existing.liveAt ? new Date() : undefined,
+          onboardingStep:
+            status === "ACTIVE" ? "COMPLETE" : existing.onboardingStep,
+        },
       });
-    }
 
-    timer.point("merchantStatusHistory.create");
-    await prisma.merchantStatusHistory.create({
-      data: {
-        merchantId,
-        fromStatus: previousStatus,
-        toStatus: status as any,
-        changedBy: user.id,
-        changedByType: "admin",
-        reason: rejectionReason,
-      },
-    });
+      // Keep the merchant account in sync with the merchant lifecycle so auth
+      // and status pages reflect the same source of truth.
+      if (existing.accountId && nextAccountStatus) {
+        await tx.account.update({
+          where: { authUserId: existing.accountId },
+          data: { status: nextAccountStatus },
+        });
+      }
 
-    timer.point("createAuditLog");
-    await createAuditLog(
-      fromCurrentUser(user, `MERCHANT_${status}`, "merchant", merchantId, {
-        changes: { from: previousStatus, to: status, rejectionReason },
-      }),
-    );
+      await tx.merchantStatusHistory.create({
+        data: {
+          merchantId,
+          fromStatus: previousStatus,
+          toStatus: status as any,
+          changedBy: adminId,
+          changedByType: "admin",
+          reason: rejectionReason,
+        },
+      });
 
-    timer.point("actionQueueItem.updateMany");
-    await prisma.actionQueueItem.updateMany({
-      where: {
-        referenceId: merchantId,
-        referenceType: "merchant",
-        status: "PENDING",
-      },
-      data: { status: "COMPLETED", completedAt: new Date() },
+      await createAuditLog(
+        fromCurrentUser(user, `MERCHANT_${status}`, "merchant", merchantId, {
+          changes: { from: previousStatus, to: status, rejectionReason },
+        }),
+        tx,
+      );
+
+      await tx.actionQueueItem.updateMany({
+        where: {
+          referenceId: merchantId,
+          referenceType: "merchant",
+          status: "PENDING",
+        },
+        data: { status: "COMPLETED", completedAt: new Date() },
+      });
+
+      return updated;
     });
 
     const template =
@@ -291,6 +294,7 @@ export async function PATCH(request: NextRequest) {
     const user = await getCurrentUser(timer);
     timer.point("user auth check");
     if (!user || user.userType !== "admin") return unauthorized();
+    if (!user.profileId) return unauthorized();
 
     const body = await request.json();
     const { id, ...updates } = body;
@@ -310,18 +314,22 @@ export async function PATCH(request: NextRequest) {
     const existing = await prisma.merchant.findUnique({ where: { id } });
     if (!existing || existing.deletedAt) return notFound("Merchant");
 
-    timer.point("merchant.update");
-    const merchant = await prisma.merchant.update({
-      where: { id },
-      data: updates,
-    });
+    timer.point("merchant.update + audit");
+    const merchant = await prisma.$transaction(async (tx) => {
+      const updated = await tx.merchant.update({
+        where: { id },
+        data: updates,
+      });
 
-    timer.point("createAuditLog");
-    await createAuditLog(
-      fromCurrentUser(user, "MERCHANT_UPDATED", "merchant", id, {
-        changes: updates,
-      }),
-    );
+      await createAuditLog(
+        fromCurrentUser(user, "MERCHANT_UPDATED", "merchant", id, {
+          changes: updates,
+        }),
+        tx,
+      );
+
+      return updated;
+    });
 
     timer.section("Serialization");
     timer.point("NextResponse.json");
@@ -345,6 +353,7 @@ export async function DELETE(request: NextRequest) {
     const user = await getCurrentUser(timer);
     timer.point("user auth check");
     if (!user || user.userType !== "admin") return unauthorized();
+    if (!user.profileId) return unauthorized();
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
@@ -363,18 +372,20 @@ export async function DELETE(request: NextRequest) {
     const existing = await prisma.merchant.findUnique({ where: { id } });
     if (!existing) return notFound("Merchant");
 
-    timer.point("merchant.update (soft delete)");
-    await prisma.merchant.update({
-      where: { id },
-      data: { deletedAt: new Date(), status: "ARCHIVED" },
-    });
+    timer.point("merchant.update (soft delete) + audit");
+    await prisma.$transaction(async (tx) => {
+      await tx.merchant.update({
+        where: { id },
+        data: { deletedAt: new Date(), status: "ARCHIVED" },
+      });
 
-    timer.point("createAuditLog");
-    await createAuditLog(
-      fromCurrentUser(user, "MERCHANT_DELETED", "merchant", id, {
-        changes: {},
-      }),
-    );
+      await createAuditLog(
+        fromCurrentUser(user, "MERCHANT_DELETED", "merchant", id, {
+          changes: {},
+        }),
+        tx,
+      );
+    });
 
     timer.section("Serialization");
     timer.point("NextResponse.json");

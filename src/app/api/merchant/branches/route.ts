@@ -12,6 +12,8 @@ import {
 } from '@/lib/branch-helpers'
 import { createAuditLog } from '@/services/audit-log.service'
 import { channels, publishBusinessNotification } from '@/services/business-notification.service'
+import { EVERGREEN_BRANCH_LINK_CODE } from '@/lib/offers/channel'
+import { applyEvergreenBranchLink, parseEvergreenLinkChoice } from '@/lib/offers/channel.server'
 
 function unauthorized() {
   return NextResponse.json(
@@ -207,14 +209,39 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // One-perk rule: if the live Evergreen covers only chosen branches, the
+    // merchant must choose to link this branch to it or leave it hidden.
+    const evergreenLink = parseEvergreenLinkChoice(body)
+    const linkCheck = await applyEvergreenBranchLink(
+      merchant.id,
+      { id: null, branchType: branchType ?? 'IN_STORE' },
+      evergreenLink,
+      { dryRun: true },
+    )
+    if (linkCheck.status === 'LINK_REQUIRED') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: EVERGREEN_BRANCH_LINK_CODE,
+            message: linkCheck.message,
+            evergreenOffer: linkCheck.evergreen,
+          },
+        },
+        { status: 409 },
+      )
+    }
+
+    // The branch, its audit rows and the Evergreen link are saved together.
+    const { branch, link } = await prisma.$transaction(async (tx) => {
     if (isPrimary === true) {
-      await prisma.merchantBranch.updateMany({
+      await tx.merchantBranch.updateMany({
         where: { merchantId: merchant.id, isPrimary: true, deletedAt: null },
         data: { isPrimary: false },
       })
     }
 
-    const branch = await prisma.merchantBranch.create({
+    const branch = await tx.merchantBranch.create({
       data: {
         merchantId: merchant.id,
         name: name.trim(),
@@ -252,6 +279,21 @@ export async function POST(request: NextRequest) {
       entityType: 'merchant_branch',
       entityId: branch.id,
       changes: { branchName: branch.name, branchType: branch.branchType, isPrimary: branch.isPrimary } as any,
+    }, tx)
+
+    const link = await applyEvergreenBranchLink(merchant.id, branch, evergreenLink, { client: tx })
+    if (link.status === 'LINKED') {
+      await createAuditLog({
+        actorType: 'merchant',
+        actorId: merchant.id,
+        action: 'BRANCH_LINKED_TO_EVERGREEN',
+        entityType: 'merchant_offer',
+        entityId: link.evergreen.id,
+        changes: { branchId: branch.id, branchName: branch.name } as any,
+      }, tx)
+    }
+
+    return { branch, link }
     })
 
     await publishBusinessNotification({
@@ -266,7 +308,15 @@ export async function POST(request: NextRequest) {
       metadata: { merchantId: merchant.id },
     })
 
-    return NextResponse.json({ success: true, data: branch, message: 'Branch created' }, { status: 201 })
+    return NextResponse.json(
+      {
+        success: true,
+        data: branch,
+        message: link.message ? `Branch created. ${link.message}` : 'Branch created',
+        evergreenCoverage: link.status,
+      },
+      { status: 201 },
+    )
   } catch (error: any) {
     if (error?.code === 'P2002') {
       return badRequest('A branch with these details already exists')

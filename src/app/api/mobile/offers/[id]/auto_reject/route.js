@@ -117,14 +117,14 @@ export async function POST(request, { params }) {
       return fail("This offer has no code configured.", "CODE_NOT_CONFIGURED");
     }
     if (enteredCode.toUpperCase() !== expectedCode.toUpperCase()) {
-      void createAuditLog({
+      await createAuditLog({
         actorType: "employee",
         actorId: employee.id,
         action: "AUTO_REJECT_INVALID_CODE",
         entityType: "MERCHANT_OFFER",
         entityId: offer.id,
         metadata: { merchantId: offer.merchantId, loginSource: "mobile" },
-      }).catch(() => {});
+      });
       return fail("Invalid offer code", "INVALID_CODE");
     }
 
@@ -211,7 +211,7 @@ export async function POST(request, { params }) {
       },
     }).catch((e) => console.error("[AUTO_REJECT] notify failed", e));
 
-    void createAuditLog({
+    await createAuditLog({
       actorType: "employee",
       actorId: employee.id,
       action: `REDEMPTION_REJECTED_${VIRTUAL_CARD_AUTO_VERIFY}`,
@@ -224,7 +224,7 @@ export async function POST(request, { params }) {
         rejectionReason: redemption.rejectionReason,
         loginSource: "mobile",
       },
-    }).catch((e) => console.error("[AUTO_REJECT] audit failed", e));
+    });
 
     return NextResponse.json(
       {

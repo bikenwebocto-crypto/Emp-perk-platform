@@ -7,6 +7,7 @@ import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 import { isEvergreenRange, offerRank } from '@/lib/offers/evergreen'
+import { getVisibleScope } from '@/lib/offers/visible-merchants'
 
 // GET /api/mobile/offers
 //
@@ -25,16 +26,19 @@ export async function GET(request: NextRequest) {
     const featured = searchParams.get('featured') === 'true'
     const page = Math.max(1, Number(searchParams.get('page') ?? '1'))
     const pageSize = Math.min(50, Math.max(1, Number(searchParams.get('pageSize') ?? '20')))
-     const now = new Date()
+    const now = new Date()
+    // Only merchants with a LIVE Evergreen, and only through branches it covers.
+    const scope = await getVisibleScope(now)
     const where: Record<string, unknown> = {
       status: 'LIVE',
       // flash offers are served by /api/mobile/flash
       startDate: { lte: now },
       AND: [notEndedBy(now)],
+      merchantId: { in: scope.merchantIds },
       merchant: {
         status: 'ACTIVE',
         deletedAt: null,
-        branches: { some: { isActive: true, status: 'ACTIVE', deletedAt: null } },
+        branches: { some: { id: { in: scope.branchIds }, isActive: true, status: 'ACTIVE', deletedAt: null } },
       },
     }
     if (categoryId) where.categoryId = categoryId

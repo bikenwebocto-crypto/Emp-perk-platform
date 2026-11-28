@@ -17,7 +17,7 @@ import {
   LayoutDashboard, Store, Users, FileText, BarChart3, Settings, CreditCard,
   ShoppingBag, MapPin, Gift, Building2, UserCircle, Bell, Upload, LogOut,
   Zap, Bookmark, Palette, Trash2, Lightbulb, Inbox, UserCog,
-  CalendarClock, ShieldAlert, ShieldCheck, UserCheck, Tags,
+  CalendarClock, ShieldAlert, ShieldCheck, UserCheck, Tags, ScrollText,
 } from 'lucide-react'
 import { canAdminAccessPath } from '@/lib/access/account-access'
 import { supabase } from '@/lib/supabase/client'
@@ -64,6 +64,7 @@ const navConfig: Record<string, NavItem[]> = {
     { label: 'Banners', href: '/admin/banners', icon: Palette },
     { label: 'Notifications', href: '/admin/notifications', icon: Bell },
     { label: 'Platform Team', href: '/admin/accounts', icon: UserCog },
+    { label: 'Audit Logs', href: '/admin/audit-logs', icon: ScrollText },
     { label: 'MFA Recovery', href: '/admin/mfa-recovery', icon: ShieldAlert },
     { label: 'Recovery Approvals', href: '/admin/recovery-approvals', icon: ShieldCheck },
     { label: 'S-Admin Recovery', href: '/admin/security/recovery-approver', icon: UserCheck },

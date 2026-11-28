@@ -6,7 +6,7 @@ import {
   writeBillingNotification,
   BILLING_AUDIT_ACTIONS,
 } from '@/lib/billing/auth-helpers'
-import { clearPeak } from '@/lib/billing/peak-headcount'
+import { peakKey } from '@/lib/billing/peak-headcount'
 
 /**
  * POST /api/admin/billing/companies/[id]/mark-paid
@@ -26,6 +26,12 @@ export async function POST(
 ) {
   const auth = await requireAdmin()
   if (!auth.ok) return auth.response
+  if (!auth.profileId) {
+    return NextResponse.json(
+      { success: false, error: { code: 'NO_ADMIN_PROFILE', message: 'Admin profile not found' } },
+      { status: 403 },
+    )
+  }
 
   const { id } = await params
 
@@ -48,34 +54,36 @@ export async function POST(
     const nextRenewal = new Date(baseDate)
     nextRenewal.setFullYear(nextRenewal.getFullYear() + 1)
 
-    await prisma.$transaction([
-      prisma.companyBilling.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.companyBilling.update({
         where: { companyId: id },
         data: { renewalDate: nextRenewal },
-      }),
-    ])
+      })
+      // deleteMany makes a missing peak setting a no-op, matching clearPeak().
+      await tx.platformSettings.deleteMany({ where: { key: peakKey(id) } })
 
-    await clearPeak(id)
+      await writeBillingAudit({
+        action: BILLING_AUDIT_ACTIONS.PEAK_RESET,
+        companyId: id,
+        profileId,
+        reason: 'Renewal paid — peak headcount reset',
+        metadata: {
+          previousRenewalDate: billing.renewalDate?.toISOString() ?? null,
+          nextRenewalDate: nextRenewal.toISOString(),
+        },
+        tx,
+      })
 
-    await writeBillingAudit({
-      action: BILLING_AUDIT_ACTIONS.PEAK_RESET,
-      companyId: id,
-      profileId,
-      reason: 'Renewal paid — peak headcount reset',
-      metadata: {
-        previousRenewalDate: billing.renewalDate?.toISOString() ?? null,
-        nextRenewalDate: nextRenewal.toISOString(),
-      },
-    })
-
-    await writeBillingAudit({
-      action: BILLING_AUDIT_ACTIONS.PAID_CONFIRMED,
-      companyId: id,
-      profileId,
-      reason: 'Renewal payment confirmed (QuickBooks source of truth)',
-      metadata: {
-        nextRenewalDate: nextRenewal.toISOString(),
-      },
+      await writeBillingAudit({
+        action: BILLING_AUDIT_ACTIONS.PAID_CONFIRMED,
+        companyId: id,
+        profileId,
+        reason: 'Renewal payment confirmed (QuickBooks source of truth)',
+        metadata: {
+          nextRenewalDate: nextRenewal.toISOString(),
+        },
+        tx,
+      })
     })
 
     await writeBillingNotification({

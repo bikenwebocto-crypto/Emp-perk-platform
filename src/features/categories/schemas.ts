@@ -1,7 +1,13 @@
 import { z } from 'zod'
+import { isOtherCategoryName } from '@/lib/categories'
 
 export const createCategorySchema = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(100, 'Name must be at most 100 characters'),
+  name: z
+    .string()
+    .trim()
+    .min(1, 'Name is required')
+    .max(100, 'Name must be at most 100 characters')
+    .refine((name) => !isOtherCategoryName(name), '"Other" is reserved for merchant applications'),
   description: z
     .string()
     .trim()

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAdminClient } from '@/lib/supabase/admin'
+import { createAuditLog } from '@/services/audit-log.service'
 import { getCompanyAdmin, handleApiError } from '../../helpers'
 
 const decisionMap = {
@@ -90,17 +91,47 @@ async function handleDecision(
         data: { isActive: false },
       })
 
-      if (existing.employee.accountId) {
-        try {
-          await getAdminClient().auth.admin.signOut(existing.employee.accountId)
-        } catch (error) {
-          console.warn('Unable to sign out employee auth session during deactivation:', error)
-        }
-      }
+      await createAuditLog({
+        actorType: 'company_admin',
+        companyAdminId: companyAdmin.id,
+        action: 'EMPLOYEE_DEACTIVATED',
+        entityType: 'employee',
+        entityId: existing.employeeId,
+        changes: {
+          employeeStatus: { from: existing.employee.status, to: 'INACTIVE' },
+          ...(existing.employee.accountId && {
+            accountStatus: { from: existing.employee.account?.status ?? null, to: 'INACTIVE' },
+          }),
+        },
+        metadata: { companyId, deactivationRequestId: requestId },
+      }, tx)
     }
+
+    await createAuditLog({
+      actorType: 'company_admin',
+      companyAdminId: companyAdmin.id,
+      action: action === 'APPROVE' ? 'DEACTIVATION_REQUEST_APPROVED' : 'DEACTIVATION_REQUEST_REJECTED',
+      entityType: 'profile_deactivation_request',
+      entityId: requestId,
+      changes: { status: { from: existing.status, to: nextStatus } },
+      metadata: {
+        companyId,
+        employeeId: existing.employeeId,
+        reviewNote: action === 'REJECT' && reviewNote ? reviewNote : null,
+      },
+    }, tx)
 
     return requestUpdate
   })
+
+  // Supabase is outside the database, so sign out only after the deactivation is saved.
+  if (action === 'APPROVE' && existing.employee.accountId) {
+    try {
+      await getAdminClient().auth.admin.signOut(existing.employee.accountId)
+    } catch (error) {
+      console.warn('Unable to sign out employee auth session during deactivation:', error)
+    }
+  }
 
   return NextResponse.json({
     success: true,

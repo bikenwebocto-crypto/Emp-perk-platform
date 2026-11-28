@@ -393,7 +393,7 @@ function AccountStatusCard({ company, error }: { company: Company; error: unknow
           <BillingUnavailable compact />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Need a status change? Contact your account manager, or use the cancellation request below.
+          To cancel your subscription, contact us at hello@perksandmore.com.
         </p>
       </CardContent>
     </Card>

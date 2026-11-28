@@ -1,13 +1,12 @@
 "use client";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Building2, Loader2, Store } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordRules } from "@/components/shared/password-rules";
 import { getEmailError, getPasswordError } from "@/lib/validation/credentials";
 import { isValidPhone } from "@/lib/phone";
 
-type SignupType = "MERCHANT" | "COMPANY";
 type Values = Record<string, string>;
 type Errors = Record<string, string>;
 
@@ -35,7 +34,6 @@ function Field({
 }
 
 export function SignupForm({ onCreated, onBack }: SignupFormProps) {
-  const [type, setType] = useState<SignupType | null>(null);
   const [values, setValues] = useState<Values>({});
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -43,12 +41,12 @@ export function SignupForm({ onCreated, onBack }: SignupFormProps) {
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
-    if (type !== "MERCHANT" || categories.length) return;
-    fetch("/api/categories")
+    if (categories.length) return;
+    fetch("/api/categories", { cache: "no-store" })
       .then((r) => r.json())
       .then((b) => setCategories(Array.isArray(b?.data) ? b.data : []))
       .catch(() => setCategories([]));
-  }, [type, categories.length]);
+  }, [categories.length]);
 
   const v = (k: string) => values[k] ?? "";
   const set = (k: string) => (e: { target: { value: string } }) => {
@@ -76,17 +74,9 @@ export function SignupForm({ onCreated, onBack }: SignupFormProps) {
     const pwErr = getPasswordError(v("password"));
     if (pwErr) e.password = pwErr;
     if (v("password") !== v("confirmPassword")) e.confirmPassword = "Passwords do not match";
-    const phoneKey = type === "MERCHANT" ? "contactPhone" : "phone";
-    if (v(phoneKey).trim() && !isValidPhone(v(phoneKey))) e[phoneKey] = "Invalid phone number";
-    if (type === "MERCHANT") {
-      req("businessName", "Business name");
-      req("contactName", "Contact name");
-    } else {
-      req("name", "Company name");
-      req("firstName", "First name");
-      req("lastName", "Last name");
-      if (v("employeeCount") && !/^\d+$/.test(v("employeeCount"))) e.employeeCount = "Enter a whole number";
-    }
+    if (v("contactPhone").trim() && !isValidPhone(v("contactPhone"))) e.contactPhone = "Invalid phone number";
+    req("businessName", "Business name");
+    req("contactName", "Contact name");
     for (const k of ["website", ...SOCIALS]) {
       const val = v(k).trim();
       if (val && !/^https?:\/\/\S+\.\S+/.test(val)) e[k] = "Enter a full URL (https://…)";
@@ -108,19 +98,11 @@ export function SignupForm({ onCreated, onBack }: SignupFormProps) {
       state: opt("state"), postalCode: opt("postalCode"), country: opt("country"),
     };
     const base = { email: v("email").trim(), password: v("password"), website: opt("website"), socialLinks, ...address };
-    const payload =
-      type === "MERCHANT"
-        ? {
-            type, ...base,
-            businessName: v("businessName").trim(), contactName: v("contactName").trim(),
-            contactPhone: opt("contactPhone"), categoryId: opt("categoryId"), description: opt("description"),
-          }
-        : {
-            type, ...base,
-            name: v("name").trim(), firstName: v("firstName").trim(), lastName: v("lastName").trim(),
-            phone: opt("phone"), industry: opt("industry"), taxId: opt("taxId"),
-            employeeCount: v("employeeCount") ? Number(v("employeeCount")) : null,
-          };
+    const payload = {
+      type: "MERCHANT" as const, ...base,
+      businessName: v("businessName").trim(), contactName: v("contactName").trim(),
+      contactPhone: opt("contactPhone"), categoryId: opt("categoryId"), description: opt("description"),
+    };
 
     setSubmitting(true);
     try {
@@ -134,7 +116,7 @@ export function SignupForm({ onCreated, onBack }: SignupFormProps) {
         const details = body?.error?.details as Record<string, string[] | undefined> | undefined;
         if (details) {
           const mapped: Errors = {};
-          for (const [k, msgs] of Object.entries(details)) if (msgs?.[0]) mapped[k === "phone" && type === "MERCHANT" ? "contactPhone" : k] = msgs[0];
+          for (const [k, msgs] of Object.entries(details)) if (msgs?.[0]) mapped[k === "phone" ? "contactPhone" : k] = msgs[0];
           setErrors((prev) => ({ ...prev, ...mapped }));
         }
         setFormError(body?.error?.message ?? "Sign-up failed. Please try again.");
@@ -157,44 +139,13 @@ export function SignupForm({ onCreated, onBack }: SignupFormProps) {
     </p>
   );
 
-  if (!type) {
-    const card = (t: SignupType, icon: ReactNode, title: string, desc: string) => (
-      <button
-        type="button"
-        onClick={() => { setType(t); setErrors({}); setFormError(null); }}
-        className="flex w-full items-start gap-3 rounded-lg border border-gray-200 p-4 text-left transition hover:border-blue-500 hover:bg-blue-50"
-      >
-        <span className="mt-0.5 text-blue-600">{icon}</span>
-        <span>
-          <span className="block font-medium">{title}</span>
-          <span className="block text-sm text-gray-600">{desc}</span>
-        </span>
-      </button>
-    );
-    return (
-      <div className="space-y-4">
-        <h2 className="text-lg font-semibold">Create an account</h2>
-        <p className="text-sm text-gray-600">What would you like to sign up as?</p>
-        {card("MERCHANT", <Store className="h-5 w-5" />, "Merchant", "List your business and publish offers.")}
-        {card("COMPANY", <Building2 className="h-5 w-5" />, "Company", "Give your employees access to offers.")}
-        {backLink}
-      </div>
-    );
-  }
-
   return (
     <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Sign up as {type === "MERCHANT" ? "Merchant" : "Company"}</h2>
-        <button type="button" className="text-sm text-blue-600 hover:underline" disabled={submitting} onClick={() => setType(null)}>
-          Change
-        </button>
-      </div>
+      <h2 className="text-lg font-semibold">Sign up as Merchant</h2>
       {formError && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{formError}</div>}
 
       <div className="max-h-[55vh] space-y-4 overflow-y-auto pr-1">
-        {type === "MERCHANT" ? (
-          <>
+        <>
             {text("businessName", "Business name", { required: true })}
             {text("contactName", "Contact name", { required: true })}
             {text("contactPhone", "Contact phone", { type: "tel" })}
@@ -218,20 +169,7 @@ export function SignupForm({ onCreated, onBack }: SignupFormProps) {
                 onChange={set("description")}
               />
             </Field>
-          </>
-        ) : (
-          <>
-            {text("name", "Company name", { required: true })}
-            <div className="grid grid-cols-2 gap-3">
-              {text("firstName", "First name", { required: true })}
-              {text("lastName", "Last name", { required: true })}
-            </div>
-            {text("phone", "Phone", { type: "tel" })}
-            {text("employeeCount", "Number of employees", { type: "number" })}
-            {text("industry", "Industry")}
-            {text("taxId", "Tax ID")}
-          </>
-        )}
+        </>
 
         {text("website", "Website", { placeholder: "https://" })}
         <details className="rounded-md border border-gray-200 p-3">

@@ -74,7 +74,7 @@ describe('GET /api/admin/leads', () => {
       { companyName: { contains: 'acme', mode: 'insensitive' } },
       { email: { contains: 'acme', mode: 'insensitive' } },
     ]))
-    expect(args.orderBy).toEqual({ createdAt: 'desc' })
+    expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'asc' }])
     expect(args.skip).toBe(5)
     expect(args.take).toBe(5)
     expect(args.include).toEqual({

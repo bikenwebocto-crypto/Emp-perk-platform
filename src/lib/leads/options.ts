@@ -1,17 +1,8 @@
 // Option lists shared with the website forms. Values are stored exactly as written here.
 
-export const COMPANY_SIZES = ['1-9', '10-49', '50-99', '100-249', '250+'] as const;
+export { MERCHANT_APPLICATION_OTHER_OPTION } from '../categories'
 
-export const MERCHANT_CATEGORIES = [
-  'Online Shopping & E-commerce',
-  'Food & Drinks',
-  'Fashion & Shopping',
-  'Beauty & Wellness',
-  'Health & Fitness',
-  'Entertainment & Experiences',
-  'Travel & Leisure',
-  'Other',
-] as const;
+export const COMPANY_SIZES = ['1-9', '10-49', '50-99', '100-249', '250+'] as const;
 
 export const REDEMPTION_OPTIONS = ['Online', 'In-store', 'Both'] as const;
 

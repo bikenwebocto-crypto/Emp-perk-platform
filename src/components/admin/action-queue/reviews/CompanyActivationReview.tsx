@@ -19,6 +19,9 @@ export function CompanyActivationReview({ entity }: ReviewComponentProps) {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <p className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
+            Approving moves the company to pending payment. Dashboard access remains locked until payment is confirmed and a Super Admin activates the company.
+          </p>
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xl font-semibold">{entity.name}</p>

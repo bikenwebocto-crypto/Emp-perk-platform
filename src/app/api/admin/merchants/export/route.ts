@@ -5,7 +5,7 @@ import { stringify } from 'csv-stringify/sync';
 const COLUMNS = [
   'status', 'businessName', 'email', 'contactName', 'contactPhone',
   'password',
-  'description', 'website', 'categoryId',
+  'description', 'website', 'categoryName',
   'addressLine1', 'addressLine2', 'city', 'state', 'postalCode', 'country',
 ] as const;
 
@@ -21,7 +21,7 @@ export async function GET() {
       contactPhone: true,
       description: true,
       website: true,
-      categoryId: true,
+      category: { select: { name: true } },
       addressLine1: true,
       addressLine2: true,
       city: true,
@@ -46,7 +46,7 @@ export async function GET() {
     password: '',
     description: m.description ?? '',
     website: m.website ?? '',
-    categoryId: m.categoryId ?? '',
+    categoryName: m.category?.name ?? '',
     addressLine1: m.addressLine1 ?? '',
     addressLine2: m.addressLine2 ?? '',
     city: m.city ?? '',

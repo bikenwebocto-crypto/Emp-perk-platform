@@ -7,6 +7,8 @@
  */
 
 import { prisma } from '@/lib/prisma';
+import { createAuditLog } from '@/services/audit-log.service';
+import { reportAuditAlert } from '@/lib/monitoring/audit-health';
 import { emailService } from '@/lib/email/email';
 import { formatInTimeZone } from '@/lib/demo-bookings/availability';
 import { generateICalInvite } from '@/lib/email/calendar';
@@ -45,6 +47,7 @@ class DemoBookingReminderScheduler {
     const bookings = await prisma.demoBooking.findMany({
       where: {
         status: 'CONFIRMED',
+        reminderSentAt: null,
         startsAt: {
           gte: windowStart,
           lt: windowEnd,
@@ -63,23 +66,23 @@ class DemoBookingReminderScheduler {
     });
 
     for (const booking of bookings) {
+      let claimed = false;
       try {
-        // Check if reminder already sent (use audit log as tracking)
-        const existingReminder = await prisma.auditLog.findFirst({
-          where: {
-            entityType: 'demo_booking',
-            entityId: booking.id,
-            action: 'demo_booking.reminder_sent',
-          },
-        });
-
-        if (existingReminder) {
-          continue; // Already sent reminder
-        }
-
         if (!booking.lead.email) {
           continue;
         }
+
+        // Claim the reminder atomically (compare-and-set on reminderSentAt), so
+        // overlapping runs or worker instances cannot both send it. The audit
+        // log is evidence only and is never read for deduplication.
+        const claim = await prisma.demoBooking.updateMany({
+          where: { id: booking.id, status: 'CONFIRMED', reminderSentAt: null },
+          data: { reminderSentAt: new Date() },
+        });
+        if (claim.count === 0) {
+          continue; // Already sent, or claimed by another run
+        }
+        claimed = true;
 
         const when = formatInTimeZone(booking.startsAt, booking.timezone);
         const meetingLink = booking.meetingLink ?? undefined;
@@ -166,20 +169,30 @@ ${meetingLink ? `
           ],
         });
 
-        if (result.success) {
-          await prisma.auditLog.create({
-            data: {
-              actorType: 'system',
-              action: 'demo_booking.reminder_sent',
-              entityType: 'demo_booking',
-              entityId: booking.id,
-              metadata: { reference: booking.reference, sentAt: new Date().toISOString() },
-            },
-          });
-          console.log(`[DemoBookingReminderScheduler] Sent reminder for ${booking.reference}`);
+        if (!result.success) {
+          throw new Error(String(result.error ?? 'Email provider rejected the reminder'));
         }
+
+        // The email is out: from here on the claim must stand, even if the
+        // audit insert fails (createAuditLog raises its own alert).
+        claimed = false;
+        await createAuditLog({
+          actorType: 'system',
+          action: 'demo_booking.reminder_sent',
+          entityType: 'demo_booking',
+          entityId: booking.id,
+          metadata: { reference: booking.reference, sentAt: new Date().toISOString() },
+        });
+        console.log(`[DemoBookingReminderScheduler] Sent reminder for ${booking.reference}`);
       } catch (error) {
         console.error(`[DemoBookingReminderScheduler] Failed to send reminder for booking ${booking.id}:`, error);
+        if (claimed) {
+          // Send failed: release the claim so the next hourly run retries.
+          reportAuditAlert('delivery_failed', { channel: 'email', purpose: 'demo_booking_reminder', bookingId: booking.id });
+          await prisma.demoBooking
+            .updateMany({ where: { id: booking.id }, data: { reminderSentAt: null } })
+            .catch((e) => console.error(`[DemoBookingReminderScheduler] Could not release claim for ${booking.id}:`, e));
+        }
       }
     }
   }

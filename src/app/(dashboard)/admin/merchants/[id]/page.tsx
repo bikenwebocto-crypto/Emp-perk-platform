@@ -2,7 +2,7 @@
 import { use, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { formatAddress } from '@/lib/format'
+import { formatBranchAddress, formatBranchName } from '@/lib/format'
 import {
   ArrowLeft, Package, Pencil, Trash2, MapPin, BarChart3,
   Image as ImageIcon, Phone, Mail, Globe, Store,
@@ -400,11 +400,9 @@ const handleEditOffer = (offer: any) => {
                     >
                       <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
-                          {branch.name ?? branch.branchName ?? 'Branch'}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {formatAddress(branch.address)}
+                        <p className="break-words text-sm font-medium">{formatBranchName(branch)}</p>
+                        <p className="break-words text-xs text-muted-foreground">
+                          {formatBranchAddress(branch)}
                         </p>
                       </div>
                     </button>

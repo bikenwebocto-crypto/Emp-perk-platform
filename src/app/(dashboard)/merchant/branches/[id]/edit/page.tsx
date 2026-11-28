@@ -60,7 +60,7 @@ export default function EditBranchPage({ params }: { params: Promise<{ id: strin
           description: 'Location changes require admin approval before they appear in employee search.',
         })
       } else {
-        showToast({ type: 'success', title: 'Branch updated' })
+        showToast({ type: 'success', title: 'Branch updated', description: result?.evergreenCoverage ? result.message : undefined })
       }
       router.push(`/merchant/branches/${id}`)
     } catch (e: any) {

@@ -16,12 +16,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await prisma.$transaction([
-      prisma.company.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.company.update({
         where: { id: company.id },
         data: { status: 'CANCELLED', adminNote: `Cancellation requested: ${reason}` },
-      }),
-      prisma.companyStatusHistory.create({
+      })
+      await tx.companyStatusHistory.create({
         data: {
           companyId: company.id,
           fromStatus: company.status,
@@ -30,17 +30,16 @@ export async function POST(request: NextRequest) {
           changedByType: 'COMPANY_ADMIN',
           reason,
         },
-      }),
-    ])
-
-    await createAuditLog({
-      actorType: 'company_admin',
-      actorId: companyAdmin.id,
-      action: 'CANCELLATION_REQUESTED',
-      entityType: 'COMPANY',
-      entityId: company.id,
-      metadata: { requestedBy: companyAdmin.id, reason },
-    });
+      })
+      await createAuditLog({
+        actorType: 'company_admin',
+        actorId: companyAdmin.id,
+        action: 'CANCELLATION_REQUESTED',
+        entityType: 'COMPANY',
+        entityId: company.id,
+        metadata: { requestedBy: companyAdmin.id, reason },
+      }, tx)
+    })
 
     return NextResponse.json({ success: true, message: 'Cancellation request submitted' })
   } catch (error) {

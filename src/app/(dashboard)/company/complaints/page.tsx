@@ -123,9 +123,9 @@ export default function CompanyComplaintsPage() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <AlertTriangle className="mb-2 h-8 w-8 text-muted-foreground/50" />
-            <p className="text-sm font-medium">No complaints found</p>
+            <p className="text-sm font-medium">No support requests yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              No complaints have been filed yet.
+              When you send us a question or report a problem, it appears here with our reply.
             </p>
           </CardContent>
         </Card>

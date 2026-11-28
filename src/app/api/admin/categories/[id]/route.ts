@@ -11,6 +11,7 @@ import {
   isCategoryLogoPath,
 } from '@/features/categories/logo'
 import { slugifyCategory, updateCategorySchema } from '@/features/categories/schemas'
+import { isOtherCategoryName } from '@/lib/categories'
 import {
   apiError,
   categorySelect,
@@ -80,6 +81,9 @@ export async function PATCH(
     const after: Record<string, unknown> = {}
 
     if (input.name !== undefined && input.name !== existing.name) {
+      if (isOtherCategoryName(input.name)) {
+        return apiError(400, 'VALIDATION', '"Other" is reserved for merchant applications')
+      }
       const baseSlug = slugifyCategory(input.name)
       if (!baseSlug) return apiError(400, 'VALIDATION', 'Name must contain letters or numbers')
       if (await findCategoryByName(input.name, id)) {
@@ -137,18 +141,21 @@ export async function PATCH(
       return NextResponse.json({ success: true, data: current && toAdminCategoryRow(current), message: 'No changes' })
     }
 
-    const updated = await prisma.category.update({ where: { id }, data, select: categorySelect(5) })
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.category.update({ where: { id }, data, select: categorySelect(5) })
+      await createAuditLog(
+        fromCurrentUser(auth.user, 'CATEGORY_UPDATED', 'category', id, {
+          changes: { before, after, changedFields: Object.keys(after) },
+        }),
+        tx,
+      )
+      return row
+    })
 
     if (replacedLogoPath) {
       const oldUrl = categoryLogoUrl(replacedLogoPath)
       if (oldUrl) void deleteImage(oldUrl, { bucket: CATEGORY_LOGO_OPTIONS.bucket, supabase: getAdminClient() })
     }
-
-    await createAuditLog(
-      fromCurrentUser(auth.user, 'CATEGORY_UPDATED', 'category', id, {
-        changes: { before, after, changedFields: Object.keys(after) },
-      }),
-    )
 
     return NextResponse.json({ success: true, data: toAdminCategoryRow(updated), message: 'Category updated' })
   } catch (error) {
@@ -185,6 +192,12 @@ export async function DELETE(
       if (merchantCount > 0) throw new CategoryInUseError(merchantCount)
 
       await tx.category.delete({ where: { id } })
+      await createAuditLog(
+        fromCurrentUser(auth.user, 'CATEGORY_DELETED', 'category', id, {
+          changes: { name: category.name, slug: category.slug },
+        }),
+        tx,
+      )
       return category
     })
 
@@ -194,12 +207,6 @@ export async function DELETE(
       const url = categoryLogoUrl(deleted.icon)
       if (url) void deleteImage(url, { bucket: CATEGORY_LOGO_OPTIONS.bucket, supabase: getAdminClient() })
     }
-
-    await createAuditLog(
-      fromCurrentUser(auth.user, 'CATEGORY_DELETED', 'category', id, {
-        changes: { name: deleted.name, slug: deleted.slug },
-      }),
-    )
 
     return NextResponse.json({ success: true, data: { id }, message: 'Category deleted' })
   } catch (error) {

@@ -4,6 +4,7 @@ import { ArrowDown, Tag, Clock, CheckCircle2, AlertTriangle } from 'lucide-react
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { Badge } from '@/components/ui/badge'
+import { RedemptionDetails } from './OfferReview'
 import type { ReviewComponentProps } from './types'
 
 function getPricingConfig(offer: any): Record<string, unknown> {
@@ -103,8 +104,8 @@ function CompareTable({ current, next }: { current: any; next: any }) {
     {
       key: 'categoryId',
       label: 'Category',
-      current: current.categoryId,
-      next: next.categoryId,
+      current: current.merchant?.category?.name ?? null,
+      next: next.merchant?.category?.name ?? null,
       changed: current.categoryId !== next.categoryId,
     },
     {
@@ -263,6 +264,7 @@ function OfferSummary({ offer, label, accent }: { offer: any; label: string; acc
         {offer.content?.description && (
           <p className="line-clamp-3 text-xs text-muted-foreground">{offer.content.description}</p>
         )}
+        <RedemptionDetails offer={offer} />
       </CardContent>
     </Card>
   )

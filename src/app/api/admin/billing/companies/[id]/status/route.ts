@@ -22,6 +22,12 @@ export async function PATCH(
 ) {
   const auth = await requireAdmin()
   if (!auth.ok) return auth.response
+  if (!auth.profileId) {
+    return NextResponse.json(
+      { success: false, error: { code: 'NO_ADMIN_PROFILE', message: 'Admin profile not found' } },
+      { status: 403 },
+    )
+  }
 
   const { id } = await params
   const body = (await request.json().catch(() => ({}))) as {
@@ -77,30 +83,30 @@ export async function PATCH(
     const fromStatus = billing.billingStatus
     const profileId = auth.profileId
 
-    await prisma.$transaction([
-      prisma.companyBilling.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.companyBilling.update({
         where: { companyId: id },
         data: { billingStatus: targetStatus as any },
-      }),
-      prisma.companyStatusHistory.create({
+      })
+      await tx.companyStatusHistory.create({
         data: {
           companyId: id,
           fromStatus: billing.company.status as any,
           toStatus: billing.company.status as any,
-          changedBy: profileId ?? auth.userId,
+          changedBy: profileId,
           changedByType: 'admin',
           reason: `Billing status: ${fromStatus} → ${targetStatus}${reason ? ` (${reason})` : ''}`,
         },
-      }),
-    ])
-
-    await writeBillingAudit({
-      action: BILLING_AUDIT_ACTIONS.STATUS_CHANGED,
-      companyId: id,
-      profileId,
-      fromStatus,
-      toStatus: targetStatus,
-      reason: reason || undefined,
+      })
+      await writeBillingAudit({
+        action: BILLING_AUDIT_ACTIONS.STATUS_CHANGED,
+        companyId: id,
+        profileId,
+        fromStatus,
+        toStatus: targetStatus,
+        reason: reason || undefined,
+        tx,
+      })
     })
 
     await writeBillingNotification({

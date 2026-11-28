@@ -22,53 +22,11 @@ prisma.$use(async (params, next) => {
   return next(params);
 });
 
-// Audit logging middleware for critical mutations
-prisma.$use(async (params, next) => {
-   // ✅ Skip ALL operations on Account model completely
-  if (params.model === 'Account') {
-    return next(params); // Skip audit entirely
-  }
-
-  const result = await next(params);
-    // ✅ ONLY audit these models - EXCLUDE Account and other sensitive models
-  const auditModels = ['Merchant', 'Company', 'MerchantOffer', 'Employee'];
-  const sensitiveModels = ['Account', 'AdminUser', 'PasswordResetToken', 'LoginSession', 'EmailVerificationToken'];
-  
-  // Skip if not in audit models OR in sensitive models
-  if (!auditModels.includes(params.model ?? '') || sensitiveModels.includes(params.model ?? '')) {
-    return result;
-  }
-
-  const auditActions: Record<string, string[]> = {
-    Merchant: ['update', 'delete'],
-    Company: ['update', 'delete'],
-    MerchantOffer: ['update', 'delete'],
-    Employee: ['update', 'delete'],
-  };
-
-  const relevantActions = auditActions[params.model ?? ''];
-  if (relevantActions?.includes(params.action)) {
-    const entityId = params.args?.where?.id;
-    if (typeof entityId === 'string' && entityId.length > 0) {
-      // Queue audit log entry asynchronously. adminId should be null for system-generated audits.
-      prisma.auditLog
-        .create({
-          data: {
-            adminId: null,
-            actorType: 'system',
-            action: `${params.model?.toLowerCase()}.${params.action}`,
-            entityType: params.model?.toLowerCase() ?? 'unknown',
-            entityId,
-            changes: params.args?.data ? { before: null, after: params.args.data } : undefined,
-            metadata: { action: params.action },
-          },
-        })
-        .catch((err) => console.error('Audit log error:', err));
-    }
-  }
-
-  return result;
-});
+// NOTE: automatic Prisma audit middleware was removed. It wrote a second,
+// unattributed `system` row for every update/delete on Merchant, Company,
+// MerchantOffer and Employee, duplicating the explicit, correctly attributed
+// audit rows written by the application. All audit writes are now explicit and
+// part of the operation that produced them (see src/services/audit-log.service.ts).
 
 // Pagination helper
 export async function paginate<T>(

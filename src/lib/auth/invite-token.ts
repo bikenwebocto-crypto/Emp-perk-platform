@@ -7,9 +7,13 @@ import { createHmac, randomUUID, timingSafeEqual } from 'crypto'
  */
 export const INVITE_TTL_HOURS = 72
 
+export type InviteKind = 'company_admin' | 'merchant'
+
 export interface InviteTokenPayload {
-  /** CompanyAdmin.id the invite belongs to. */
+  /** Id of the invited profile (CompanyAdmin.id or Merchant.id). */
   adminId: string
+  /** Who the invite is for. Missing on older tokens, which were company admins. */
+  kind?: InviteKind
   email: string
   /** Expiry, unix seconds. */
   exp: number
@@ -27,9 +31,10 @@ function sign(body: string): string {
   return createHmac('sha256', secret()).update(body).digest('base64url')
 }
 
-export function createInviteToken(adminId: string, email: string): string {
+export function createInviteToken(adminId: string, email: string, kind: InviteKind = 'company_admin'): string {
   const payload: InviteTokenPayload = {
     adminId,
+    kind,
     email: email.trim().toLowerCase(),
     exp: Math.floor(Date.now() / 1000) + INVITE_TTL_HOURS * 3600,
     jti: randomUUID(),

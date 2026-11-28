@@ -189,10 +189,30 @@ export function adminLandingPath(adminRole: string | null | undefined): string {
  */
 export const MFA_RECOVERY_PATHS = ['/admin/mfa-recovery']
 
+// ─────────────────────────────────────────────────────────────
+// Audit logs
+// ─────────────────────────────────────────────────────────────
+
+/** Roles that may open the audit log page and call its API. */
+export const AUDIT_LOG_ROLES = ['SUPER_ADMIN', 'ADMIN'] as const
+/** Roles that may read billing audit events. */
+export const BILLING_AUDIT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'FINANCE_ADMIN'] as const
+
+export const AUDIT_LOG_PATHS = ['/admin/audit-logs']
+export const AUDIT_LOG_API_PATHS = ['/api/admin/audit-logs']
+export const BILLING_AUDIT_API_PATHS = ['/api/admin/billing/audit']
+
+export function canReadAuditLogs(adminRole: string | null | undefined): boolean {
+  return (AUDIT_LOG_ROLES as readonly string[]).includes(normaliseAdminRole(adminRole) ?? '')
+}
+
+export function canReadBillingAudit(adminRole: string | null | undefined): boolean {
+  return (BILLING_AUDIT_ROLES as readonly string[]).includes(normaliseAdminRole(adminRole) ?? '')
+}
+
 /** Admin pages intentionally unavailable across every admin role. */
 export const BLOCKED_ADMIN_PATHS = [
   '/admin/settings/login-branding',
-  '/admin/audit-logs',
 ] as const
 
 /** Admin APIs intentionally unavailable across every admin role. */
@@ -207,6 +227,7 @@ export function canAdminAccessPath(adminRole: string | null | undefined, pathnam
   if (BLOCKED_ADMIN_PATHS.some((p) => matches(pathname, p))) return false
   if (ACCOUNTS_PATHS.some((p) => matches(pathname, p))) return canAccessAccounts({ adminRole: role })
   if (MFA_RECOVERY_PATHS.some((p) => matches(pathname, p))) return role === 'SUPER_ADMIN'
+  if (AUDIT_LOG_PATHS.some((p) => matches(pathname, p))) return canReadAuditLogs(role)
   if (pathname === '/admin') return ADMIN_OVERVIEW_ROLES.includes(role)
   const allowed = ADMIN_ROLE_PATHS[role]
   return allowed === '*' || allowed.some((p) => matches(pathname, p))
@@ -272,6 +293,8 @@ export function canAdminCallApi(adminRole: string | null | undefined, pathname: 
   const role = normaliseAdminRole(adminRole)
   if (!role) return false
   if (BLOCKED_ADMIN_API_PATHS.some((p) => matches(pathname, p))) return false
+  if (AUDIT_LOG_API_PATHS.some((p) => matches(pathname, p))) return canReadAuditLogs(role)
+  if (BILLING_AUDIT_API_PATHS.some((p) => matches(pathname, p))) return canReadBillingAudit(role)
   if (role !== 'SUPPORT_ADMIN') return true
   if (pathname.startsWith('/api/admin/notifications/announce')) return false
   return SUPPORT_ADMIN_API_ALLOWLIST.some((p) => matches(pathname, p))

@@ -28,7 +28,7 @@ export default function NewBranchPage() {
     try {
       const payload = valuesToPayload(values)
       const result = await createBranch.mutateAsync(payload as any)
-      showToast({ type: 'success', title: 'Branch created' })
+      showToast({ type: 'success', title: 'Branch created', description: result?.message })
       router.push(`/merchant/branches/${result.data.id}`)
     } catch (e: any) {
       if (e.details) {

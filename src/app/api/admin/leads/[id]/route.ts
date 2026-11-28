@@ -85,9 +85,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { status, note } = parsed.data;
 
     // Conditional update so a concurrent conversion or status change is not overwritten.
-    const result = await prisma.lead.updateMany({
-      where: { id, status: 'NEW' },
-      data: { status },
+    // The leads table has no note column; the note lives in the audit trail,
+    // so the status change and its audit row must commit together.
+    const result = await prisma.$transaction(async (tx) => {
+      const r = await tx.lead.updateMany({
+        where: { id, status: 'NEW' },
+        data: { status },
+      });
+      if (r.count > 0) {
+        await createAuditLog(fromCurrentUser(user, `LEAD_${status}`, 'lead', id, {
+          changes: { from: 'NEW', to: status },
+          metadata: note ? { note } : undefined,
+        }), tx);
+      }
+      return r;
     });
     if (result.count === 0) {
       const existing = await prisma.lead.findUnique({ where: { id }, select: { status: true } });
@@ -97,12 +108,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         { status: 409 },
       );
     }
-
-    // The leads table has no note column; the note lives in the audit trail.
-    await createAuditLog(fromCurrentUser(user, `LEAD_${status}`, 'lead', id, {
-      changes: { from: 'NEW', to: status },
-      metadata: note ? { note } : undefined,
-    }));
 
     const lead = await prisma.lead.findUnique({ where: { id } });
     return NextResponse.json({ success: true, data: lead, message: `Lead marked ${status.toLowerCase()}` });

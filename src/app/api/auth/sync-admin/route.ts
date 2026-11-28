@@ -5,6 +5,8 @@ import { checkEmailConfiguration } from '@/lib/email/email.examples'
 import { getPublicBranding } from '@/features/admin/settings/login-branding/services/login-branding.service'
 import { cookies } from "next/headers";
 import { hasVerifiedTotpFactor, requiresMfaForRole } from '@/lib/auth/mfa';
+import { isCompanyAccessPending } from '@/lib/access/company-access';
+import { createAuditLog } from '@/services/audit-log.service';
 
 const dashboardMap: Record<string, string> = {
   SUPER_ADMIN: '/admin',
@@ -35,9 +37,33 @@ async function allowEmployeeWithActiveAdmin(authUserId: string): Promise<boolean
     select: { id: true },
   })
   if (!admin) return false
-  await prisma.account.update({
+  const before = await prisma.account.findUnique({
     where: { authUserId },
-    data: { role: 'COMPANY_ADMIN', profileType: 'COMPANY' },
+    select: { role: true, profileType: true },
+  })
+  if (before?.role === 'COMPANY_ADMIN' && before.profileType === 'COMPANY') return true
+
+  // Role change and its evidence commit together.
+  await prisma.$transaction(async (tx) => {
+    await tx.account.update({
+      where: { authUserId },
+      data: { role: 'COMPANY_ADMIN', profileType: 'COMPANY' },
+    })
+    await createAuditLog(
+      {
+        actorType: 'company_admin',
+        companyAdminId: admin.id,
+        action: 'ACCOUNT_ROLE_CHANGED',
+        entityType: 'account',
+        entityId: authUserId,
+        changes: {
+          role: { from: before?.role ?? null, to: 'COMPANY_ADMIN' },
+          profileType: { from: before?.profileType ?? null, to: 'COMPANY' },
+        },
+        metadata: { source: 'sync-admin', reason: 'employee_with_active_company_admin' },
+      },
+      tx,
+    )
   })
   return true
 }
@@ -52,6 +78,14 @@ async function getMfaRedirectForRole(supabase: Awaited<ReturnType<typeof createC
   if (!hasTotp) return '/mfa/setup'
   if (aal?.currentLevel !== 'aal2') return '/mfa/verify'
   return dashboardMap[role ?? 'EMPLOYEE'] ?? '/employee'
+}
+
+async function getCompanyStatus(authUserId: string): Promise<string | null> {
+  const companyAdmin = await prisma.companyAdmin.findFirst({
+    where: { accountId: authUserId },
+    select: { company: { select: { status: true } } },
+  })
+  return companyAdmin?.company.status ?? null
 }
 
 export async function POST(request: NextRequest) {
@@ -122,7 +156,10 @@ export async function POST(request: NextRequest) {
       data: { lastLoginAt: new Date() },
     })
 
-    const redirectTo = await getMfaRedirectForRole(supabase, role)
+    const companyStatus = role === 'COMPANY_ADMIN' ? await getCompanyStatus(existingAccount.authUserId) : null
+    const redirectTo = isCompanyAccessPending(companyStatus)
+      ? '/company-access-pending'
+      : await getMfaRedirectForRole(supabase, role)
 
     return NextResponse.json({
       success: true,
@@ -207,7 +244,10 @@ export async function POST(request: NextRequest) {
     data: { lastLoginAt: new Date() },
   })
 
-  const redirectTo = await getMfaRedirectForRole(supabase, role)
+  const companyStatus = role === 'COMPANY_ADMIN' ? await getCompanyStatus(accountByEmail.authUserId) : null
+  const redirectTo = isCompanyAccessPending(companyStatus)
+    ? '/company-access-pending'
+    : await getMfaRedirectForRole(supabase, role)
 
   return NextResponse.json({
     success: true,

@@ -23,6 +23,7 @@ Credentials: `E2E_*` env (see `docs/testing/README.md`). Tests skip when creds a
 | TC-A11 | API | P0 | me unauthenticated | GET no auth | 401 |
 | TC-A12 | API | P0 | logout clears session | POST /api/auth/logout then GET session | session invalid/401 |
 | TC-A13 | API | P0 | health public | GET /api/health | 200, non-empty JSON |
+| TC-A14 | API/UI | P0 | company admin before activation | sign in while company is PENDING or APPROVED_PENDING_PAYMENT; request company dashboard | login routes to the payment notice; dashboard APIs return 403; only Super Admin can activate after approval |
 
 ## B. Role Authorization Matrix (P0)
 

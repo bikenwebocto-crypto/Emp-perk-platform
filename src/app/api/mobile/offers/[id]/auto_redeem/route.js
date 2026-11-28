@@ -116,14 +116,14 @@ export async function POST(request, { params }) {
       return fail("This offer has no code configured.", "CODE_NOT_CONFIGURED");
     }
     if (enteredCode.toUpperCase() !== expectedCode.toUpperCase()) {
-      void createAuditLog({
+      await createAuditLog({
         actorType: "employee",
         actorId: employee.id,
         action: "AUTO_REDEEM_INVALID_CODE",
         entityType: "MERCHANT_OFFER",
         entityId: offer.id,
         metadata: { merchantId: offer.merchantId, loginSource: "mobile" },
-      }).catch(() => {});
+      });
       return fail("Invalid offer code", "INVALID_CODE");
     }
 
@@ -207,7 +207,7 @@ export async function POST(request, { params }) {
       },
     }).catch((e) => console.error("[AUTO_REDEEM] notify failed", e));
 
-    void createAuditLog({
+    await createAuditLog({
       actorType: "employee",
       actorId: employee.id,
       action: `REDEMPTION_CREATED_${VIRTUAL_CARD_AUTO_VERIFY}`,
@@ -219,7 +219,7 @@ export async function POST(request, { params }) {
         redemptionType: VIRTUAL_CARD_AUTO_VERIFY,
         loginSource: "mobile",
       },
-    }).catch((e) => console.error("[AUTO_REDEEM] audit failed", e));
+    });
 
     const virtualCard = await buildVirtualCard({
       employeeId: employee.id,

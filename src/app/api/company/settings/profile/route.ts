@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { createAuditLog } from '@/services/audit-log.service'
 import { getCompanyAdmin, handleApiError } from '../../helpers'
 import { mergeSocialLinks, validateSocialLinks } from '@/lib/social-links'
 
@@ -76,17 +77,16 @@ export async function PATCH(request: NextRequest) {
         data: updatable,
       })
 
-      await tx.auditLog.create({
-        data: {
-          actorType: 'COMPANY_ADMIN',
-          companyId: company.id,
-          action: 'PROFILE_UPDATED',
-          entityType: 'COMPANY',
-          entityId: company.id,
-          changes: updatable,
-          metadata: { updatedBy: companyAdmin.id },
-        },
-      })
+      await createAuditLog({
+        actorType: 'company_admin',
+        actorId: companyAdmin.id,
+        companyId: company.id,
+        action: 'PROFILE_UPDATED',
+        entityType: 'COMPANY',
+        entityId: company.id,
+        changes: updatable,
+        metadata: { updatedBy: companyAdmin.id },
+      }, tx)
 
       return result
     })

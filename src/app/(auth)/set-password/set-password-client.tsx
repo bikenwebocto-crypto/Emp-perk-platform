@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
@@ -11,6 +11,17 @@ import { LoginLayoutRenderer } from "@/components/login-layouts";
 import { PasswordRules } from "@/components/shared/password-rules";
 import { getPasswordError } from "@/lib/validation/credentials";
 import type { PublicBranding } from "@/features/admin/settings/login-branding/services/login-branding.service";
+
+/** Email from an invite token, for display only (the server verifies the token). */
+function emailFromToken(token: string): string | null {
+  try {
+    const body = (token.split(".")[0] ?? "").replace(/-/g, "+").replace(/_/g, "/");
+    const email = JSON.parse(atob(body))?.email;
+    return typeof email === "string" ? email : null;
+  } catch {
+    return null;
+  }
+}
 
 interface SetPasswordClientProps {
   branding: PublicBranding;
@@ -27,9 +38,17 @@ export function SetPasswordClient({ branding }: SetPasswordClientProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The invite link already verified the token and set a session cookie.
-  // Without a session the link was invalid or the page was opened directly.
+  // Invite links (/auth/invite) pass their signed token as `t`; the server
+  // checks it and spends it only when the password is saved. Other flows
+  // (/auth/confirm) arrive with a one-time Supabase session instead.
+  const inviteToken = useSearchParams().get("t");
+
   useEffect(() => {
+    if (inviteToken) {
+      setEmail(emailFromToken(inviteToken));
+      setChecking(false);
+      return;
+    }
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
         router.replace("/login?error=link_invalid");
@@ -38,7 +57,7 @@ export function SetPasswordClient({ branding }: SetPasswordClientProps) {
       setEmail(data.user.email ?? null);
       setChecking(false);
     });
-  }, [router]);
+  }, [router, inviteToken]);
 
   const passwordError = getPasswordError(password);
   const mismatch = confirmPassword.length > 0 && password !== confirmPassword;
@@ -50,6 +69,30 @@ export function SetPasswordClient({ branding }: SetPasswordClientProps) {
     if (password !== confirmPassword) return setError("Passwords do not match.");
 
     setSubmitting(true);
+    if (inviteToken) {
+      try {
+        const res = await fetch("/api/auth/invite/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ t: inviteToken, password }),
+        });
+        const json = await res.json().catch(() => null);
+        const code = json?.error?.code;
+        if (code === "LINK_USED" || code === "LINK_INVALID") {
+          router.replace(`/login?error=link_invalid${email ? `&email=${encodeURIComponent(email)}` : ""}`);
+          return;
+        }
+        if (!res.ok || !json?.success) throw new Error(json?.error?.message ?? "Failed to set password.");
+        const params = new URLSearchParams({ notice: "password_set" });
+        if (email) params.set("email", email);
+        router.replace(`/login?${params.toString()}`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to set password.");
+        setSubmitting(false);
+      }
+      return;
+    }
+
     try {
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;

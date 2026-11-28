@@ -60,7 +60,7 @@ export async function POST(
       data: { saveCount: { increment: 1 } },
     })
 
-    void createAuditLog({
+    await createAuditLog({
       actorType: 'employee',
       actorId: auth.employee.id,
       action: 'OFFER_SAVED',
@@ -100,7 +100,7 @@ export async function DELETE(
       data: { saveCount: { decrement: 1 } },
     }).catch(() => null)
 
-    void createAuditLog({
+    await createAuditLog({
       actorType: 'employee',
       actorId: auth.employee.id,
       action: 'OFFER_UNSAVED',

@@ -12,6 +12,7 @@ import {
 import { checkVoucherRateLimits } from "@/lib/rate-limiter";
 import { prisma } from "@/lib/prisma";
 import { createAuditLog } from '@/services/audit-log.service';
+import { clientIpOrNull } from '@/lib/rate-limit';
 import type {
   VoucherVerificationRequest,
   VoucherVerificationResponse,
@@ -19,21 +20,10 @@ import type {
 } from "@/types/voucher";
 
 /**
- * Extract client IP address from request
+ * Client IP from trusted proxy headers only (see TRUSTED_PROXY_HOPS).
  */
 function getClientIp(request: NextRequest): string | undefined {
-  // Try various headers that might contain the client IP
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    return forwarded.split(",")[0]?.trim();
-  }
-
-  const realIp = request.headers.get("x-real-ip");
-  if (realIp) {
-    return realIp;
-  }
-
-  return undefined;
+  return clientIpOrNull(request) ?? undefined;
 }
 
 /**
@@ -52,25 +42,25 @@ async function logVerificationAttempt(
   errorCode?: VoucherVerificationErrorCode,
   fraudFlags?: string[],
 ): Promise<void> {
+  // Actor = authenticated caller; the redemption's employee is the subject.
   await createAuditLog({
-    actorType: "employee",
-    actorId: request.userId,
+    actorType: request.actorType ?? "employee",
+    actorId: request.actorProfileId ?? request.userId,
+    companyId: request.companyId ?? null,
     action: "VOUCHER_VERIFICATION_ATTEMPT",
     entityType: "voucher_verification",
     entityId: request.userId,
+    request: { ipAddress: request.ipAddress ?? null, userAgent: request.userAgent ?? null },
     metadata: {
       code: request.code,
-      userId: request.userId,
+      subjectEmployeeId: request.userId,
       merchantId: request.merchantId,
-      companyId: request.companyId,
-      ipAddress: request.ipAddress,
       deviceId: request.deviceId,
-      userAgent: request.userAgent,
       result,
       errorCode,
       fraudFlags,
       timestamp: new Date().toISOString(),
-    } as any,
+    },
   });
 }
 
@@ -96,6 +86,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Audit rows must name the real caller by internal profile id.
+    if (!user.profileId) {
+      return NextResponse.json(
+        {
+          success: false,
+          valid: false,
+          error: { code: "UNAUTHORIZED", message: "Account profile not found" },
+        } satisfies VoucherVerificationResponse,
+        { status: 403 },
+      );
+    }
+
     // 2. Parse request body
     const body = await request.json();
     const { code } = body;
@@ -118,9 +120,7 @@ export async function POST(request: NextRequest) {
     const redemption = await prisma.redemption.findFirst({
       where: { redemptionCode: code.trim().toUpperCase() },
       select: { employeeId: true, merchantId: true, companyId: true }
-    }) 
-
-    console.log("Redemption found:", redemption);
+    })
 
     if (!redemption?.employeeId || typeof redemption.employeeId !== "string") {
       return NextResponse.json(
@@ -135,7 +135,6 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    console.log("Redemption employeeId:", redemption.employeeId);
     // Verify user is authorized to verify for this userId
     // if (user.userType === 'EMPLOYEE' && user.profileId !== userId) {
     //   return NextResponse.json(
@@ -164,8 +163,9 @@ export async function POST(request: NextRequest) {
       ipAddress,
       deviceId,
       userAgent,
+      actorType: user.userType,
+      actorProfileId: user.profileId,
     };
-    console.log("Verification request:", verificationRequest);
     // 4. Check rate limits
     const rateLimitResult = checkVoucherRateLimits(verificationRequest.userId, ipAddress, deviceId);
     

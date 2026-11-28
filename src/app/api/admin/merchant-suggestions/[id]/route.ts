@@ -138,7 +138,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const auth = await requireAdmin()
     if (!auth.ok) return auth.response
     const { user } = auth
-    const adminId = user.profileId ?? user.id
+    if (!user.profileId) return apiError(403, 'NO_ADMIN_PROFILE', 'Admin profile not found')
+    const adminId = user.profileId
 
     const { id } = await params
 
@@ -212,42 +213,46 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (current.status === 'REJECTED') data.rejectionReason = null
     }
 
-    if (statusChanging) {
-      const { count } = await prisma.merchantSuggestion.updateMany({
-        where: { id, status: current.status },
-        data,
-      })
-      if (count === 0) {
-        return apiError(
-          409,
-          'CONFLICT',
-          'This suggestion was changed by someone else. Reload and try again.',
-        )
+    const applied = await prisma.$transaction(async (tx) => {
+      if (statusChanging) {
+        const { count } = await tx.merchantSuggestion.updateMany({
+          where: { id, status: current.status },
+          data,
+        })
+        if (count === 0) return false
+      } else {
+        await tx.merchantSuggestion.update({ where: { id }, data })
       }
-    } else {
-      await prisma.merchantSuggestion.update({ where: { id }, data })
-    }
 
-    if (nextStatus) {
-      void createAuditLog({
-        actorType: 'admin',
-        actorId: adminId,
-        action: 'MERCHANT_SUGGESTION_STATUS_CHANGED',
-        entityType: 'MERCHANT_SUGGESTION',
-        entityId: id,
-        changes: { status: { from: current.status, to: nextStatus } },
-        metadata: {
-          rejectionReason: rejectionReason ?? undefined,
-        },
-      })
-    } else if (adminNotes !== undefined && adminNotes !== current.adminNotes) {
-      void createAuditLog({
-        actorType: 'admin',
-        actorId: adminId,
-        action: 'MERCHANT_SUGGESTION_NOTES_UPDATED',
-        entityType: 'MERCHANT_SUGGESTION',
-        entityId: id,
-      })
+      if (nextStatus) {
+        await createAuditLog({
+          actorType: 'admin',
+          actorId: adminId,
+          action: 'MERCHANT_SUGGESTION_STATUS_CHANGED',
+          entityType: 'MERCHANT_SUGGESTION',
+          entityId: id,
+          changes: { status: { from: current.status, to: nextStatus } },
+          metadata: {
+            rejectionReason: rejectionReason ?? undefined,
+          },
+        }, tx)
+      } else if (adminNotes !== undefined && adminNotes !== current.adminNotes) {
+        await createAuditLog({
+          actorType: 'admin',
+          actorId: adminId,
+          action: 'MERCHANT_SUGGESTION_NOTES_UPDATED',
+          entityType: 'MERCHANT_SUGGESTION',
+          entityId: id,
+        }, tx)
+      }
+      return true
+    })
+    if (!applied) {
+      return apiError(
+        409,
+        'CONFLICT',
+        'This suggestion was changed by someone else. Reload and try again.',
+      )
     }
 
     const updated = await loadDetail(id)

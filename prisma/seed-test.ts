@@ -39,6 +39,8 @@ async function main() {
 
   // Clean in dependency order (children before parents).
   await prisma.$transaction([
+    // Opt this transaction out of the audit append-only trigger (test DB only).
+    prisma.$executeRaw`SELECT set_config('app.audit_maintenance', 'on', true)`,
     prisma.complaintAction.deleteMany(),
     prisma.complaint.deleteMany(),
     prisma.bannerContent.deleteMany(),
@@ -72,7 +74,7 @@ async function main() {
 
   // ── Categories ──────────────────────────────────────────
   const food = await prisma.category.create({
-    data: { name: 'Food & Dining', slug: 'food-dining', icon: 'utensils', displayOrder: 0, isActive: true },
+    data: { name: 'Food & Drinks', slug: 'food-and-drinks', icon: 'utensils', displayOrder: 0, isActive: true },
   });
 
   // ── Theme (so the app shell renders) ───────────────────

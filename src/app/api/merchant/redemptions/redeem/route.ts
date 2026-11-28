@@ -155,30 +155,38 @@ export async function POST(request: NextRequest) {
       return conflict('VOUCHER_EXPIRED', 'This redemption code has expired')
     }
 
-    await prisma.redemption.update({
-      where: { id: redemption.id },
-      data: {
-        isVerified: true,
-        verifiedBy: merchant.id,
-        verifiedAt: now,
-      },
-    })
+    // Only mark it redeemed if no one else did first; the audit row is saved with it.
+    const redeemed = await prisma.$transaction(async (tx) => {
+      const result = await tx.redemption.updateMany({
+        where: { id: redemption.id, verifiedAt: null },
+        data: {
+          isVerified: true,
+          verifiedBy: merchant.id,
+          verifiedAt: now,
+        },
+      })
+      if (result.count === 0) return false
 
-    await createAuditLog({
-      actorType: 'merchant',
-      actorId: merchant.id,
-      action: 'REDEMPTION_REDEEMED',
-      entityType: 'REDEMPTION',
-      entityId: redemption.id,
-      metadata: {
-        redemptionCode: redemption.redemptionCode ?? '',
-        offerId: redemption.offerId,
-        employeeId: redemption.employeeId,
-        companyId: redemption.companyId,
-        merchantId: merchant.id,
-        redeemedAt: now.toISOString(),
-      },
+      await createAuditLog({
+        actorType: 'merchant',
+        actorId: merchant.id,
+        action: 'REDEMPTION_REDEEMED',
+        entityType: 'REDEMPTION',
+        entityId: redemption.id,
+        metadata: {
+          redemptionCode: redemption.redemptionCode ?? '',
+          offerId: redemption.offerId,
+          employeeId: redemption.employeeId,
+          companyId: redemption.companyId,
+          merchantId: merchant.id,
+          redeemedAt: now.toISOString(),
+        },
+      }, tx)
+      return true
     })
+    if (!redeemed) {
+      return conflict('ALREADY_REDEEMED', 'This redemption has already been processed')
+    }
 
     const redeemedDate = formatDate(now)
 

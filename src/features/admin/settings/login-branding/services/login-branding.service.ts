@@ -134,17 +134,28 @@ export async function getAdminBranding() {
   )
 }
 
-export async function upsertBranding(data: Record<string, unknown>) {
-  const existing = await prisma.loginBranding.findFirst({ orderBy: { createdAt: 'desc' } })
+type BrandingWriter = {
+  loginBranding: {
+    findFirst: (args: any) => Promise<any>
+    update: (args: any) => Promise<any>
+    create: (args: any) => Promise<any>
+  }
+}
+
+export async function upsertBranding(
+  data: Record<string, unknown>,
+  client: BrandingWriter = prisma,
+) {
+  const existing = await client.loginBranding.findFirst({ orderBy: { createdAt: 'desc' } })
 
   let row
   if (existing) {
-    row = await prisma.loginBranding.update({
+    row = await client.loginBranding.update({
       where: { id: existing.id },
       data: data as any,
     })
   } else {
-    row = await prisma.loginBranding.create({
+    row = await client.loginBranding.create({
       data: data as any,
     })
   }

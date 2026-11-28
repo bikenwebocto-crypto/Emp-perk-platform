@@ -1,18 +1,22 @@
 import { prisma } from '@/lib/prisma'
 import {
   generateOfferCode,
+  isValidOfferCode,
   OFFER_CODE_MIN_LENGTH,
   OFFER_CODE_MAX_LENGTH,
   OFFER_CODE_DEFAULT_LENGTH,
   OFFER_CODE_INVALID_MESSAGE,
+  PROMO_CODE_TAKEN_MESSAGE,
 } from './offer-code.shared'
 
 export {
   generateOfferCode,
+  isValidOfferCode,
   OFFER_CODE_MIN_LENGTH,
   OFFER_CODE_MAX_LENGTH,
   OFFER_CODE_DEFAULT_LENGTH,
   OFFER_CODE_INVALID_MESSAGE,
+  PROMO_CODE_TAKEN_MESSAGE,
 }
 
 export function clampOfferCodeLength(length: number): number {
@@ -39,16 +43,11 @@ export async function generateUniqueOfferCode(
       },
       select: { id: true },
     })
-    if (!existing) return code
+    // Also compare case-insensitively against live offers, so a legacy
+    // lowercase code cannot collide with an uppercase generated one.
+    if (!existing && !(await isPromoCodeTakenByLiveOffer(code))) return code
   }
   throw new Error('Failed to generate unique offer code after maximum attempts')
-}
-
-/**
- * Validate offer code format: between 3 and 13 alphanumeric uppercase characters.
- */
-export function isValidOfferCode(code: string): boolean {
-  return /^[A-Z0-9]{3,13}$/.test(code)
 }
 
 /**
@@ -57,9 +56,6 @@ export function isValidOfferCode(code: string): boolean {
 export function normalizeOfferCode(code: string): string {
   return code.trim().toUpperCase()
 }
-
-export const PROMO_CODE_TAKEN_MESSAGE =
-  'This promo code is already used by another live offer. Please choose a different code.'
 
 /**
  * True when another LIVE (non-deleted) offer already uses this promo code.

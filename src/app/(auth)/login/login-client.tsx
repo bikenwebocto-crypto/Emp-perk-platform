@@ -36,7 +36,7 @@ export function LoginClient({ branding }: LoginClientProps) {
   const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
   const searchParams = useSearchParams();
-  // ?mode=signup opens the self sign-up (merchant / company) view.
+  // ?mode=signup opens the self sign-up (merchant only) view.
   const [view, setView] = useState<'sign_in' | 'sign_up' | 'update_password'>(
     searchParams.get("mode") === "signup" ? "sign_up" : "sign_in",
   );

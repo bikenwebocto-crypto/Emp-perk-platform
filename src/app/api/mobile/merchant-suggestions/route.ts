@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
         `You can submit at most ${SUGGESTION_RATE_LIMIT} merchant suggestions in 24 hours.`,
       )
     }
-    void createAuditLog({
+    await createAuditLog({
       actorType: 'employee',
       actorId: employee.id,
       action: 'MERCHANT_SUGGESTION_CREATED',

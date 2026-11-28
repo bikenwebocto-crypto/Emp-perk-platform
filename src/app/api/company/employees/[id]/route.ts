@@ -352,7 +352,16 @@ async function updateEmployeeEmail(
       email: accountResult.email,
     });
 
-    // 2. Get updated employee with account info
+    // 2. Audit row, saved with the email change
+    await createEmailAuditLog(
+      user,
+      id,
+      existingEmployee.account?.email ?? null,
+      nextEmail,
+      tx,
+    );
+
+    // 3. Get updated employee with account info
     const updatedEmployee = await tx.employee.findUnique({
       where: { id },
       include: {
@@ -376,26 +385,23 @@ async function createEmailAuditLog(
   id: string,
   currentEmail: string | null,
   nextEmail: string,
+  client?: Parameters<typeof createAuditLog>[1],
 ) {
   console.log("[PATCH] Creating audit log for email change...");
 
-  try {
-    await createAuditLog(
-      fromCurrentUser(user, "EMPLOYEE_EMAIL_UPDATED", "employee", id, {
-        metadata: {
-          action: "EMAIL_CHANGED",
-          oldEmail: currentEmail,
-          newEmail: nextEmail,
-          changedBy: user.id,
-          changedByEmail: user.email,
-        },
-      }),
-    );
-    console.log("[PATCH] ✅ Audit log created");
-  } catch (auditError) {
-    console.log("[PATCH] ⚠️ Audit log creation failed:", auditError);
-    // Don't fail the request if audit log fails
-  }
+  await createAuditLog(
+    fromCurrentUser(user, "EMPLOYEE_EMAIL_UPDATED", "employee", id, {
+      metadata: {
+        action: "EMAIL_CHANGED",
+        oldEmail: currentEmail,
+        newEmail: nextEmail,
+        changedBy: user.id,
+        changedByEmail: user.email,
+      },
+    }),
+    client,
+  );
+  console.log("[PATCH] ✅ Audit log created");
 }
 
 /**
@@ -530,7 +536,6 @@ export async function PATCH(
 
     console.log("[PATCH] Parsing request body...");
     const body = await request.json();
-    console.log("[PATCH] Request body:", JSON.stringify(body, null, 2));
 
     // Step 4: Get company context
     const { company } = await getCompanyContext(user);
@@ -647,9 +652,6 @@ export async function PATCH(
     if (body.avatarUrl !== undefined && body.avatarUrl !== existingEmployee.avatarUrl) {
       profileUpdate.avatarUrl = body.avatarUrl;
       changedFields.push("avatarUrl");
-      if (existingEmployee.avatarUrl) {
-        void deleteImage(existingEmployee.avatarUrl, { bucket: "offer-images" }).catch(() => {});
-      }
     }
 
     if (Object.keys(profileUpdate).length > 0) {
@@ -661,13 +663,14 @@ export async function PATCH(
             data: { status: accountStatusUpdate },
           });
         }
-      });
-      try {
         await createAuditLog(
           fromCurrentUser(user, "EMPLOYEE_UPDATED", "employee", id, { changes: { changedFields } }),
+          tx,
         );
-      } catch (auditError) {
-        console.log("[PATCH] ⚠️ Profile audit log creation failed:", auditError);
+      });
+      // Remove the replaced avatar only once the new one is saved.
+      if ("avatarUrl" in profileUpdate && existingEmployee.avatarUrl) {
+        void deleteImage(existingEmployee.avatarUrl, { bucket: "offer-images" }).catch(() => {});
       }
     }
 
@@ -726,8 +729,7 @@ export async function PATCH(
       company,
     );
 
-    // Step 10: Create audit log for email change
-    await createEmailAuditLog(user, id, currentEmail, nextEmail);
+    // Step 10: the audit row was saved inside updateEmployeeEmail's transaction.
 
     // Step 11: Send email notifications
     const companyName = result?.company?.name ?? company?.name ?? "your company";

@@ -20,6 +20,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { NotificationService } from '@/services/notification.service';
+import { createAuditLog } from '@/services/audit-log.service';
 import type { Recipient } from '@/services/notification.service';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -70,11 +71,28 @@ class OfferExpiryScheduler {
     // (cron + request-triggered) gets count 0 and must not notify again.
     const transitioned: OfferForNotify[] = [];
     for (const offer of offers) {
-      const { count } = await prisma.merchantOffer.updateMany({
-        where: { id: offer.id, status: 'LIVE' },
-        data: { status: 'EXPIRED', expiresAt: offer.endDate },
+      // The transition and its audit row commit together, so an offer can
+      // never disappear from the catalogue without evidence of why.
+      const changed = await prisma.$transaction(async (tx) => {
+        const { count } = await tx.merchantOffer.updateMany({
+          where: { id: offer.id, status: 'LIVE' },
+          data: { status: 'EXPIRED', expiresAt: offer.endDate },
+        });
+        if (count !== 1) return false;
+        await createAuditLog(
+          {
+            actorType: 'system',
+            action: 'OFFER_AUTO_EXPIRED',
+            entityType: 'merchant_offer',
+            entityId: offer.id,
+            changes: { status: { from: 'LIVE', to: 'EXPIRED' } },
+            metadata: { endDate: offer.endDate, source: 'offer-expiry-scheduler' },
+          },
+          tx,
+        );
+        return true;
       });
-      if (count === 1) transitioned.push(offer);
+      if (changed) transitioned.push(offer);
     }
 
     // Notify only offers this run expired, and only if they expired within

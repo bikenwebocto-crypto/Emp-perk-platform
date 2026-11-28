@@ -3,6 +3,13 @@ export const OFFER_CODE_MAX_LENGTH = 13
 /** Length used when a code is generated without an explicit length. */
 export const OFFER_CODE_DEFAULT_LENGTH = 8
 export const OFFER_CODE_INVALID_MESSAGE = '3 to 13 letters and numbers'
+export const PROMO_CODE_TAKEN_MESSAGE =
+  'This promo code is already used by another live offer. Please choose a different code.'
+
+/** Client-safe format check: 3-13 uppercase letters and digits only. */
+export function isValidOfferCode(code: string): boolean {
+  return /^[A-Z0-9]{3,13}$/.test(code)
+}
 
 const OFFER_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 

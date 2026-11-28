@@ -59,6 +59,7 @@ export async function GET(request: Request) {
     let role = null
     let profileType = null
     let adminRole: string | null = null
+    let companyStatus: string | null = null
     try {
       const account = await prisma.account.findUnique({
         where: { email },
@@ -66,6 +67,20 @@ export async function GET(request: Request) {
       })
       role = account?.role ?? null
       profileType = account?.profileType ?? null
+      if (account && (role === 'COMPANY_ADMIN' || profileType === 'COMPANY')) {
+        const companyAdmin = await prisma.companyAdmin.findFirst({
+          where: { accountId: account.authUserId },
+          select: { company: { select: { status: true } } },
+        })
+        companyStatus = companyAdmin?.company.status ?? null
+      }
+      if (account && (role === 'EMPLOYEE' || profileType === 'EMPLOYEE')) {
+        const employee = await prisma.employee.findFirst({
+          where: { accountId: account.authUserId },
+          select: { company: { select: { status: true } } },
+        })
+        companyStatus = employee?.company.status ?? null
+      }
       // Admin permission level (sidebar + /admin page access).
       if (account?.profileType === 'ADMIN') {
         const admin = await prisma.adminUser.findFirst({
@@ -81,7 +96,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       authenticated: true,
-      user: { id, email, role, profileType, adminRole },
+      user: { id, email, role, profileType, adminRole, companyStatus },
     })
   } catch (error) {
     console.error('Session error:', error)

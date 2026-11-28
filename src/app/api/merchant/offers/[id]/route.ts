@@ -66,9 +66,12 @@ function conflict(msg: string) {
   );
 }
 
-function badRequest(message: string) {
+function badRequest(message: string, field?: string) {
   return NextResponse.json(
-    { success: false, error: { code: "VALIDATION", message } },
+    {
+      success: false,
+      error: { code: "VALIDATION", message, ...(field ? { field } : {}) },
+    },
     { status: 400 },
   );
 }
@@ -192,14 +195,14 @@ export async function PATCH(
     }
 
     if (typeof body.redemptionCode === 'string' && body.redemptionCode.trim() && !isValidOfferCode(body.redemptionCode.trim())) {
-      return badRequest("3 to 13 letters and numbers");
+      return badRequest("3 to 13 letters and numbers", "redemptionCode");
     }
     if (
       typeof body.redemptionCode === 'string' &&
       body.redemptionCode.trim() &&
       (await isPromoCodeTakenByLiveOffer(body.redemptionCode, id))
     ) {
-      return badRequest(PROMO_CODE_TAKEN_MESSAGE);
+      return badRequest(PROMO_CODE_TAKEN_MESSAGE, "redemptionCode");
     }
 
     // Channel (In-store / Online / Both) + branches; the channel decides redemptionType.
@@ -381,10 +384,9 @@ export async function PATCH(
             action: "OFFER_CODE_GENERATED",
             entityType: "MERCHANT_OFFER",
             entityId: id,
-            actorId: merchant?.accountId ?? null,
             metadata: { offerCode: newCode, redemptionType: effectiveType },
-  });
-}
+          }, tx);
+        }
 
         if (body.regenerateOfferCode) {
           const currentCode = typeof body.redemptionCode === 'string'
@@ -399,9 +401,8 @@ export async function PATCH(
             action: "OFFER_CODE_REGENERATED",
             entityType: "MERCHANT_OFFER",
             entityId: id,
-            actorId: merchant?.accountId ?? null,
             metadata: { offerCode: newCode },
-          });
+          }, tx);
         }
 
         redemptionConfig = withChannelDetails(redemptionConfig);
@@ -452,6 +453,24 @@ export async function PATCH(
         });
       }
 
+      const changedFields = Object.keys(body).filter((k) => body[k] !== undefined);
+      if (changedFields.length > 0) {
+        const pick = (src: Record<string, unknown>) =>
+          Object.fromEntries(Object.keys(merchantOfferUpdatable).map((k) => [k, src[k] ?? null]));
+        await createAuditLog({
+          actorType: 'merchant',
+          actorId: merchant.id,
+          action: "OFFER_UPDATED",
+          entityType: "MERCHANT_OFFER",
+          entityId: id,
+          changes: {
+            before: pick(existing as unknown as Record<string, unknown>),
+            after: merchantOfferUpdatable,
+          },
+          metadata: { fields: changedFields, status: existing.status },
+        }, tx);
+      }
+
       return tx.merchantOffer.findUnique({
         where: { id },
         include: {
@@ -489,22 +508,24 @@ export async function DELETE(
     }
 
     // Soft delete — set deletedAt, keep all data and storage assets intact
-    await prisma.merchantOffer.update({
-      where: { id },
-      data: {
-        deletedAt: new Date(),
-        deletedById: merchant.id,
-        deletedByRole: 'merchant',
-      },
-    });
+    await prisma.$transaction(async (tx) => {
+      await tx.merchantOffer.update({
+        where: { id },
+        data: {
+          deletedAt: new Date(),
+          deletedById: merchant.id,
+          deletedByRole: 'merchant',
+        },
+      });
 
-    await createAuditLog({
-      actorType: 'merchant',
-      actorId: merchant.id,
-      action: "OFFER_DELETED",
-      entityType: "MERCHANT_OFFER",
-      entityId: id,
-      metadata: { title: existing.title, previousStatus: existing.status },
+      await createAuditLog({
+        actorType: 'merchant',
+        actorId: merchant.id,
+        action: "OFFER_DELETED",
+        entityType: "MERCHANT_OFFER",
+        entityId: id,
+        metadata: { title: existing.title, previousStatus: existing.status },
+      }, tx);
     });
 
     return NextResponse.json({ success: true });

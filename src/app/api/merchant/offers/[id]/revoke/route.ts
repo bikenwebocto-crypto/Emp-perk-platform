@@ -85,28 +85,16 @@ export async function POST(
           reviewNotes: reason.trim(),
         },
       });
-    });
 
-    try {
-      console.log( {actorType: 'merchant',
-        merchantId: merchant.id,
-        action: "OFFER_REVOKED",
-        entityType: "MERCHANT_OFFER",
-        entityId: id,
-        actorId: user?.id ?? null,
-        metadata: { title: offer.title, reason: reason.trim(), previousStatus: offer.status }})
       await createAuditLog({
         actorType: 'merchant',
         merchantId: merchant.id,
         action: "OFFER_REVOKED",
         entityType: "MERCHANT_OFFER",
         entityId: id,
-        actorId: user?.id ?? null,
         metadata: { title: offer.title, reason: reason.trim(), previousStatus: offer.status },
-      });
-    } catch (auditError) {
-      console.error('Audit log failed (non-fatal):', auditError);
-    }
+      }, tx);
+    });
 
     const merchantOutcome = await publishBusinessNotification({
       type: 'OFFER_EXPIRED',

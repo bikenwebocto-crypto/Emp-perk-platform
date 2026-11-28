@@ -50,18 +50,20 @@ export async function POST(request: NextRequest) {
       return badRequest('This email is already in use')
     }
 
-    await prisma.account.update({
-      where: { authUserId: merchant.accountId! },
-      data: { email: newEmail },
-    })
+    await prisma.$transaction(async (tx) => {
+      await tx.account.update({
+        where: { authUserId: merchant.accountId! },
+        data: { email: newEmail },
+      })
 
-    await createAuditLog({
-      actorType: 'merchant',
-      actorId: merchant.id,
-      action: 'EMAIL_CHANGED',
-      entityType: 'merchant',
-      entityId: merchant.id,
-      metadata: { newEmail },
+      await createAuditLog({
+        actorType: 'merchant',
+        actorId: merchant.id,
+        action: 'EMAIL_CHANGED',
+        entityType: 'merchant',
+        entityId: merchant.id,
+        metadata: { newEmail },
+      }, tx)
     })
 
     return NextResponse.json({ success: true, message: 'Email updated successfully' })

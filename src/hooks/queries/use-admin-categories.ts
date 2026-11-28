@@ -76,3 +76,16 @@ export function useDeleteCategory() {
     onSuccess: invalidate,
   })
 }
+
+export function useReorderCategories() {
+  const invalidate = useInvalidateCategories()
+  return useMutation({
+    mutationFn: (categoryIds: string[]) =>
+      request<{ categoryIds: string[] }>(
+        '/api/admin/categories',
+        { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoryIds }) },
+        'Failed to reorder categories',
+      ),
+    onSuccess: invalidate,
+  })
+}

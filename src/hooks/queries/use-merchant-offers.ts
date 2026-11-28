@@ -49,12 +49,20 @@ export function useMerchantOfferById(id: string) {
 /** Error carrying the API's error code/details (e.g. EVERGREEN_REPLACE_CONFIRM_REQUIRED). */
 export class OfferApiError extends Error {
   code?: string
+  /** Form field the message belongs to, when the API returned one. */
+  field?: string
   currentOffer: { id: string; title: string } | null
-  constructor(message: string, code?: string, currentOffer?: { id: string; title: string } | null) {
+  constructor(
+    message: string,
+    code?: string,
+    currentOffer?: { id: string; title: string } | null,
+    field?: string,
+  ) {
     super(message)
     this.name = 'OfferApiError'
     this.code = code
     this.currentOffer = currentOffer ?? null
+    this.field = field
   }
 }
 
@@ -63,6 +71,7 @@ function toApiError(json: any, fallback: string): OfferApiError {
     json?.error?.message ?? fallback,
     json?.error?.code,
     json?.error?.currentOffer ?? null,
+    json?.error?.field,
   )
 }
 
@@ -115,7 +124,7 @@ export function useUpdateMerchantOffer() {
         body: JSON.stringify(data),
       })
       const json = await res.json()
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to update offer')
+      if (!res.ok) throw toApiError(json, 'Failed to update offer')
       return json
     },
     onSuccess: () => {

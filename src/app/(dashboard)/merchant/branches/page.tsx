@@ -17,6 +17,7 @@ import {
   useMerchantBranches,
   useDeleteBranch,
   branchKeys,
+  sendBranchWithEvergreenLink,
 } from '@/hooks/queries/use-merchant-branches'
 import { useTableSort } from '@/hooks/use-table-sort'
 import { SortableTh } from '@/components/shared/sortable-th'
@@ -84,14 +85,11 @@ const branches = useMemo(() => {
   async function handleActivate(id: string) {
     setActivating(true)
     try {
-      const res = await fetch(`/api/merchant/branches/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'ACTIVE' }),
+      const { res, json } = await sendBranchWithEvergreenLink(`/api/merchant/branches/${id}`, 'PATCH', {
+        status: 'ACTIVE',
       })
-      const json = await res.json()
       if (!res.ok) throw new Error(json?.error?.message ?? 'Failed to activate')
-      showToast({ type: 'success', title: 'Branch activated' })
+      showToast({ type: 'success', title: 'Branch activated', description: json?.message })
       await queryClient.invalidateQueries({ queryKey: branchKeys.lists() })
       router.refresh()
     } catch (e: any) {

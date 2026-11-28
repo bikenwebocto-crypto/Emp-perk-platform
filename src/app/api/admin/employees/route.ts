@@ -1,8 +1,9 @@
+import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { adminEmployeeActionSchema } from "@/schemas";
-import { createAuditLog, fromCurrentUser } from "@/services/audit-log.service";
+import { buildAuditDataWithContext, fromCurrentUser } from "@/services/audit-log.service";
 import { validateUserEmail } from "@/services/user-validation.service";
 import { createPerfTimer } from "@/lib/perf";
 import { channels, publishBusinessNotification } from '@/services/business-notification.service';
@@ -116,6 +117,7 @@ export async function POST(request: NextRequest) {
     const user = await getCurrentUser(timer);
     timer.point('user auth check')
     if (!user || user.userType !== "admin") return unauthorized();
+    if (!user.profileId) return unauthorized();
 
     const body = await request.json();
     const { email, firstName, lastName, companyId, department, jobTitle, employeeId, phone, joinMethod } = body;
@@ -172,8 +174,10 @@ export async function POST(request: NextRequest) {
     try {
       result = await prisma.$transaction(async (tx) => {
         await tx.account.create({ data: { authUserId: pkId, email: normalizedEmail, role: "EMPLOYEE", profileType: "EMPLOYEE", status: "ACTIVE" } });
-        const employee = await tx.employee.create({ data: { id: pkId, accountId: pkId, companyId, firstName, lastName, employeeId, department, jobTitle, phone, joinMethod: joinMethod || "manual", status: "ACTIVE", invitedAt: new Date(), invitedBy: user.id }, include: { company: { select: { id: true, name: true } } } });
-        await createAuditLog(fromCurrentUser(user, "EMPLOYEE_CREATED", "employee", employee.id, { changes: { email: normalizedEmail, companyId, department } }));
+        const employee = await tx.employee.create({ data: { id: pkId, accountId: pkId, companyId, firstName, lastName, employeeId, department, jobTitle, phone, joinMethod: joinMethod || "manual", status: "ACTIVE", invitedAt: new Date(), invitedBy: user.profileId }, include: { company: { select: { id: true, name: true } } } });
+        await tx.auditLog.create({
+          data: await buildAuditDataWithContext(fromCurrentUser(user, "EMPLOYEE_CREATED", "employee", employee.id, { changes: { email: normalizedEmail, companyId, department } })) as any,
+        });
         return employee;
       });
     } catch (dbError) {
@@ -191,7 +195,7 @@ export async function POST(request: NextRequest) {
       channels: channels('IN_APP'),
       referenceType: 'employee',
       referenceId: result.id,
-      metadata: { companyId, invitedBy: user.id },
+      metadata: { companyId, invitedBy: user.profileId },
     });
 
     timer.section('Serialization')
@@ -218,6 +222,7 @@ export async function PATCH(request: NextRequest) {
     const user = await getCurrentUser(timer);
     timer.point('user auth check')
     if (!user || user.userType !== "admin") return unauthorized();
+    if (!user.profileId) return unauthorized();
 
     const body = await request.json();
     const { employeeIds, status, reason } = body;
@@ -250,14 +255,23 @@ export async function PATCH(request: NextRequest) {
     const employees = found.filter((e) => !skippedIds.has(e.id));
     const updatableIds = employees.map((e) => e.id);
 
-    timer.point('employee.updateMany')
-    const result = await prisma.employee.updateMany({
-      where: { id: { in: updatableIds }, deletedAt: null },
-      data: { status: status as any },
-    });
+    timer.point('employee.updateMany + audit')
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.employee.updateMany({
+        where: { id: { in: updatableIds }, deletedAt: null },
+        data: { status: status as any },
+      });
 
-    timer.point('createAuditLog')
-    await createAuditLog(fromCurrentUser(user, `EMPLOYEES_BULK_${status}`, "employee", `bulk-${Date.now()}`, { changes: { employeeIds: updatableIds, skipped, status, reason, count: result.count } }));
+      // Bulk events have no single target entity. Use a valid synthetic UUID
+      // (not `bulk-<timestamp>`) and carry the real ids in `changes`.
+      await tx.auditLog.create({
+        data: await buildAuditDataWithContext(fromCurrentUser(user, `EMPLOYEES_BULK_${status}`, "employee", randomUUID(), {
+          changes: { employeeIds: updatableIds, skipped, status, reason, count: updated.count },
+        })) as any,
+      });
+
+      return updated;
+    });
 
     for (const employee of employees) {
       await publishBusinessNotification({
@@ -297,6 +311,7 @@ export async function DELETE(request: NextRequest) {
     const user = await getCurrentUser(timer);
     timer.point('user auth check')
     if (!user || user.userType !== "admin") return unauthorized();
+    if (!user.profileId) return unauthorized();
 
     const { searchParams } = new URL(request.url);
     const singleId = searchParams.get("id");
@@ -322,14 +337,25 @@ export async function DELETE(request: NextRequest) {
     }
 
     timer.section('Database Queries')
-    timer.point('employee.updateMany')
-    const result = await prisma.employee.updateMany({
-      where: { id: { in: employeeIds }, deletedAt: null },
-      data: { deletedAt: new Date(), deletedById: user.id, status: "INACTIVE" },
-    });
+    timer.point('employee.updateMany + audit')
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.employee.updateMany({
+        where: { id: { in: employeeIds }, deletedAt: null },
+        data: { deletedAt: new Date(), deletedById: user.profileId, status: "INACTIVE" },
+      });
 
-    timer.point('createAuditLog')
-    await createAuditLog(fromCurrentUser(user, employeeIds.length === 1 ? "EMPLOYEE_DELETED" : "EMPLOYEES_BULK_DELETED", "employee", employeeIds.length === 1 ? employeeIds[0]! : `bulk-${Date.now()}`, { changes: { employeeIds, count: result.count } }));
+      await tx.auditLog.create({
+        data: await buildAuditDataWithContext(fromCurrentUser(
+          user,
+          employeeIds.length === 1 ? "EMPLOYEE_DELETED" : "EMPLOYEES_BULK_DELETED",
+          "employee",
+          employeeIds.length === 1 ? employeeIds[0]! : randomUUID(),
+          { changes: { employeeIds, count: updated.count } },
+        )) as any,
+      });
+
+      return updated;
+    });
 
     timer.section('Serialization')
     timer.point('NextResponse.json')

@@ -11,7 +11,7 @@ import {
   toAdminSummary,
 } from '@/lib/company-contact'
 import { buildPreview, parseCsvBody, validateRows } from '@/lib/company-activation/employee-csv'
-import { buildAuditData, createAuditLog, fromCurrentUser } from '@/services/audit-log.service'
+import { buildAuditDataWithContext, createAuditLog, fromCurrentUser } from '@/services/audit-log.service'
 import { validateUserEmail } from '@/services/user-validation.service'
 import { getLatestInviteStatuses, sendCompanyAdminInvitation } from '@/services/company-admin-invitation.service'
 import { inviteAuthUser, normalizeEmail, rollbackAuthUser } from '@/services/employee-invite.service'
@@ -61,7 +61,7 @@ export async function getCompanyDetail(companyId: string, scope: CompanyDetailSc
       _count: { select: { employees: true, redemptions: true, csvUploads: true } },
       companyAdmins: {
         orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
-        include: { account: { select: { email: true, status: true } } },
+        include: { account: { select: { email: true, status: true, lastLoginAt: true } } },
       },
     },
   })
@@ -88,7 +88,16 @@ export async function getCompanyDetail(companyId: string, scope: CompanyDetailSc
   const accountIdByAdminId = new Map(company.companyAdmins.map((a) => [a.id, a.accountId]))
   const inviteStatuses = await getLatestInviteStatuses(company.companyAdmins.map((a) => a.id))
 
-  const admins = summarizeAdmins(company.companyAdmins).map((a) => {
+  // Sign-in stamps lastLoginAt on the Account (sync-admin), not on the
+  // CompanyAdmin row, so take the later of the two; otherwise the Company
+  // page shows "Last login: Never" right after the admin signs in.
+  const adminsWithLogin = company.companyAdmins.map((a) => {
+    const own = a.lastLoginAt?.getTime() ?? 0
+    const acct = a.account?.lastLoginAt?.getTime() ?? 0
+    return acct > own ? { ...a, lastLoginAt: a.account!.lastLoginAt } : a
+  })
+
+  const admins = summarizeAdmins(adminsWithLogin).map((a) => {
     const accountId = accountIdByAdminId.get(a.id)
     const invite = inviteStatuses.get(a.id)
     return {
@@ -100,7 +109,7 @@ export async function getCompanyDetail(companyId: string, scope: CompanyDetailSc
     }
   })
 
-  const derived = derivePrimaryAdmin(company.companyAdmins)
+  const derived = derivePrimaryAdmin(adminsWithLogin)
   const primaryAdmin = derived
     ? { ...derived, email: derived.email || emailByAdminId.get(derived.id) || '' }
     : null
@@ -210,7 +219,7 @@ export async function createCompanyAdmin(user: User, companyId: string, body: Ad
       })
 
       await tx.auditLog.create({
-        data: buildAuditData(
+        data: await buildAuditDataWithContext(
           fromCurrentUser(user, 'COMPANY_ADMIN_CREATED', 'company_admin', admin.id, {
             metadata: { companyId, email, role, status },
           }),
@@ -404,7 +413,7 @@ export async function updateCompanyAdmin(
       if (wantsPrimary && !existing.isPrimary) changes.isPrimary = true
 
       await tx.auditLog.create({
-        data: buildAuditData(fromCurrentUser(user, 'COMPANY_ADMIN_UPDATED', 'company_admin', adminId, {
+        data: await buildAuditDataWithContext(fromCurrentUser(user, 'COMPANY_ADMIN_UPDATED', 'company_admin', adminId, {
           metadata: { companyId, changes },
         })) as any,
       })
@@ -611,7 +620,9 @@ export async function confirmEmployeeCsv(user: User, companyId: string, body: Co
     const imported = results.filter((r) => r.status === 'CREATED').length
     const failed = results.length - imported
 
-    const uploadJob = await prisma.cSVUploadJob.create({
+    // Upload record, rejected rows and the import audit commit together.
+    const uploadJob = await prisma.$transaction(async (tx) => {
+    const job = await tx.cSVUploadJob.create({
       data: {
         companyId,
         adminId: user.id,
@@ -629,14 +640,16 @@ export async function confirmEmployeeCsv(user: User, companyId: string, body: Co
     })
 
     for (const r of preview.invalidRows) {
-      await prisma.cSVRejectedRow.create({
-        data: { csvUploadId: uploadJob.id, rowNumber: r.rowNumber, reason: r.reason, rowData: r.raw as any },
+      await tx.cSVRejectedRow.create({
+        data: { csvUploadId: job.id, rowNumber: r.rowNumber, reason: r.reason, rowData: r.raw as any },
       })
     }
 
     await createAuditLog(fromCurrentUser(user, 'EMPLOYEE_CSV_IMPORTED', 'company', companyId, {
       metadata: { total: preview.totalRows, imported, rejected: preview.invalidCount, failed },
-    }))
+    }), tx)
+    return job
+    })
 
     return NextResponse.json({
       success: true,
@@ -805,6 +818,20 @@ export async function promoteEmployeeToCompanyAdmin(params: PromoteEmployeeParam
 
       const refreshed = await tx.companyAdmin.findUnique({ where: { id: created.id } })
 
+      // Evidence commits with the promotion itself.
+      await createAuditLog(
+        fromCurrentUser(actor, 'EMPLOYEE_PROMOTED_TO_COMPANY_ADMIN', 'company_admin', created.id, {
+          metadata: {
+            companyId: employee.companyId,
+            employeeId: employee.id,
+            companyAdminId: created.id,
+            source: 'promotion',
+            reactivatedExistingAdmin: !!existingAdmin,
+          },
+        }),
+        tx,
+      )
+
       return {
         admin: refreshed ?? created,
         accountId: account.authUserId,
@@ -821,21 +848,6 @@ export async function promoteEmployeeToCompanyAdmin(params: PromoteEmployeeParam
     // The promotion is committed at this point, so side effects are
     // best-effort: a failure must not turn a successful promotion into a 500.
     // Employee push tokens are kept — the person still uses the mobile app.
-    try {
-      await createAuditLog(
-        fromCurrentUser(actor, 'EMPLOYEE_PROMOTED_TO_COMPANY_ADMIN', 'company_admin', result.admin.id, {
-          metadata: {
-            companyId: result.companyId,
-            employeeId: result.employeeId,
-            companyAdminId: result.admin.id,
-            source: 'promotion',
-            reactivatedExistingAdmin: result.reactivated,
-          },
-        }),
-      )
-    } catch (error) {
-      console.error('Promotion audit log failed:', error)
-    }
 
     await sendPromotionEmail({
       to: result.email,
@@ -942,6 +954,18 @@ export async function revertCompanyAdminToEmployee(params: RevertAdminParams) {
       }
       await ensurePrimaryAdmin(companyId, tx)
 
+      await createAuditLog(
+        fromCurrentUser(actor, 'COMPANY_ADMIN_REVERTED_TO_EMPLOYEE', 'company_admin', admin.id, {
+          metadata: {
+            companyId,
+            employeeId: employee.id,
+            companyAdminId: admin.id,
+            source: 'revert',
+          },
+        }),
+        tx,
+      )
+
       return {
         adminId: admin.id,
         employeeId: employee.id,
@@ -949,21 +973,6 @@ export async function revertCompanyAdminToEmployee(params: RevertAdminParams) {
         lastName: employee.lastName,
       }
     })
-
-    try {
-      await createAuditLog(
-        fromCurrentUser(actor, 'COMPANY_ADMIN_REVERTED_TO_EMPLOYEE', 'company_admin', result.adminId, {
-          metadata: {
-            companyId,
-            employeeId: result.employeeId,
-            companyAdminId: result.adminId,
-            source: 'revert',
-          },
-        }),
-      )
-    } catch (error) {
-      console.error('Revert audit log failed:', error)
-    }
 
     return NextResponse.json({
       success: true,

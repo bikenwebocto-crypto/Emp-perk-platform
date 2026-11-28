@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { MapPin, Navigation, Phone, ExternalLink, Star, Clock, Store, Loader2 } from 'lucide-react'
 import type { StoreBranch } from '@/hooks/queries/use-store-map'
+import { formatBranchAddress, formatBranchName } from '@/lib/format'
 
 const MAP_LIBRARIES: ('places' | 'marker')[] = ['places', 'marker']
 
@@ -26,11 +27,6 @@ interface StoreMapProps {
 function formatDistance(km: number | null): string {
   if (km == null) return ''
   return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`
-}
-
-function formatAddress(addr: StoreBranch['address']): string {
-  const parts = [addr.line1, addr.line2, addr.city, addr.state, addr.postalCode, addr.country].filter(Boolean)
-  return parts.join(', ')
 }
 
 export function StoreMap({
@@ -68,7 +64,7 @@ export function StoreMap({
   const filteredBranches = branches.filter((b) => {
     if (search) {
       const q = search.toLowerCase()
-      const haystack = `${b.merchantName} ${b.branchName} ${formatAddress(b.address)}`.toLowerCase()
+      const haystack = `${b.merchantName} ${formatBranchName(b)} ${formatBranchAddress(b)}`.toLowerCase()
       if (!haystack.includes(q)) return false
     }
     if (categoryFilter && b.category !== categoryFilter) return false
@@ -195,9 +191,9 @@ export function StoreMap({
     let html = `<div style="max-width:260px;font-family:system-ui,sans-serif;font-size:13px">`
     if (branch.logo) html += `<img src="${branch.logo}" style="width:32px;height:32px;border-radius:6px;margin-bottom:6px" />`
     html += `<div style="font-weight:600;margin-bottom:2px">${branch.merchantName}</div>`
-    html += `<div style="color:#666;margin-bottom:4px">${branch.branchName}</div>`
+    html += `<div style="color:#666;margin-bottom:4px">${formatBranchName(branch)}</div>`
     if (showDistance && branch.distanceKm != null) html += `<div style="margin-bottom:4px">${formatDistance(branch.distanceKm)}</div>`
-    html += `<div style="color:#666;margin-bottom:4px">${formatAddress(branch.address)}</div>`
+    html += `<div style="color:#666;margin-bottom:4px">${formatBranchAddress(branch)}</div>`
     if (branch.phone) html += `<div style="margin-bottom:4px"><a href="tel:${branch.phone}" style="color:#1a73e8">${branch.phone}</a></div>`
     if (branch.isOpen) html += `<div style="color:#0d904f;margin-bottom:4px">Open now</div>`
     else html += `<div style="color:#d93025;margin-bottom:4px">Closed</div>`
@@ -351,13 +347,13 @@ export function StoreMap({
                       <p className="truncate text-sm font-medium">{b.merchantName}</p>
                       {b.isPrimary && <Star className="h-3 w-3 flex-shrink-0 fill-amber-400 text-amber-400" />}
                     </div>
-                    <p className="truncate text-xs text-muted-foreground">{b.branchName}</p>
+                    <p className="break-words text-xs text-muted-foreground">{formatBranchName(b)}</p>
                     {showDistance && b.distanceKm != null && (
                       <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                         <Navigation className="h-3 w-3" /> {formatDistance(b.distanceKm)}
                       </p>
                     )}
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{formatAddress(b.address)}</p>
+                    <p className="mt-0.5 break-words text-xs text-muted-foreground">{formatBranchAddress(b)}</p>
                     <div className="mt-1 flex items-center gap-2">
                       {b.phone && (
                         <a href={`tel:${b.phone}`} className="flex items-center gap-0.5 text-xs text-muted-foreground hover:text-primary" onClick={(e) => e.stopPropagation()}>

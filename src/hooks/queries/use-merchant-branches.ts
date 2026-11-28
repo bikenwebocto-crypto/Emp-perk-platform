@@ -1,6 +1,32 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { BranchStatus, BranchType } from '@/types'
 
+/**
+ * Send a branch create/update. If the server answers that the branch must be
+ * linked to the live Evergreen offer (one-perk rule), ask the merchant and resend
+ * with their choice: OK → link now (live at once), Cancel → keep hidden for now.
+ */
+export async function sendBranchWithEvergreenLink(
+  url: string,
+  method: 'POST' | 'PATCH',
+  data: Record<string, unknown>,
+): Promise<{ res: Response; json: any }> {
+  const send = async (body: Record<string, unknown>) => {
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return { res, json: await res.json() }
+  }
+  const first = await send(data)
+  if (first.res.status !== 409 || first.json?.error?.code !== 'EVERGREEN_BRANCH_LINK_REQUIRED') return first
+  const link = window.confirm(
+    `${first.json.error.message}\n\nOK: link this branch now.\nCancel: keep it hidden until a replacement Evergreen covers it.`,
+  )
+  return send({ ...data, evergreenLink: link ? 'LINK' : 'LATER' })
+}
+
 export const branchKeys = {
   all: ['merchant-branches'] as const,
   lists: () => [...branchKeys.all, 'list'] as const,
@@ -49,12 +75,7 @@ export function useCreateBranch() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
-      const res = await fetch('/api/merchant/branches', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      })
-      const json = await res.json()
+      const { res, json } = await sendBranchWithEvergreenLink('/api/merchant/branches', 'POST', data)
       if (!res.ok) {
         const err: any = new Error(json?.error?.message ?? 'Failed to create branch')
         err.details = json?.error?.details
@@ -72,12 +93,7 @@ export function useUpdateBranch(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
-      const res = await fetch(`/api/merchant/branches/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      })
-      const json = await res.json()
+      const { res, json } = await sendBranchWithEvergreenLink(`/api/merchant/branches/${id}`, 'PATCH', data)
       if (!res.ok) {
         const err: any = new Error(json?.error?.message ?? 'Failed to update branch')
         err.details = json?.error?.details

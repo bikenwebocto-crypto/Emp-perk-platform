@@ -319,22 +319,25 @@ export async function logFraudDetection(
     return // No fraud detected, no need to log
   }
 
+  // The actor is the authenticated caller; the redemption's employee is the
+  // subject. Fall back to the employee only for legacy callers that did not
+  // supply a caller identity (buildAuditData still fails closed on no id).
   await createAuditLog({
-    actorType: 'employee',
-    actorId: request.userId,
+    actorType: request.actorType ?? 'employee',
+    actorId: request.actorProfileId ?? request.userId,
+    companyId: request.companyId ?? null,
     action: 'VOUCHER_FRAUD_DETECTED',
     entityType: 'voucher_verification',
     entityId: request.userId,
+    request: { ipAddress: request.ipAddress ?? null, userAgent: request.userAgent ?? null },
     metadata: {
       code: request.code,
-      userId: request.userId,
+      subjectEmployeeId: request.userId,
       merchantId: request.merchantId,
-      companyId: request.companyId,
-      ipAddress: request.ipAddress,
       deviceId: request.deviceId,
       fraudFlags: result.flags,
       riskScore: result.riskScore,
       reason: result.reason,
-    } as any,
+    },
   })
 }

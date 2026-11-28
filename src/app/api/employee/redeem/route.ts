@@ -2,6 +2,7 @@ import { hasEnded } from '@/lib/offers/end-date';
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { createAuditLog } from "@/services/audit-log.service";
 import {
   getEmployeeFromSession,
   unauthorized,
@@ -286,6 +287,24 @@ export async function POST(request: NextRequest) {
           });
 
           await linkAttemptToRedemption(tx, claim.attemptId!, redemption.id);
+
+          await createAuditLog({
+            actorType: "employee",
+            employeeId: employee.id,
+            action: `REDEMPTION_CREATED_${redemptionType}`,
+            entityType: "redemption",
+            entityId: redemption.id,
+            metadata: {
+              offerId: offer.id,
+              merchantId: offer.merchantId,
+              companyId: employee.companyId,
+              method,
+              branchId: validBranch?.id ?? null,
+              redemptionType,
+              status,
+              source: "web",
+            },
+          }, tx);
 
           // Keep the existing denormalized counter in sync for non-atomic reads.
           await tx.offerRedemption.update({

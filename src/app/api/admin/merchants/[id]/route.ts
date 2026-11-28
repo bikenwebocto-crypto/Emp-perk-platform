@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/supabase/server";
 import { createAuditLog, fromCurrentUser } from '@/services/audit-log.service';
 import { deleteImage } from '@/lib/upload/image';
 import { mergeSocialLinks, validateSocialLinks } from '@/lib/social-links';
+import { selectableCategoryWhere } from '@/lib/categories';
 
 export async function GET(
   _request: NextRequest,
@@ -64,7 +65,6 @@ export async function PATCH(
 ) {
   try {
     const user = await getCurrentUser();
-    console.log("** Authenticated user:", user);
     if (!user || user.userType !== "admin") {
       return NextResponse.json(
         {
@@ -72,6 +72,15 @@ export async function PATCH(
           error: { code: "UNAUTHORIZED", message: "Unauthorized" },
         },
         { status: 401 },
+      );
+    }
+    if (!user.profileId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: { code: "NO_ADMIN_PROFILE", message: "Admin profile not found" },
+        },
+        { status: 403 },
       );
     }
 
@@ -112,6 +121,25 @@ export async function PATCH(
     const data: Record<string, unknown> = {};
     for (const field of updatableFields) {
       if (body[field] !== undefined) data[field] = body[field];
+    }
+
+    if (data.categoryId !== undefined && data.categoryId !== null) {
+      if (typeof data.categoryId !== 'string') {
+        return NextResponse.json(
+          { success: false, error: { code: "INVALID_CATEGORY", message: "Selected category does not exist." } },
+          { status: 400 },
+        );
+      }
+      const category = await prisma.category.findFirst({
+        where: { id: data.categoryId, ...selectableCategoryWhere },
+        select: { id: true },
+      });
+      if (!category) {
+        return NextResponse.json(
+          { success: false, error: { code: "INVALID_CATEGORY", message: "Select an active platform category." } },
+          { status: 400 },
+        );
+      }
     }
 
     // Merge social links over what's stored so editing one platform never
@@ -179,7 +207,7 @@ export async function PATCH(
             role: "MERCHANT",
             profileType: "MERCHANT",
             status: "ACTIVE",
-            createdBy: user.id,
+            createdBy: user.profileId,
           },
         });
 
@@ -188,45 +216,53 @@ export async function PATCH(
       }
     }
 
-    const updated = await prisma.merchant.update({
-      where: { id },
-      data: data as any,
-      include: {
-        category: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.merchant.update({
+        where: { id },
+        data: data as any,
+        include: {
+          category: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+            },
+          },
+          _count: {
+            select: {
+              offers: true,
+              branches: true,
+              redemptions: true,
+              issues: true,
+            },
           },
         },
-        _count: {
-          select: {
-            offers: true,
-            branches: true,
-            redemptions: true,
-            issues: true,
-          },
-        },
-      },
-    });
-
-    const nextAccountStatus =
-      updated.status === 'ACTIVE'
-        ? 'ACTIVE'
-        : updated.status === 'PAUSED'
-          ? 'INACTIVE'
-          : updated.status === 'SUSPENDED' || updated.status === 'ARCHIVED' || updated.status === 'REJECTED'
-            ? 'SUSPENDED'
-            : updated.status === 'PENDING'
-              ? 'PENDING'
-              : undefined;
-
-    if (merchant.accountId && nextAccountStatus) {
-      await prisma.account.update({
-        where: { authUserId: merchant.accountId },
-        data: { status: nextAccountStatus },
       });
-    }
+
+      const nextAccountStatus =
+        result.status === 'ACTIVE'
+          ? 'ACTIVE'
+          : result.status === 'PAUSED'
+            ? 'INACTIVE'
+            : result.status === 'SUSPENDED' || result.status === 'ARCHIVED' || result.status === 'REJECTED'
+              ? 'SUSPENDED'
+              : result.status === 'PENDING'
+                ? 'PENDING'
+                : undefined;
+
+      if (merchant.accountId && nextAccountStatus) {
+        await tx.account.update({
+          where: { authUserId: merchant.accountId },
+          data: { status: nextAccountStatus },
+        });
+      }
+
+      await createAuditLog(fromCurrentUser(user, 'MERCHANT_UPDATED', 'merchant', id, {
+        changes: Object.keys(data),
+      }), tx);
+
+      return result;
+    });
 
     // Clean up replaced logo/cover files from storage
     if (data.logoUrl && data.logoUrl !== merchant.logoUrl && merchant.logoUrl) {
@@ -235,10 +271,6 @@ export async function PATCH(
     if (data.coverImageUrl && data.coverImageUrl !== merchant.coverImageUrl && merchant.coverImageUrl) {
       deleteImage(merchant.coverImageUrl, { bucket: 'offer-images' }).catch(() => {});
     }
-
-    await createAuditLog(fromCurrentUser(user, 'MERCHANT_UPDATED', 'merchant', id, {
-      changes: Object.keys(data),
-    }));
     return NextResponse.json({
       success: true,
       data: updated,
@@ -271,6 +303,15 @@ export async function DELETE(
         { status: 401 },
       );
     }
+    if (!user.profileId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: { code: "NO_ADMIN_PROFILE", message: "Admin profile not found" },
+        },
+        { status: 403 },
+      );
+    }
 
     const { id } = await params;
 
@@ -298,18 +339,20 @@ export async function DELETE(
       );
     }
 
-    await prisma.merchant.update({
-      where: { id },
-      data: { deletedAt: new Date(), deletedById: user.id },
-    });
+    await prisma.$transaction(async (tx) => {
+      await tx.merchant.update({
+        where: { id },
+        data: { deletedAt: new Date(), deletedById: user.profileId },
+      });
 
-    await createAuditLog(fromCurrentUser(user, 'MERCHANT_DELETED', 'merchant', id, {
-      changes: {
-        businessName: merchant.businessName,
-        status: merchant.status,
-        reason,
-      },
-    }));
+      await createAuditLog(fromCurrentUser(user, 'MERCHANT_DELETED', 'merchant', id, {
+        changes: {
+          businessName: merchant.businessName,
+          status: merchant.status,
+          reason,
+        },
+      }), tx);
+    });
 
     return NextResponse.json({
       success: true,

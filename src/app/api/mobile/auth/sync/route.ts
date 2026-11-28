@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     ]);
 
     // 4. Audit log — fire-and-forget, never blocks the response.
-    void createAuditLog({
+    await createAuditLog({
       actorType: "employee",
       actorId: employee.id,
       action: "MOBILE_AUTH_SYNC",

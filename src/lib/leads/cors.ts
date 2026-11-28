@@ -19,7 +19,7 @@ export function corsHeaders(origin: string | null): Record<string, string> {
   if (!origin || !allowedOrigins().includes(origin)) return {};
   return {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '600',
     Vary: 'Origin',

@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getCompanyAdmin } from '../helpers'
+import { formatDateDMY } from '@/lib/format'
+import { getCompanyAdmin, handleApiError } from '../helpers'
 
 export async function GET() {
   try {
-    const { company, companyAdmin } = await getCompanyAdmin()
+    const { company } = await getCompanyAdmin()
 
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -49,7 +50,7 @@ export async function GET() {
       if (billing.renewalDate) {
         const daysToRenewal = Math.ceil((billing.renewalDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
         if (daysToRenewal <= 30 && daysToRenewal > 0) {
-          alerts.push({ type: 'RENEWAL_DUE', message: `Renewal due in ${daysToRenewal} days (${billing.renewalDate.toLocaleDateString()})`, severity: 'warning' })
+          alerts.push({ type: 'RENEWAL_DUE', message: `Renewal due in ${daysToRenewal} days (${formatDateDMY(billing.renewalDate)})`, severity: 'warning' })
         }
       }
       if (billing.billingStatus === 'INVOICE_OVERDUE') {
@@ -86,11 +87,7 @@ export async function GET() {
         alerts,
       },
     })
-  } catch (error: any) {
-    console.error('Company dashboard error:', error)
-    return NextResponse.json(
-      { success: false, error: { code: 'INTERNAL', message: error.message ?? 'Internal server error' } },
-      { status: 500 },
-    )
+  } catch (error) {
+    return handleApiError(error)
   }
 }

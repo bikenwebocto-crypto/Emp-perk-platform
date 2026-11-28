@@ -43,7 +43,7 @@ export function revertCopy(name: string): ActionCopy {
     message: `Revert ${name} to an employee?`,
     impacts: [
       'They lose access to the web admin dashboard.',
-      'Their employee record is set to active, and they can use the mobile app again with their existing password.',
+      'Their employee record is set to active, and they can use the mobile app again, signing in with a one-time code sent to their email.',
       'Their admin record is kept as inactive history. If they are promoted again, it is reused.',
     ],
   }
@@ -90,7 +90,7 @@ export function deactivateEmployeeCopy(name: string): ActionCopy {
 export function reactivateEmployeeCopy(name: string): ActionCopy {
   return {
     message: `Reactivate ${name}?`,
-    impacts: ['They can sign in to the mobile app and redeem offers again with their existing password.'],
+    impacts: ['They can sign in to the mobile app again with a one-time code sent to their email, and redeem offers.'],
   }
 }
 

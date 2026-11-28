@@ -46,7 +46,7 @@ import {
   isEvergreenRange,
 } from "@/lib/offers/evergreen";
 import {
-  generateOfferCode,
+  isValidOfferCode,
   OFFER_CODE_MIN_LENGTH,
   OFFER_CODE_MAX_LENGTH,
   OFFER_CODE_DEFAULT_LENGTH,
@@ -683,6 +683,14 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       return n;
     });
 
+  /** A 400 from the API can name a field; show it inline as well as in a toast. */
+  const showFieldApiError = (err: any, title: string) => {
+    if (typeof err?.field === "string" && typeof err?.message === "string") {
+      setErrors((prev) => ({ ...prev, [err.field]: err.message }));
+    }
+    showToast({ type: "error", title, description: err?.message });
+  };
+
   const setChannel = (channel: OfferChannel) => {
     setForm((prev) => ({ ...prev, channel, redemptionType: channelRedemptionType(channel) }));
     clearError("branches", "redemptionCode", "bookingUrl");
@@ -703,14 +711,25 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
     clearError("branches");
   };
 
-  const handleGenerateOfferCode = () => {
-    const nextCode = generateOfferCode(getTargetOfferCodeLength(form.redemptionCode));
-    setForm((prev) => ({ ...prev, redemptionCode: nextCode }));
-    setErrors((prev) => {
-      const n = { ...prev };
-      delete n.redemptionCode;
-      return n;
-    });
+  /** Ask the server for a code that is not already used by another offer. */
+  const handleGenerateOfferCode = async () => {
+    try {
+      const res = await fetch("/api/merchant/offers/generate-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ length: getTargetOfferCodeLength(form.redemptionCode) }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error?.message ?? "Failed to generate a code");
+      setForm((prev) => ({ ...prev, redemptionCode: json.data.code }));
+      clearError("redemptionCode");
+    } catch (err: any) {
+      showToast({
+        type: "error",
+        title: "Could not generate a code",
+        description: err?.message ?? "Please try again",
+      });
+    }
   };
 
   const validate = (): boolean => {
@@ -777,11 +796,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       else if (!/^https?:\/\/[^\s.]+\.\S+$/i.test(normalizeUrl(form.bookingUrl)))
         errs.bookingUrl = "Enter a valid link, e.g. yourwebsite.com/offer";
       if (!form.redemptionCode.trim()) errs.redemptionCode = "Offer code is required";
-      else if (
-        !new RegExp(`^[A-Z0-9]{${OFFER_CODE_MIN_LENGTH},${OFFER_CODE_MAX_LENGTH}}$`).test(
-          form.redemptionCode.trim(),
-        )
-      )
+      else if (!isValidOfferCode(form.redemptionCode.trim()))
         errs.redemptionCode = OFFER_CODE_INVALID_MESSAGE;
     }
 
@@ -919,6 +934,14 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
       showToast({ type: "error", title: "Title is required to save a draft" });
       return;
     }
+    // Drafts may be incomplete, but a promo code that is present must be valid.
+    if (channelHasOnlineCode(form.channel) && form.redemptionCode.trim()) {
+      if (!isValidOfferCode(form.redemptionCode.trim())) {
+        setErrors((prev) => ({ ...prev, redemptionCode: OFFER_CODE_INVALID_MESSAGE }));
+        return;
+      }
+      clearError("redemptionCode");
+    }
     if (submittingRef.current) return;
     submittingRef.current = true;
     setPendingAction("draft");
@@ -945,11 +968,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         router.push(fallbackRoute);
       }
     } catch (err: any) {
-      showToast({
-        type: "error",
-        title: "Failed to save draft",
-        description: err.message,
-      });
+      showFieldApiError(err, "Failed to save draft");
     } finally {
       // On success keep the buttons locked while navigation completes.
       if (!succeeded) {
@@ -1042,11 +1061,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         return true;
       } catch (err: any) {
         if (needsEvergreenConfirm(err)) return false;
-        showToast({
-          type: "error",
-          title: "Submission failed",
-          description: err.message,
-        });
+        showFieldApiError(err, "Submission failed");
         return false;
       }
     } else {
@@ -1080,11 +1095,7 @@ const withMerchant = <T extends Record<string, unknown>>(payload: T) =>
         return true;
       } catch (err: any) {
         if (needsEvergreenConfirm(err)) return false;
-        showToast({
-          type: "error",
-          title: "Failed to submit",
-          description: err.message,
-        });
+        showFieldApiError(err, "Failed to submit");
         return false;
       }
     }

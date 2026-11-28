@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       deviceId,
     })
 
-    void createAuditLog({
+    await createAuditLog({
       actorType: 'employee',
       actorId: auth.employee.id,
       action: 'DEVICE_TOKEN_REGISTERED',

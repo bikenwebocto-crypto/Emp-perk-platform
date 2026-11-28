@@ -38,7 +38,6 @@ function forbidden(message: string) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    console.log(' ** # ** PATCH /api/mobile/profile/saving request received.',request)
     // Authenticate mobile employee.
     // getAuthenticatedMobileEmployee returns a result object:
     //   { ok: true, employee, company, account, user } | { ok: false, response }
@@ -48,7 +47,6 @@ export async function PATCH(request: NextRequest) {
     if (!auth.ok) return auth.response
 
     const body = await request.json()
-    console.log(' ** # ** PATCH /api/mobile/profile/saving body:', body)
     const {
       redemptionId,
       billAmount,

@@ -91,7 +91,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   try {
     const auth = await requireAdmin()
     if (!auth.ok) return auth.response
-    const adminId = auth.user.profileId ?? auth.user.id
+    if (!auth.user.profileId) return apiError(403, 'NO_ADMIN_PROFILE', 'Admin profile not found')
+    const adminId = auth.user.profileId
 
     const { id } = await params
 
@@ -136,22 +137,27 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         return apiError(409, 'INVALID_STATE', 'The meeting link can only be changed before the booking is confirmed.')
       }
       const meetingLink = raw.trim()
-      const updated = await prisma.demoBooking.updateMany({
-        where: { id, status: 'PENDING' },
-        data: { meetingLink },
+      const updated = await prisma.$transaction(async (tx) => {
+        const r = await tx.demoBooking.updateMany({
+          where: { id, status: 'PENDING' },
+          data: { meetingLink },
+        })
+        if (r.count > 0) {
+          await createAuditLog({
+            actorType: 'admin',
+            actorId: adminId,
+            action: 'demo_booking.meeting_link_updated',
+            entityType: 'demo_booking',
+            entityId: id,
+            changes: { meetingLink: { from: current.meetingLink, to: meetingLink } },
+            metadata: { reference: current.reference },
+          }, tx)
+        }
+        return r
       })
       if (updated.count === 0) {
         return apiError(409, 'CONFLICT', 'The booking was confirmed or changed by someone else. Reload and try again.')
       }
-      await createAuditLog({
-        actorType: 'admin',
-        actorId: adminId,
-        action: 'demo_booking.meeting_link_updated',
-        entityType: 'demo_booking',
-        entityId: id,
-        changes: { meetingLink: { from: current.meetingLink, to: meetingLink } },
-        metadata: { reference: current.reference },
-      })
       const detail = await loadDetail(id)
       return NextResponse.json({ success: true, data: detail })
     }
@@ -169,7 +175,17 @@ async function changeStatus(id: string, rawStatus: unknown, adminId: string) {
   }
   const nextStatus: DemoBookingStatus = rawStatus
 
-  const result = await changeDemoBookingStatus({ bookingId: id, status: nextStatus })
+  const result = await changeDemoBookingStatus({ bookingId: id, status: nextStatus }, (tx, r) =>
+    createAuditLog({
+      actorType: 'admin',
+      actorId: adminId,
+      action: 'demo_booking.status_changed',
+      entityType: 'demo_booking',
+      entityId: r.booking.id,
+      changes: { status: { from: r.previous, to: r.booking.status } },
+      metadata: { reference: r.booking.reference, leadId: r.booking.leadId },
+    }, tx),
+  )
 
   if (!result.ok) {
     switch (result.kind) {
@@ -191,17 +207,7 @@ async function changeStatus(id: string, rawStatus: unknown, adminId: string) {
     }
   }
 
-  const { previous, booking, requester } = result
-
-  await createAuditLog({
-    actorType: 'admin',
-    actorId: adminId,
-    action: 'demo_booking.status_changed',
-    entityType: 'demo_booking',
-    entityId: booking.id,
-    changes: { status: { from: previous, to: booking.status } },
-    metadata: { reference: booking.reference, leadId: booking.leadId },
-  })
+  const { booking, requester } = result
 
   // The visitor is told about confirmations and cancellations, not about the
   // internal COMPLETED state (the meeting has already happened).
@@ -279,7 +285,22 @@ async function reschedule(id: string, body: Record<string, unknown>, adminId: st
     timezone: parsed.input.timezone,
     durationMinutes: parsed.input.durationMinutes,
     meetingLink,
-  })
+  }, undefined, (tx, r) =>
+    createAuditLog({
+      actorType: 'admin',
+      actorId: adminId,
+      action: 'demo_booking.rescheduled',
+      entityType: 'demo_booking',
+      entityId: r.booking.id,
+      changes: {
+        startsAt: { from: r.previous.startsAt.toISOString(), to: r.booking.startsAt.toISOString() },
+        durationMinutes: { from: r.previous.durationMinutes, to: r.booking.durationMinutes },
+        timezone: { from: r.previous.timezone, to: r.booking.timezone },
+        meetingLink: { from: null, to: r.booking.meetingLink },
+      },
+      metadata: { reference: r.booking.reference, leadId: r.booking.leadId },
+    }, tx),
+  )
 
   if (!result.ok) {
     switch (result.kind) {
@@ -298,21 +319,6 @@ async function reschedule(id: string, body: Record<string, unknown>, adminId: st
 
   const { previous, booking, requester } = result
   const bookingMeetingLink = booking.meetingLink
-
-  await createAuditLog({
-    actorType: 'admin',
-    actorId: adminId,
-    action: 'demo_booking.rescheduled',
-    entityType: 'demo_booking',
-    entityId: booking.id,
-    changes: {
-      startsAt: { from: previous.startsAt.toISOString(), to: booking.startsAt.toISOString() },
-      durationMinutes: { from: previous.durationMinutes, to: booking.durationMinutes },
-      timezone: { from: previous.timezone, to: booking.timezone },
-      meetingLink: { from: null, to: bookingMeetingLink },
-    },
-    metadata: { reference: booking.reference, leadId: booking.leadId },
-  })
 
   let emailSent = false
   if (requester.email) {

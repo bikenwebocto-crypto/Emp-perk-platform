@@ -45,6 +45,8 @@ export async function PATCH(
   try {
     const user = await getCurrentUser()
     if (!user || user.userType !== 'admin') return unauthorized()
+    if (!user.profileId) return unauthorized()
+    const adminId = user.profileId
 
     const { id } = await params
     const body = await request.json()
@@ -115,56 +117,61 @@ export async function PATCH(
         return badRequest(`Unknown action: ${action}`)
     }
 
-    if (data.status && data.status !== existing.status) {
-      await prisma.merchantStatusHistory.create({
-        data: {
-          merchantId: id,
-          fromStatus: existing.status,
-          toStatus: data.status as any,
-          changedBy: user.id,
-          changedByType: 'admin',
-          reason,
+    const updated = await prisma.$transaction(async (tx) => {
+      if (data.status && data.status !== existing.status) {
+        await tx.merchantStatusHistory.create({
+          data: {
+            merchantId: id,
+            fromStatus: existing.status,
+            toStatus: data.status as any,
+            changedBy: adminId,
+            changedByType: 'admin',
+            reason,
+          },
+        })
+      }
+
+      const result = await tx.merchant.update({
+        where: { id },
+        data: data as any,
+        select: {
+          id: true,
+          businessName: true,
+          status: true,
+          isFeatured: true,
+          isHomepageMerchant: true,
+          displayPriority: true,
+          accountId: true,
         },
       })
-    }
 
-    const updated = await prisma.merchant.update({
-      where: { id },
-      data: data as any,
-      select: {
-        id: true,
-        businessName: true,
-        status: true,
-        isFeatured: true,
-        isHomepageMerchant: true,
-        displayPriority: true,
-        accountId: true,
-      },
+      const nextAccountStatus =
+        result.status === 'ACTIVE'
+          ? 'ACTIVE'
+          : result.status === 'PAUSED'
+            ? 'INACTIVE'
+            : result.status === 'SUSPENDED' || result.status === 'ARCHIVED' || result.status === 'REJECTED'
+              ? 'SUSPENDED'
+              : result.status === 'PENDING'
+                ? 'PENDING'
+                : undefined
+
+      if (result.accountId && nextAccountStatus) {
+        await tx.account.update({
+          where: { authUserId: result.accountId },
+          data: { status: nextAccountStatus },
+        })
+      }
+
+      await createAuditLog(
+        fromCurrentUser(user, auditLabel, 'merchant', id, {
+          changes: auditChanges,
+        }),
+        tx,
+      )
+
+      return result
     })
-
-    const nextAccountStatus =
-      updated.status === 'ACTIVE'
-        ? 'ACTIVE'
-        : updated.status === 'PAUSED'
-          ? 'INACTIVE'
-          : updated.status === 'SUSPENDED' || updated.status === 'ARCHIVED' || updated.status === 'REJECTED'
-            ? 'SUSPENDED'
-            : updated.status === 'PENDING'
-              ? 'PENDING'
-              : undefined
-
-    if (updated.accountId && nextAccountStatus) {
-      await prisma.account.update({
-        where: { authUserId: updated.accountId },
-        data: { status: nextAccountStatus },
-      })
-    }
-
-    await createAuditLog(
-      fromCurrentUser(user, auditLabel, 'merchant', id, {
-        changes: auditChanges,
-      }),
-    )
 
     const emailWarnings: string[] = []
     const statusChanged = updated.status !== existing.status

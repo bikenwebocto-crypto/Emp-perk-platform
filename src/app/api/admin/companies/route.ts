@@ -1,3 +1,4 @@
+import { clientIpFromRequest } from '@/lib/rate-limit'
 import { NextRequest, NextResponse } from 'next/server';
 import * as crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
@@ -15,6 +16,7 @@ import { cleanSocialLinks } from '@/lib/social-links';
 import type { CompanyStatus } from '@/types';
 import { channels, collectEmailWarnings, notifyCompanyStatusChange, publishBusinessToAdmins } from '@/services/business-notification.service';
 import { z } from 'zod';
+import { canActivatePendingCompany } from '@/lib/access/company-access';
 
 const submissionAttempts = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
@@ -241,14 +243,15 @@ export async function POST(request: NextRequest) {
     const user = await getCurrentUser(timer);
     const requiresApproval = !user || user.role !== 'SUPER_ADMIN'
     timer.point('user auth check')
+    // An authenticated admin must have a profile id: audit rows must identify
+    // the real actor rather than silently falling back to `system`.
+    if (user?.userType === 'admin' && !user.profileId) return unauthorized();
 
     // Rate limit only applies to unauthenticated (public signup) submissions —
     // Super Admins are trusted, already-authenticated actors.
     if (!user) {
       const ip =
-        request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-        request.headers.get('x-real-ip') ??
-        'unknown';
+        clientIpFromRequest(request);
       if (!checkRateLimit(ip)) {
         return NextResponse.json(
           { success: false, error: { code: 'RATE_LIMITED', message: 'Too many submissions. Please try again later.' } },
@@ -419,6 +422,8 @@ export async function PATCH(request: NextRequest) {
     const user = await getCurrentUser(timer);
     timer.point('user auth check')
     if (!user || user.userType !== 'admin') return unauthorized();
+    if (!user.profileId) return unauthorized();
+    const adminId = user.profileId;
 
     const body = await request.json();
     const parsed = adminCompanyActionSchema.safeParse(body);
@@ -437,6 +442,30 @@ export async function PATCH(request: NextRequest) {
     if (!existing || existing.deletedAt) return notFound('Company');
     const previousStatus = existing.status;
 
+    if (status === 'APPROVED_PENDING_PAYMENT' && previousStatus !== 'PENDING') {
+      return NextResponse.json(
+        { success: false, error: { code: 'INVALID_TRANSITION', message: 'Only a pending company can be approved for payment.' } },
+        { status: 409 },
+      );
+    }
+
+    if (status === 'ACTIVE' && previousStatus === 'PENDING') {
+      return NextResponse.json(
+        { success: false, error: { code: 'INVALID_TRANSITION', message: 'Approve the company and confirm payment before activation.' } },
+        { status: 409 },
+      );
+    }
+
+    if (
+      status === 'ACTIVE' &&
+      !canActivatePendingCompany(previousStatus, user.adminRole)
+    ) {
+      return NextResponse.json(
+        { success: false, error: { code: 'FORBIDDEN', message: 'Only a Super Admin can activate a pending company.' } },
+        { status: 403 },
+      );
+    }
+
     if (status === 'ACTIVE') {
       timer.point('getCityReadiness')
       const readiness = await getCityReadiness(existing.city)
@@ -448,33 +477,34 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    timer.point('company.update')
-    const company = await prisma.company.update({
-      where: { id: companyId },
-      data: {
-        status: status as any,
-        adminNote: adminNote ?? existing.adminNote,
-        approvedAt: status === 'ACTIVE' && !existing.approvedAt ? new Date() : undefined,
-      },
-    });
-
-    timer.point('companyStatusHistory.create')
-    await prisma.companyStatusHistory.create({
-      data: { companyId, fromStatus: previousStatus, toStatus: status as any, changedBy: user.id, changedByType: 'admin', reason },
-    });
-
-    timer.point('createAuditLog')
-    await createAuditLog(fromCurrentUser(user, `COMPANY_${status}`, 'company', companyId, {
-      changes: { from: previousStatus, to: status, reason },
-    }));
-
-    if (status === 'ACTIVE' || status === 'CANCELLED') {
-      timer.point('actionQueueItem.updateMany')
-      await prisma.actionQueueItem.updateMany({
-        where: { referenceId: companyId, referenceType: 'company', status: 'PENDING' },
-        data: { status: 'COMPLETED', completedAt: new Date() },
+    timer.point('company.update + status history + audit')
+    const company = await prisma.$transaction(async (tx) => {
+      const updated = await tx.company.update({
+        where: { id: companyId },
+        data: {
+          status: status as any,
+          adminNote: adminNote ?? existing.adminNote,
+          approvedAt: status === 'ACTIVE' && !existing.approvedAt ? new Date() : undefined,
+        },
       });
-    }
+
+      await tx.companyStatusHistory.create({
+        data: { companyId, fromStatus: previousStatus, toStatus: status as any, changedBy: adminId, changedByType: 'admin', reason },
+      });
+
+      await createAuditLog(fromCurrentUser(user, `COMPANY_${status}`, 'company', companyId, {
+        changes: { from: previousStatus, to: status, reason },
+      }), tx);
+
+      if (status === 'APPROVED_PENDING_PAYMENT' || status === 'ACTIVE' || status === 'CANCELLED') {
+        await tx.actionQueueItem.updateMany({
+          where: { referenceId: companyId, referenceType: 'company', status: 'PENDING' },
+          data: { status: 'COMPLETED', completedAt: new Date() },
+        });
+      }
+
+      return updated;
+    });
 
     const emailWarnings: string[] = []
 
@@ -483,7 +513,10 @@ export async function PATCH(request: NextRequest) {
     if (firstActivation) {
       timer.point('sendLaunchPack')
       try {
-        const pack = await sendLaunchPack(companyId, user.id)
+        if (!user.profileId) {
+          throw new Error('Admin profile not found')
+        }
+        const pack = await sendLaunchPack(companyId, user.profileId)
         if (pack.emailWarning) emailWarnings.push(pack.emailWarning)
       } catch (err) {
         console.error('Launch pack failed for company', companyId, err)
@@ -524,6 +557,8 @@ export async function DELETE(request: NextRequest) {
     const user = await getCurrentUser(timer);
     timer.point('user auth check')
     if (!user || user.userType !== 'admin') return unauthorized();
+    if (!user.profileId) return unauthorized();
+    const adminId = user.profileId;
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -539,22 +574,22 @@ export async function DELETE(request: NextRequest) {
     const existing = await prisma.company.findUnique({ where: { id } });
     if (!existing) return notFound('Company');
 
-    timer.point('company.update (soft delete)')
-    await prisma.company.update({
-      where: { id },
-      data: { deletedAt: new Date(), deletedById: user.id, status: 'CANCELLED' },
-    });
+    timer.point('company.update + employee cascade + audit')
+    await prisma.$transaction(async (tx) => {
+      await tx.company.update({
+        where: { id },
+        data: { deletedAt: new Date(), deletedById: user.profileId, status: 'CANCELLED' },
+      });
 
-    timer.point('employee.updateMany (cascade)')
-    await prisma.employee.updateMany({
-      where: { companyId: id, deletedAt: null },
-      data: { deletedAt: new Date(), deletedById: user.id, status: 'INACTIVE' },
-    });
+      await tx.employee.updateMany({
+        where: { companyId: id, deletedAt: null },
+        data: { deletedAt: new Date(), deletedById: user.profileId, status: 'INACTIVE' },
+      });
 
-    timer.point('createAuditLog')
-    await createAuditLog(fromCurrentUser(user, 'COMPANY_DELETED', 'company', id, {
-      changes: { name: existing.name, email: existing.email },
-    }));
+      await createAuditLog(fromCurrentUser(user, 'COMPANY_DELETED', 'company', id, {
+        changes: { name: existing.name, email: existing.email },
+      }), tx);
+    });
 
     timer.section('Serialization')
     timer.point('NextResponse.json')

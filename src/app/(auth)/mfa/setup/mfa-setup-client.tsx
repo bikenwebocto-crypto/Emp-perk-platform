@@ -4,6 +4,16 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 
+// Records the change server-side (the server re-checks factor state with
+// Supabase). Never blocks the MFA flow.
+async function reportFactorEvent(event: 'ENROLLED' | 'REMOVED', factorId: string) {
+  await fetch('/api/mfa/factor-events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event, factorId }),
+  }).catch(() => undefined);
+}
+
 export function MfaSetupClient() {
   const router = useRouter();
   const didInitializeRef = useRef(false);
@@ -46,6 +56,8 @@ export function MfaSetupClient() {
           if (unenrollError) {
             throw unenrollError;
           }
+
+          await reportFactorEvent('REMOVED', existingUnverifiedFactor.id);
         }
 
         const { data, error: enrollError } = await supabase.auth.mfa.enroll({
@@ -96,6 +108,8 @@ export function MfaSetupClient() {
       if (verifyError) {
         throw verifyError;
       }
+
+      await reportFactorEvent('ENROLLED', factorId);
 
       // Closes an open MFA recovery request, if any. The server re-checks the
       // factor with Supabase; failure here must not block sign-in.

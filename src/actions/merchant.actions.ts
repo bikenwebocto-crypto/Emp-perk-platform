@@ -3,6 +3,8 @@
 import { notEndedBy } from '@/lib/offers/end-date';
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
+import { getCurrentUser } from '@/lib/supabase/server';
+import { createAuditLog } from '@/services/audit-log.service';
 import { offerSchema, branchSchema } from '@/schemas';
 import slugify from 'slugify';
 import type { OfferStatus } from '@/types';
@@ -272,9 +274,31 @@ export async function submitReplacementOfferAction(
 }
 
 export async function updateOfferStatusAction(offerId: string, status: OfferStatus) {
-  const offer = await prisma.merchantOffer.update({
-    where: { id: offerId },
-    data: { status: status as any },
+  const user = await getCurrentUser();
+  if (!user || user.userType !== 'merchant' || !user.profileId) {
+    throw new Error('Only the owning merchant can change this offer.');
+  }
+  const merchantId = user.profileId;
+
+  const offer = await prisma.$transaction(async (tx) => {
+    const before = await tx.merchantOffer.findFirst({
+      where: { id: offerId, merchantId, deletedAt: null },
+      select: { status: true },
+    });
+    if (!before) throw new Error('Offer not found');
+    const updated = await tx.merchantOffer.update({
+      where: { id: offerId },
+      data: { status: status as any },
+    });
+    await createAuditLog({
+      actorType: 'merchant',
+      merchantId,
+      action: 'OFFER_STATUS_CHANGED',
+      entityType: 'merchant_offer',
+      entityId: offerId,
+      changes: { status: { from: before.status, to: status } },
+    }, tx);
+    return updated;
   });
 
   revalidatePath('/merchant/offers');

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireRole } from '@/lib/api-auth'
 import { createAuditLog } from '@/services/audit-log.service'
+import type { CurrentUser } from '@/lib/supabase/server'
 import { deleteImage } from '@/lib/upload/image'
 import { assignFreeSlot } from '@/lib/banner-slots'
 
@@ -28,7 +29,7 @@ function internalError(error: unknown) {
 }
 
 async function handleReview(
-  user: { id: string },
+  user: CurrentUser,
   id: string,
   booking: { status: string },
   body: { status?: string; rejectedReason?: string },
@@ -46,7 +47,7 @@ async function handleReview(
   const updates: Record<string, unknown> = { status }
 
   if (status === 'APPROVED') {
-    updates.approvedBy = user.id
+    updates.approvedBy = user.profileId
     updates.approvedAt = new Date()
     updates.paid = true
   }
@@ -55,21 +56,44 @@ async function handleReview(
     updates.rejectedReason = rejectedReason
   }
 
-  const updated = await prisma.bannerBooking.update({
-    where: { id },
-    data: updates,
-    include: {
-      banner: { select: { id: true, name: true, position: true } },
-      merchant: { select: { id: true, businessName: true } },
-      content: true,
-    },
+  const updated = await prisma.$transaction(async (tx) => {
+    const before = await tx.bannerBooking.findUnique({
+      where: { id },
+      select: { status: true, paid: true },
+    })
+    const row = await tx.bannerBooking.update({
+      where: { id },
+      data: updates,
+      include: {
+        banner: { select: { id: true, name: true, position: true } },
+        merchant: { select: { id: true, businessName: true } },
+        content: true,
+      },
+    })
+    await createAuditLog({
+      actorType: 'admin',
+      adminId: user.profileId,
+      action: status === 'APPROVED' ? 'BANNER_BOOKING_APPROVED' : 'BANNER_BOOKING_REJECTED',
+      entityType: 'BANNER_BOOKING',
+      entityId: id,
+      changes: {
+        status: { from: before?.status ?? null, to: status },
+        ...(status === 'APPROVED' && { paid: { from: before?.paid ?? null, to: true } }),
+      },
+      metadata: {
+        merchantId: row.merchant?.id ?? null,
+        bannerId: row.banner?.id ?? null,
+        ...(rejectedReason && { rejectedReason }),
+      },
+    }, tx)
+    return row
   })
 
   return NextResponse.json({ success: true, data: updated })
 }
 
 async function handleEdit(
-  user: { id: string },
+  user: CurrentUser,
   id: string,
   booking: {
     status: string
@@ -121,12 +145,19 @@ async function handleEdit(
     redirectUrl: existing.content?.redirectUrl ?? null,
   }
 
-  if (positionOrDateChanged) {
-    const banner = await prisma.banner.findUnique({ where: { id: newBannerId } })
-    if (!banner) return badRequest('Banner slot not found')
+  const banner = positionOrDateChanged
+    ? await prisma.banner.findUnique({ where: { id: newBannerId } })
+    : null
+  if (positionOrDateChanged && !banner) return badRequest('Banner slot not found')
 
-    try {
-      await prisma.$transaction(async (tx) => {
+  const contentChanged =
+    !!existing.content &&
+    (body.imageUrl !== undefined || body.altText !== undefined || body.redirectUrl !== undefined)
+
+  let finalBooking
+  try {
+    finalBooking = await prisma.$transaction(async (tx) => {
+      if (positionOrDateChanged && banner) {
         const assignedSlot = await assignFreeSlot(
           tx,
           newBannerId,
@@ -151,59 +182,62 @@ async function handleEdit(
             endDate: newEnd,
           },
         })
-      })
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('slots for')) {
-        return badRequest(error.message)
       }
-      throw error
-    }
-  }
 
-  if (existing.content && (body.imageUrl !== undefined || body.altText !== undefined || body.redirectUrl !== undefined)) {
-    await prisma.bannerContent.update({
-      where: { bookingId: id },
-      data: {
-        ...(body.imageUrl !== undefined && { imageUrl: body.imageUrl }),
-        ...(body.altText !== undefined && { altText: body.altText || null }),
-        ...(body.redirectUrl !== undefined && { redirectUrl: body.redirectUrl || null }),
-      },
+      if (contentChanged) {
+        await tx.bannerContent.update({
+          where: { bookingId: id },
+          data: {
+            ...(body.imageUrl !== undefined && { imageUrl: body.imageUrl }),
+            ...(body.altText !== undefined && { altText: body.altText || null }),
+            ...(body.redirectUrl !== undefined && { redirectUrl: body.redirectUrl || null }),
+          },
+        })
+      }
+
+      const updated = await tx.bannerBooking.findUnique({
+        where: { id },
+        include: {
+          banner: { select: { id: true, name: true, position: true } },
+          merchant: { select: { id: true, businessName: true } },
+          content: true,
+        },
+      })
+
+      await createAuditLog({
+        actorType: 'admin',
+        actorId: user.profileId,
+        adminId: user.profileId,
+        action: 'BANNER_BOOKING_EDITED',
+        entityType: 'BANNER_BOOKING',
+        entityId: id,
+        metadata: {
+          oldValues,
+          newValues: {
+            bannerId: updated?.bannerId,
+            slotNumber: updated?.slotNumber,
+            startDate: updated?.startDate,
+            endDate: updated?.endDate,
+            imageUrl: updated?.content?.imageUrl ?? null,
+            altText: updated?.content?.altText ?? null,
+            redirectUrl: updated?.content?.redirectUrl ?? null,
+          },
+        },
+      }, tx)
+
+      return updated
     })
-
-    if (body.imageUrl !== undefined && existing.content.imageUrl && body.imageUrl !== existing.content.imageUrl) {
-      void deleteImage(existing.content.imageUrl, { bucket: 'offer-images' }).catch(() => {})
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('slots for')) {
+      return badRequest(error.message)
     }
+    throw error
   }
 
-  const finalBooking = await prisma.bannerBooking.findUnique({
-    where: { id },
-    include: {
-      banner: { select: { id: true, name: true, position: true } },
-      merchant: { select: { id: true, businessName: true } },
-      content: true,
-    },
-  })
-
-  void createAuditLog({
-    actorType: 'admin',
-    actorId: user.id,
-    adminId: user.id,
-    action: 'BANNER_BOOKING_EDITED',
-    entityType: 'BANNER_BOOKING',
-    entityId: id,
-    metadata: {
-      oldValues,
-      newValues: {
-        bannerId: finalBooking?.bannerId,
-        slotNumber: finalBooking?.slotNumber,
-        startDate: finalBooking?.startDate,
-        endDate: finalBooking?.endDate,
-        imageUrl: finalBooking?.content?.imageUrl ?? null,
-        altText: finalBooking?.content?.altText ?? null,
-        redirectUrl: finalBooking?.content?.redirectUrl ?? null,
-      },
-    },
-  })
+  // Remove the replaced image only after the change committed.
+  if (contentChanged && body.imageUrl !== undefined && existing.content?.imageUrl && body.imageUrl !== existing.content.imageUrl) {
+    void deleteImage(existing.content.imageUrl, { bucket: 'offer-images' }).catch(() => {})
+  }
 
   return NextResponse.json({ success: true, data: finalBooking })
 }
@@ -213,6 +247,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const authResult = await requireRole(['admin'])
     if (authResult instanceof NextResponse) return authResult
     const { user } = authResult
+
+    if (!user.profileId) return badRequest('Admin profile not found')
 
     const { id } = await params
     const booking = await prisma.bannerBooking.findUnique({ where: { id } })
@@ -236,6 +272,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const authResult = await requireRole(['admin'])
     if (authResult instanceof NextResponse) return authResult
     const { user } = authResult
+    if (!user.profileId) return badRequest('Admin profile not found')
 
     const body = await request.json()
     const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
@@ -255,17 +292,18 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
     const imageUrl = booking.content?.imageUrl ?? null
 
-    await prisma.bannerBooking.delete({ where: { id } })
     // BannerContent cascades via onDelete: Cascade — no manual child delete needed.
-
-    void createAuditLog({
-      actorType: 'admin',
-      actorId: user.id,
-      adminId: user.id,
-      action: 'BANNER_BOOKING_DELETED',
-      entityType: 'BANNER_BOOKING',
-      entityId: id,
-      metadata: { reason, deletedImageUrl: imageUrl },
+    await prisma.$transaction(async (tx) => {
+      await tx.bannerBooking.delete({ where: { id } })
+      await createAuditLog({
+        actorType: 'admin',
+        actorId: user.profileId,
+        adminId: user.profileId,
+        action: 'BANNER_BOOKING_DELETED',
+        entityType: 'BANNER_BOOKING',
+        entityId: id,
+        metadata: { reason, deletedImageUrl: imageUrl },
+      }, tx)
     })
 
     if (imageUrl) {

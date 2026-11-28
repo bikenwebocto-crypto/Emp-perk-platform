@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { inviteAuthUser, normalizeEmail, rollbackAuthUser } from '@/services/employee-invite.service'
-import { buildAuditData, createAuditLog, fromCurrentUser } from '@/services/audit-log.service'
+import { buildAuditDataWithContext, createAuditLog, fromCurrentUser } from '@/services/audit-log.service'
 import { authorizeBulkCompany, bulkRowsSchema, errorResponse } from '@/lib/employees/bulk-request'
 import { splitName, validateBulkRows, type ValidatedBulkRow } from '@/lib/employees/bulk-validate'
 
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
             },
           })
           await tx.auditLog.create({
-            data: buildAuditData(
+            data: await buildAuditDataWithContext(
               fromCurrentUser(user, 'EMPLOYEE_CREATED', 'employee', pkId, {
                 changes: { email, companyId, department: row.department || null },
                 metadata: { source: 'bulk_upload', sourceRow: row.sourceRow ?? null },

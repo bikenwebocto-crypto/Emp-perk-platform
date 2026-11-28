@@ -202,7 +202,7 @@ export const adminApproveOfferSchema = z.object({
 
 export const adminCompanyActionSchema = z.object({
   companyId: uuidSchema,
-  status: z.enum(['ACTIVE', 'PAUSED', 'SUSPENDED', 'CANCELLED']),
+  status: z.enum(['APPROVED_PENDING_PAYMENT', 'ACTIVE', 'PAUSED', 'SUSPENDED', 'CANCELLED']),
   reason: z.string().max(2000).optional(),
   adminNote: z.string().max(500).optional(),
 });

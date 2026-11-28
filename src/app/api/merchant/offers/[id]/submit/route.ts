@@ -1,17 +1,19 @@
 import { notEndedBy } from '@/lib/offers/end-date';
 import { categoryLockError } from '@/lib/offers/category-lock'
+import { selectableCategoryWhere } from '@/lib/categories'
 import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
   branchSelectionFromConfig,
   channelRedemptionType,
   channelRedemptionTypes,
+  EVERGREEN_COVERAGE_CODE,
   MISSING_BRANCHES_CODE,
   parseBranchSelection,
   withBranchSelection,
   withChannelDetails,
 } from "@/lib/offers/channel";
-import { requiredBranchesError, validateBranchSelection } from "@/lib/offers/channel.server";
+import { evergreenCoverageError, requiredBranchesError, validateBranchSelection } from "@/lib/offers/channel.server";
 import { getMerchantFromSession } from "@/lib/merchant-session";
 import { createAuditLog } from "@/services/audit-log.service";
 import { validateFlashWindow } from "@/lib/offers/flash";
@@ -85,9 +87,12 @@ function forbidden(msg: string) {
   );
 }
 
-function badRequest(message: string) {
+function badRequest(message: string, field?: string) {
   return NextResponse.json(
-    { success: false, error: { code: "VALIDATION", message } },
+    {
+      success: false,
+      error: { code: "VALIDATION", message, ...(field ? { field } : {}) },
+    },
     { status: 400 },
   );
 }
@@ -190,6 +195,123 @@ function runQualityChecks(body: any): {
 }
 
 /**
+ * Saves the approval-queue items and audit row for a submission. Runs inside
+ * the submit transaction so the status change can't be saved without them.
+ */
+async function recordSubmission(
+  tx: Prisma.TransactionClient,
+  params: {
+    qcPassed: boolean;
+    offerId: string;
+    offerTitle: string;
+    merchantId: string;
+    merchantBusinessName: string;
+    replacesOfferId: string | null;
+    autoActivated: boolean;
+    replacedOfferId: string | null;
+  },
+) {
+  const {
+    qcPassed,
+    offerId,
+    offerTitle,
+    merchantId,
+    merchantBusinessName,
+    replacesOfferId,
+    autoActivated,
+    replacedOfferId,
+  } = params;
+
+  if (autoActivated) {
+    // Already LIVE, so close any approval request still open for this offer.
+    const staleItems = await tx.actionQueueItem.findMany({
+      where: { merchantId, type: "FIRST_OFFER_APPROVAL", status: "PENDING" },
+      select: { id: true, metadata: true },
+    });
+    const staleIds = staleItems
+      .filter((i) => (i.metadata as Record<string, unknown> | null)?.offerId === offerId)
+      .map((i) => i.id);
+    if (staleIds.length > 0) {
+      await tx.actionQueueItem.updateMany({
+        where: { id: { in: staleIds } },
+        data: { status: "SKIPPED", completedAt: new Date() },
+      });
+    }
+    await createAuditLog({
+      actorType: "merchant",
+      actorId: merchantId,
+      action: "EVERGREEN_OFFER_AUTO_ACTIVATED",
+      entityType: "MERCHANT_OFFER",
+      entityId: offerId,
+      metadata: { title: offerTitle, replacedOfferId },
+    }, tx);
+    return;
+  }
+
+  if (!qcPassed) return;
+
+  if (replacesOfferId) {
+    const currentLive = await tx.merchantOffer.findUnique({
+      where: { id: replacesOfferId },
+      select: { status: true },
+    });
+    if (currentLive?.status === "LIVE") {
+      await tx.offerReplacementRequest.create({
+        data: {
+          currentOfferId: replacesOfferId,
+          newOfferId: offerId,
+          status: "AWAITING_APPROVAL",
+        },
+      });
+      await tx.actionQueueItem.create({
+        data: {
+          type: "FIRST_OFFER_APPROVAL",
+          title: `Offer Approval: ${offerTitle}`,
+          description: `Merchant ${merchantBusinessName} submitted an offer for approval`,
+          referenceId: merchantId,
+          merchantId,
+          referenceType: "merchant",
+          status: "PENDING",
+          priority: 1,
+          metadata: { currentOfferId: replacesOfferId, newOfferId: offerId },
+        },
+      });
+    }
+  } else {
+    const existingItems = await tx.actionQueueItem.findMany({
+      where: { referenceId: merchantId, type: "FIRST_OFFER_APPROVAL", status: "PENDING" },
+    });
+    const hasExisting = existingItems.some(
+      (i) => (i.metadata as Record<string, unknown> | null)?.offerId === offerId,
+    );
+    if (!hasExisting) {
+      await tx.actionQueueItem.create({
+        data: {
+          type: "FIRST_OFFER_APPROVAL",
+          title: `Offer Approval: ${offerTitle}`,
+          description: `Merchant ${merchantBusinessName} submitted an offer for approval`,
+          referenceId: merchantId,
+          merchantId,
+          referenceType: "merchant",
+          status: "PENDING",
+          priority: 1,
+          metadata: { offerId },
+        },
+      });
+    }
+  }
+
+  await createAuditLog({
+    actorType: "merchant",
+    actorId: merchantId,
+    action: "OFFER_SUBMITTED_FOR_APPROVAL",
+    entityType: "MERCHANT_OFFER",
+    entityId: offerId,
+    metadata: { title: offerTitle, replacesOfferId: replacesOfferId ?? null },
+  }, tx);
+}
+
+/**
  * Everything here is side-effect / notification work that the merchant does
  * NOT need to wait for. Called without `await` from the handler — errors are
  * caught and logged here so they never bubble up and never affect the
@@ -230,31 +352,9 @@ async function firePostSubmitSideEffects(params: {
           console.error("[SUBMIT OFFER] Evergreen QR generation failed:", err),
         );
       }
-      // If this offer was previously queued for approval, close that item so
-      // admins don't see a stale request for an offer that is already LIVE.
-      const staleItems = await prisma.actionQueueItem.findMany({
-        where: { merchantId, type: "FIRST_OFFER_APPROVAL", status: "PENDING" },
-        select: { id: true, metadata: true },
-      });
-      const staleIds = staleItems
-        .filter((i) => (i.metadata as Record<string, unknown> | null)?.offerId === finalOfferId)
-        .map((i) => i.id);
-      if (staleIds.length > 0) {
-        await prisma.actionQueueItem.updateMany({
-          where: { id: { in: staleIds } },
-          data: { status: "SKIPPED", completedAt: new Date() },
-        });
-      }
       // The merchant notice was already sent (awaited) before the response.
+      // Stale queue items and the audit row were saved in the submit transaction.
       await notifyEvergreenBroadcast({ offerId: finalOfferId, title: finalOfferTitle, merchantId });
-      await createAuditLog({
-        actorType: "merchant",
-        actorId: merchantId,
-        action: "EVERGREEN_OFFER_AUTO_ACTIVATED",
-        entityType: "MERCHANT_OFFER",
-        entityId: finalOfferId,
-        metadata: { title: finalOfferTitle, replacedOfferId },
-      });
       return;
     }
 
@@ -290,78 +390,6 @@ async function firePostSubmitSideEffects(params: {
         metadata: { merchantId },
       });
     }
-
-    if (replacesOfferId) {
-      const currentLive = await prisma.merchantOffer.findUnique({
-        where: { id: replacesOfferId },
-      });
-
-      if (currentLive?.status === "LIVE") {
-        await prisma.offerReplacementRequest.create({
-          data: {
-            currentOfferId: replacesOfferId,
-            newOfferId: finalOfferId,
-            status: "AWAITING_APPROVAL",
-          },
-        });
-
-        await prisma.actionQueueItem.create({
-          data: {
-            type: "FIRST_OFFER_APPROVAL",
-            title: `Offer Approval: ${finalOfferTitle}`,
-            description: `Merchant ${merchantBusinessName} submitted an offer for approval`,
-            referenceId: merchantId,
-            merchantId,
-            referenceType: "merchant",
-            status: "PENDING",
-            priority: 1,
-            metadata: {
-              currentOfferId: replacesOfferId,
-              newOfferId: finalOfferId,
-            },
-          },
-        });
-      }
-    } else {
-      const existingItems = await prisma.actionQueueItem.findMany({
-        where: {
-          referenceId: merchantId,
-          type: "FIRST_OFFER_APPROVAL",
-          status: "PENDING",
-        },
-      });
-      const hasExisting = existingItems.some((i) => {
-        const meta = i.metadata as Record<string, unknown> | null;
-        return meta?.offerId === finalOfferId;
-      });
-      if (!hasExisting) {
-        await prisma.actionQueueItem.create({
-          data: {
-            type: "FIRST_OFFER_APPROVAL",
-            title: `Offer Approval: ${finalOfferTitle}`,
-            description: `Merchant ${merchantBusinessName} submitted an offer for approval`,
-            referenceId: merchantId,
-            merchantId,
-            referenceType: "merchant",
-            status: "PENDING",
-            priority: 1,
-            metadata: { offerId: finalOfferId },
-          },
-        });
-      }
-    }
-
-    await createAuditLog({
-      actorType: "merchant",
-      actorId: merchantId,
-      action: "OFFER_SUBMITTED_FOR_APPROVAL",
-      entityType: "MERCHANT_OFFER",
-      entityId: finalOfferId,
-      metadata: {
-        title: finalOfferTitle,
-        replacesOfferId: replacesOfferId ?? null,
-      },
-    });
   } catch (err) {
     // Never let a notification/audit failure surface to the client —
     // the offer record itself already saved and committed successfully.
@@ -436,9 +464,15 @@ export async function POST(
 
     // Offer category always mirrors the owning merchant's category; any client value is ignored.
     const categoryId = (merchant ?? offer.merchant).categoryId;
-    if (!categoryId) {
+    const assignedCategory = categoryId
+      ? await prisma.category.findFirst({
+          where: { id: categoryId, ...selectableCategoryWhere },
+          select: { id: true },
+        })
+      : null
+    if (!assignedCategory) {
       return NextResponse.json(
-        { success: false, error: { code: "MISSING_CATEGORY", message: "Your business category is not set. Please contact hello@perksandmore.com." } },
+        { success: false, error: { code: "MISSING_CATEGORY", message: "Your business category must be assigned from the active platform categories before submitting an offer." } },
         { status: 400 },
       );
     }
@@ -560,7 +594,7 @@ export async function POST(
       submittedCode &&
       (await isPromoCodeTakenByLiveOffer(submittedCode, id))
     ) {
-      return badRequest(PROMO_CODE_TAKEN_MESSAGE);
+      return badRequest(PROMO_CODE_TAKEN_MESSAGE, "redemptionCode");
     }
 
     // Evergreen (non-replacement) submissions go LIVE without admin approval;
@@ -642,6 +676,32 @@ export async function POST(
 
     if (qcResult.passed && evergreenError) {
       return badRequest(evergreenError);
+    }
+
+    // One-perk rule: an Evergreen (new or replacement) must cover every active
+    // in-store branch, since a branch with no live Evergreen is hidden from the app.
+    const coverageError = await evergreenCoverageError(
+      prisma,
+      offer.merchantId,
+      {
+        id: offer.id,
+        isForever: effectiveForeverValue,
+        isFlash: body.isFlash ?? offer.isFlash,
+        startDate: body.startDate ?? offer.startDate,
+        endDate: body.endDate ?? offer.endDate,
+      },
+      branchSelection.value
+        ? {
+            redemptionType: channelRedemptionType(branchSelection.value.channel),
+            configuration: withBranchSelection({}, branchSelection.value),
+          }
+        : offer.redemption,
+    );
+    if (coverageError) {
+      return NextResponse.json(
+        { success: false, error: { code: EVERGREEN_COVERAGE_CODE, message: coverageError, field: "branches" } },
+        { status: 400 },
+      );
     }
 
     // ── Step 1: persist the record. Nothing here is optional — if this
@@ -906,6 +966,18 @@ export async function POST(
         if (statusUpdate.count === 0) {
           throw new Error("CONCURRENT_SUBMIT");
         }
+
+        await recordSubmission(tx, {
+          qcPassed: qcResult.passed,
+          offerId: id,
+          offerTitle: (merchantOfferUpdatable.title as string | undefined) ?? offer.title,
+          merchantId: offer.merchantId,
+          merchantBusinessName:
+            offer.merchant?.businessName ?? merchant?.businessName ?? "Unknown",
+          replacesOfferId: offer.replacesOfferId,
+          autoActivated: autoActivate,
+          replacedOfferId: replacedEvergreen.replacedOfferId,
+        });
 
         return id;
       },

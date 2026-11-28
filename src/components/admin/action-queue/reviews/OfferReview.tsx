@@ -4,6 +4,7 @@ import { Building2, Tag, Clock, MapPin, Mail, FileText, Percent } from 'lucide-r
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { formatBranchAddress, formatBranchName } from '@/lib/format'
 import type { ReviewComponentProps } from './types'
 
 function formatDiscount(offer: any): string {
@@ -33,7 +34,7 @@ const TYPE_LABEL: Record<string, string> = {
   IN_STORE_QR: 'In-store QR',
 }
 
-function RedemptionDetails({ offer }: { offer: any }) {
+export function RedemptionDetails({ offer }: { offer: any }) {
   const redemption = offer.redemption
   if (!redemption) return null
   const cfg = (redemption.configuration ?? {}) as Record<string, any>
@@ -88,12 +89,12 @@ function RedemptionDetails({ offer }: { offer: any }) {
               <p className="text-xs text-muted-foreground">No active in-store branches</p>
             ) : (
               <ul className="space-y-1">
-                {branches.map((b) => (
-                  <li key={b.id} className="text-xs">
-                    <span className="font-medium">{b.name}</span>
+                {branches.map((b, index) => (
+                  <li key={typeof b?.id === 'string' ? b.id : index} className="text-xs">
+                    <span className="font-medium">{formatBranchName(b)}</span>
                     {!b.isActive && <span className="ml-1 text-destructive">(inactive)</span>}
                     <span className="block text-muted-foreground">
-                      {[b.addressLine1, b.addressLine2, b.city, b.postalCode].filter(Boolean).join(', ')}
+                      {formatBranchAddress(b)}
                     </span>
                   </li>
                 ))}

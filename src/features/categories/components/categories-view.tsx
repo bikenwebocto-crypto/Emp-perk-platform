@@ -1,6 +1,6 @@
 'use client'
 import { useMemo, useState } from 'react'
-import { Pencil, Plus, Search, Tags, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Pencil, Plus, Search, Tags, Trash2, X } from 'lucide-react'
 import { PageHeader } from '@/components/shared/page-header'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { showToast } from '@/hooks/use-toast'
-import { useAdminCategories, useDeleteCategory } from '@/hooks/queries/use-admin-categories'
+import { useAdminCategories, useDeleteCategory, useReorderCategories } from '@/hooks/queries/use-admin-categories'
 import type { AdminCategoryRow } from '../types'
 import { CategoryFormDialog } from './category-form-dialog'
 import { CategoryMerchantsDialog } from './category-merchants-dialog'
@@ -102,6 +102,47 @@ function RowActions({
   )
 }
 
+function OrderActions({
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
+  disabled,
+}: {
+  onMoveUp: () => void
+  onMoveDown: () => void
+  canMoveUp: boolean
+  canMoveDown: boolean
+  disabled: boolean
+}) {
+  return (
+    <div className="inline-flex items-center gap-1">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        onClick={onMoveUp}
+        disabled={disabled || !canMoveUp}
+        aria-label="Move category up"
+        title="Move category up"
+      >
+        <ArrowUp className="h-4 w-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        onClick={onMoveDown}
+        disabled={disabled || !canMoveDown}
+        aria-label="Move category down"
+        title="Move category down"
+      >
+        <ArrowDown className="h-4 w-4" />
+      </Button>
+    </div>
+  )
+}
+
 function StatusBadge({ isActive }: { isActive: boolean }) {
   return isActive ? (
     <Badge variant="live" className="text-[10px]">Active</Badge>
@@ -121,6 +162,7 @@ export function CategoriesView() {
 
   const { data, isLoading, isError, error } = useAdminCategories()
   const deleteMutation = useDeleteCategory()
+  const reorderMutation = useReorderCategories()
 
   const categories = useMemo(() => data ?? [], [data])
   const filtered = useMemo(() => {
@@ -132,6 +174,19 @@ export function CategoriesView() {
   }, [categories, search])
 
   const inUseCount = categories.filter((c) => c.merchantCount > 0).length
+  const canReorder = !search.trim()
+
+  const moveCategory = (categoryId: string, direction: -1 | 1) => {
+    const index = categories.findIndex((category) => category.id === categoryId)
+    const targetIndex = index + direction
+    if (index < 0 || targetIndex < 0 || targetIndex >= categories.length) return
+
+    const reordered = [...categories]
+    ;[reordered[index], reordered[targetIndex]] = [reordered[targetIndex]!, reordered[index]!]
+    reorderMutation.mutate(reordered.map((category) => category.id), {
+      onError: (err: Error) => showToast({ type: 'error', title: 'Could not reorder categories', description: err.message }),
+    })
+  }
 
   const handleConfirmDelete = () => {
     if (!deleting) return
@@ -146,7 +201,7 @@ export function CategoriesView() {
     <div className="min-w-0 space-y-6">
       <PageHeader
         title="Categories"
-        description="Create and edit merchant categories. A category can only be deleted when no merchants use it."
+        description="Create, edit and reorder merchant categories. A category can only be deleted when no merchants use it."
         actions={(
           <Button className="gap-1.5" onClick={() => setFormTarget(null)}>
             <Plus className="h-4 w-4" /> Add Category
@@ -206,6 +261,7 @@ export function CategoriesView() {
                   <th className={th}>Merchants</th>
                   <th className={th}>Status</th>
                   <th className={th}>Created</th>
+                  <th className={`${th} w-24`}>Order</th>
                   <th className={`${th} w-24 text-right`}>Actions</th>
                 </tr>
               </thead>
@@ -223,6 +279,15 @@ export function CategoriesView() {
                     <td className="px-3 py-3"><StatusBadge isActive={c.isActive} /></td>
                     <td className="whitespace-nowrap px-3 py-3 text-xs text-muted-foreground">
                       {new Date(c.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-3 py-3">
+                      <OrderActions
+                        onMoveUp={() => moveCategory(c.id, -1)}
+                        onMoveDown={() => moveCategory(c.id, 1)}
+                        canMoveUp={categories[0]?.id !== c.id}
+                        canMoveDown={categories[categories.length - 1]?.id !== c.id}
+                        disabled={!canReorder || reorderMutation.isPending}
+                      />
                     </td>
                     <td className="px-3 py-3 text-right">
                       <RowActions
@@ -259,6 +324,13 @@ export function CategoriesView() {
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <StatusBadge isActive={c.isActive} />
+                      <OrderActions
+                        onMoveUp={() => moveCategory(c.id, -1)}
+                        onMoveDown={() => moveCategory(c.id, 1)}
+                        canMoveUp={categories[0]?.id !== c.id}
+                        canMoveDown={categories[categories.length - 1]?.id !== c.id}
+                        disabled={!canReorder || reorderMutation.isPending}
+                      />
                     </div>
                     <div className="mt-2 border-t pt-2">
                       <MerchantsCell category={c} onViewAll={() => setViewing(c)} />

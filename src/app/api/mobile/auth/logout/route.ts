@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     // Sign out at Supabase — this invalidates the refresh token server-side.
     await supabase.auth.signOut().catch(() => null)
 
-    // void createAuditLog({
+    // await createAuditLog({
     //   actorType: 'employee',
     //   actorId: auth.employee.id,
     //   action: 'MOBILE_LOGOUT',

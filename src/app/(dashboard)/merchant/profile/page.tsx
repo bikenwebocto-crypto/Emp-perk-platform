@@ -452,7 +452,7 @@ export default function MerchantProfilePage() {
               onClick={() => setEditingIdentity(true)}
               className="-mt-2 text-xs font-medium text-primary hover:underline"
             >
-              Request a name or category change
+              Request a name change
             </button>
           )}
 

@@ -11,7 +11,13 @@ import {
   PHYSICAL_BRANCH_TYPES,
 } from '@/lib/branch-helpers'
 import { createAuditLog } from '@/services/audit-log.service'
-import { getLiveOffersLinkedToBranch, linkedOffersMessage } from '@/lib/offers/channel.server'
+import {
+  applyEvergreenBranchLink,
+  getLiveOffersLinkedToBranch,
+  linkedOffersMessage,
+  parseEvergreenLinkChoice,
+} from '@/lib/offers/channel.server'
+import { EVERGREEN_BRANCH_LINK_CODE } from '@/lib/offers/channel'
 import { channels, publishBusinessNotification } from '@/services/business-notification.service'
 
 function unauthorized() {
@@ -46,8 +52,11 @@ async function loadBranch(id: string, merchantId: string) {
   })
 }
 
-async function adjustMerchantStatusForBranchChange(merchantId: string) {
-  const hasActive = await prisma.merchantBranch.count({
+async function adjustMerchantStatusForBranchChange(
+  merchantId: string,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+) {
+  const hasActive = await client.merchantBranch.count({
     where: {
       merchantId,
       deletedAt: null,
@@ -56,13 +65,13 @@ async function adjustMerchantStatusForBranchChange(merchantId: string) {
     },
   })
   if (hasActive === 0) {
-    const merchant = await prisma.merchant.findUnique({ where: { id: merchantId }, select: { status: true } })
+    const merchant = await client.merchant.findUnique({ where: { id: merchantId }, select: { status: true } })
     if (merchant && merchant.status === 'ACTIVE') {
-      await prisma.merchant.update({
+      await client.merchant.update({
         where: { id: merchantId },
         data: { status: 'PAUSED' },
       })
-      await prisma.merchantStatusHistory.create({
+      await client.merchantStatusHistory.create({
         data: {
           merchantId,
           fromStatus: 'ACTIVE',
@@ -210,11 +219,35 @@ export async function PATCH(
       }
     }
 
-    if (updateData.isPrimary === true) {
-      await prisma.merchantBranch.updateMany({
-        where: { merchantId: merchant.id, isPrimary: true, deletedAt: null, NOT: { id } },
-        data: { isPrimary: false },
-      })
+    // One-perk rule: a branch that becomes an active in-store branch (reactivated,
+    // or switched from Online) must be linked to the live Evergreen or stay hidden.
+    const nextType = (updateData.branchType as string | undefined) ?? existing.branchType
+    const nextStatus = (updateData.status as string | undefined) ?? existing.status
+    const becomesActiveInStore =
+      isPhysicalBranch(nextType) &&
+      nextStatus === 'ACTIVE' &&
+      (existing.status !== 'ACTIVE' || !isPhysicalBranch(existing.branchType))
+    const evergreenLink = parseEvergreenLinkChoice(body)
+    if (becomesActiveInStore) {
+      const linkCheck = await applyEvergreenBranchLink(
+        merchant.id,
+        { id, branchType: nextType },
+        evergreenLink,
+        { dryRun: true },
+      )
+      if (linkCheck.status === 'LINK_REQUIRED') {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: EVERGREEN_BRANCH_LINK_CODE,
+              message: linkCheck.message,
+              evergreenOffer: linkCheck.evergreen,
+            },
+          },
+          { status: 409 },
+        )
+      }
     }
 
     if (updateData.status === 'ACTIVE') {
@@ -231,18 +264,98 @@ export async function PATCH(
       dataForPrisma.longitude = new Prisma.Decimal(dataForPrisma.longitude)
     }
 
-    const updated = await prisma.merchantBranch.update({
-      where: { id },
-      data: dataForPrisma,
-    })
+    // The branch change, its audit rows, the approval request, the merchant
+    // auto-pause and the Evergreen link are saved together or not at all.
+    const { updated, link } = await prisma.$transaction(async (tx) => {
+      if (updateData.isPrimary === true) {
+        await tx.merchantBranch.updateMany({
+          where: { merchantId: merchant.id, isPrimary: true, deletedAt: null, NOT: { id } },
+          data: { isPrimary: false },
+        })
+      }
 
-    await createAuditLog({
-      actorType: 'merchant',
-      actorId: merchant.id,
-      action: 'BRANCH_UPDATED',
-      entityType: 'merchant_branch',
-      entityId: id,
-      changes: { before, after, requiresApproval } as any,
+      const updated = await tx.merchantBranch.update({
+        where: { id },
+        data: dataForPrisma,
+      })
+
+      await createAuditLog({
+        actorType: 'merchant',
+        actorId: merchant.id,
+        action: 'BRANCH_UPDATED',
+        entityType: 'merchant_branch',
+        entityId: id,
+        changes: { before, after, requiresApproval } as any,
+      }, tx)
+
+      if (updateData.status === 'ACTIVE' && existing.status !== 'ACTIVE') {
+        await createAuditLog({
+          actorType: 'merchant',
+          actorId: merchant.id,
+          action: 'BRANCH_ACTIVATED',
+          entityType: 'merchant_branch',
+          entityId: id,
+          changes: { from: existing.status, to: 'ACTIVE' } as any,
+        }, tx)
+      }
+      if (updateData.status === 'INACTIVE' && existing.status !== 'INACTIVE') {
+        await createAuditLog({
+          actorType: 'merchant',
+          actorId: merchant.id,
+          action: 'BRANCH_DEACTIVATED',
+          entityType: 'merchant_branch',
+          entityId: id,
+          changes: { from: existing.status, to: 'INACTIVE' } as any,
+        }, tx)
+      }
+
+      if (requiresApproval) {
+        await tx.actionQueueItem.create({
+          data: {
+            type: 'PROFILE_EDIT_REQUEST',
+            title: `Branch location update: ${existing.name}`,
+            description: `Merchant ${merchant.businessName} updated branch location fields: ${locationCheck.fields.join(', ')}. Review and approve.`,
+            referenceId: merchant.id,
+            referenceType: 'merchant',
+            merchantId: merchant.id,
+            status: 'PENDING',
+            priority: 2,
+            metadata: {
+              queueType: 'PROFILE_EDIT_REQUEST',
+              branchId: id,
+              branchName: existing.name,
+              changedFields: locationCheck.fields,
+              before,
+              after,
+            } as any,
+          },
+        })
+      }
+
+      if (updateData.status === 'INACTIVE' || updateData.status === 'CLOSED') {
+        await adjustMerchantStatusForBranchChange(merchant.id, tx)
+      }
+
+      const link = becomesActiveInStore
+        ? await applyEvergreenBranchLink(
+            merchant.id,
+            { id, branchType: updated.branchType },
+            evergreenLink,
+            { client: tx },
+          )
+        : null
+      if (link?.status === 'LINKED') {
+        await createAuditLog({
+          actorType: 'merchant',
+          actorId: merchant.id,
+          action: 'BRANCH_LINKED_TO_EVERGREEN',
+          entityType: 'merchant_offer',
+          entityId: link.evergreen.id,
+          changes: { branchId: id, branchName: updated.name } as any,
+        }, tx)
+      }
+
+      return { updated, link }
     })
 
     await publishBusinessNotification({
@@ -257,61 +370,15 @@ export async function PATCH(
       metadata: { merchantId: merchant.id, changedFields: Object.keys(after) },
     })
 
-    if (updateData.status === 'ACTIVE' && existing.status !== 'ACTIVE') {
-      await createAuditLog({
-        actorType: 'merchant',
-        actorId: merchant.id,
-        action: 'BRANCH_ACTIVATED',
-        entityType: 'merchant_branch',
-        entityId: id,
-        changes: { from: existing.status, to: 'ACTIVE' } as any,
-      })
-    }
-    if (updateData.status === 'INACTIVE' && existing.status !== 'INACTIVE') {
-      await createAuditLog({
-        actorType: 'merchant',
-        actorId: merchant.id,
-        action: 'BRANCH_DEACTIVATED',
-        entityType: 'merchant_branch',
-        entityId: id,
-        changes: { from: existing.status, to: 'INACTIVE' } as any,
-      })
-    }
-
-    if (requiresApproval) {
-      await prisma.actionQueueItem.create({
-        data: {
-          type: 'PROFILE_EDIT_REQUEST',
-          title: `Branch location update: ${existing.name}`,
-          description: `Merchant ${merchant.businessName} updated branch location fields: ${locationCheck.fields.join(', ')}. Review and approve.`,
-          referenceId: merchant.id,
-          referenceType: 'merchant',
-          merchantId: merchant.id,
-          status: 'PENDING',
-          priority: 2,
-          metadata: {
-            queueType: 'PROFILE_EDIT_REQUEST',
-            branchId: id,
-            branchName: existing.name,
-            changedFields: locationCheck.fields,
-            before,
-            after,
-          } as any,
-        },
-      })
-    }
-
-    if (updateData.status === 'INACTIVE' || updateData.status === 'CLOSED') {
-      await adjustMerchantStatusForBranchChange(merchant.id)
-    }
-
+    const baseMessage = requiresApproval
+      ? 'Branch updated. Location changes require admin approval before they take effect on the public listing.'
+      : 'Branch updated.'
     return NextResponse.json({
       success: true,
       data: updated,
       requiresApproval,
-      message: requiresApproval
-        ? 'Branch updated. Location changes require admin approval before they take effect on the public listing.'
-        : 'Branch updated',
+      message: link?.message ? `${baseMessage} ${link.message}` : baseMessage,
+      ...(link ? { evergreenCoverage: link.status } : {}),
     })
   } catch (error) {
     return internalError(error)
@@ -348,18 +415,22 @@ export async function DELETE(
     }
 
     const now = new Date()
-    await prisma.merchantBranch.update({
-      where: { id },
-      data: { status: 'CLOSED', isActive: false, deletedAt: now, isPrimary: false },
-    })
+    await prisma.$transaction(async (tx) => {
+      await tx.merchantBranch.update({
+        where: { id },
+        data: { status: 'CLOSED', isActive: false, deletedAt: now, isPrimary: false },
+      })
 
-    await createAuditLog({
-      actorType: 'merchant',
-      actorId: merchant.id,
-      action: 'BRANCH_DELETED',
-      entityType: 'merchant_branch',
-      entityId: id,
-      changes: { branchName: existing.name, branchType: existing.branchType } as any,
+      await createAuditLog({
+        actorType: 'merchant',
+        actorId: merchant.id,
+        action: 'BRANCH_DELETED',
+        entityType: 'merchant_branch',
+        entityId: id,
+        changes: { branchName: existing.name, branchType: existing.branchType } as any,
+      }, tx)
+
+      await adjustMerchantStatusForBranchChange(merchant.id, tx)
     })
 
     await publishBusinessNotification({
@@ -373,8 +444,6 @@ export async function DELETE(
       referenceId: id,
       metadata: { merchantId: merchant.id },
     })
-
-    await adjustMerchantStatusForBranchChange(merchant.id)
 
     return NextResponse.json({ success: true, message: 'Branch closed' })
   } catch (error) {

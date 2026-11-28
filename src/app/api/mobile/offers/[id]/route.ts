@@ -8,6 +8,7 @@ import { getRedeemState, getRepeatAfterHours } from '@/lib/redemption-tracking'
 import { triggerOfferExpiry } from '@/lib/offer-expiry-trigger'
 import { isEvergreenRange } from '@/lib/offers/evergreen'
 import { recordOfferView } from '@/lib/offers/record-offer-view'
+import { getVisibleScope } from '@/lib/offers/visible-merchants'
 import {
   branchSelectionFromConfig,
   channelUsesBranches,
@@ -110,11 +111,14 @@ export async function GET(
     // Only the branches where this offer's in-store card can be used:
     //   allBranches → every active In-store branch; otherwise the chosen ones.
     //   Online-only offers → none (redeemed on the merchant's website).
+    //   Also only branches covered by the merchant's LIVE Evergreen (one-perk rule).
     const chosenIds = new Set(selection.branchIds)
+    const covered = new Set((await getVisibleScope(new Date(), [offer.merchantId])).branchIds)
     const offerBranches = inStore
       ? offer.merchant.branches.filter(
           (b) =>
             isActiveInStoreBranch(b) &&
+            covered.has(b.id) &&
             (selection.allBranches || chosenIds.has(b.id)),
         )
       : []

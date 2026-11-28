@@ -49,18 +49,20 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedEmail = newEmail.toLowerCase().trim()
-    await prisma.account.update({
-      where: { authUserId: companyAdmin.accountId! },
-      data: { email: normalizedEmail },
-    })
+    await prisma.$transaction(async (tx) => {
+      await tx.account.update({
+        where: { authUserId: companyAdmin.accountId! },
+        data: { email: normalizedEmail },
+      })
 
-    await createAuditLog({
-      actorType: 'company_admin',
-      actorId: companyAdmin.id,
-      action: 'EMAIL_CHANGED',
-      entityType: 'COMPANY_ADMIN',
-      entityId: companyAdmin.id,
-      changes: { to: normalizedEmail },
+      await createAuditLog({
+        actorType: 'company_admin',
+        actorId: companyAdmin.id,
+        action: 'EMAIL_CHANGED',
+        entityType: 'COMPANY_ADMIN',
+        entityId: companyAdmin.id,
+        changes: { to: normalizedEmail },
+      }, tx)
     })
 
     console.log('[COMPANY_ADMIN_EMAIL][ROUTE] Email updated, calling invitation service', { email: normalizedEmail, companyName: company.name, firstName: companyAdmin.firstName })

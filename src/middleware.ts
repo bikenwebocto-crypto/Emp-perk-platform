@@ -8,6 +8,10 @@ import {
 } from "@/lib/access/account-access";
 import { hasVerifiedTotpFactor, requiresMfaForRole } from "@/lib/auth/mfa";
 import { getAppUrl } from "@/lib/app-url";
+import {
+  COMPANY_ACCESS_PENDING_MESSAGE,
+  isCompanyAccessPending,
+} from "@/lib/access/company-access";
 
 const ROLE_DASHBOARD_MAP: Record<string, string> = {
   SUPER_ADMIN: "/admin",
@@ -27,6 +31,7 @@ interface RoleInfo {
   role: string;
   /** AdminUser.role for admin accounts (decides which /admin pages open). */
   adminRole: string | null;
+  companyStatus: string | null;
 }
 
 // Per-instance cache of the account role. Middleware runs on the Edge runtime,
@@ -37,11 +42,16 @@ interface RoleInfo {
 const roleCache = new Map<string, RoleInfo & { timestamp: number }>();
 const CACHE_TTL = 30 * 1000;
 
+function matchesPathPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`)
+}
+
 const PUBLIC_API_ROUTES = [
   "/api/auth/sync-admin",
   "/api/auth/logout",
   "/api/auth/session",
-  "/api/auth/signup", // public self sign-up (merchant / company) from the login page
+  "/api/auth/signup", // public self sign-up (merchant only) from the login page
+  "/api/auth/invite/complete", // set first password from a signed invite link (token checked in-route)
   "/api/firebase-config",
   "/api/webhooks",
   "/api/health",
@@ -57,8 +67,13 @@ async function fetchRole(
   request: NextRequest,
 ): Promise<RoleInfo | null> {
   const cached = roleCache.get(email);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return { role: cached.role, adminRole: cached.adminRole };
+  if (
+    cached &&
+    cached.role !== "COMPANY_ADMIN" &&
+    cached.role !== "EMPLOYEE" &&
+    Date.now() - cached.timestamp < CACHE_TTL
+  ) {
+    return { role: cached.role, adminRole: cached.adminRole, companyStatus: cached.companyStatus };
   }
 
   try {
@@ -78,10 +93,14 @@ async function fetchRole(
     const data = await res.json()
     const role: string | undefined = data.user?.role
     const adminRole: string | null = data.user?.adminRole ?? null
+    const companyStatus: string | null = data.user?.companyStatus ?? null
     if (role) {
-      roleCache.set(email, { role, adminRole, timestamp: Date.now() })
+      if (role !== "COMPANY_ADMIN" && role !== "EMPLOYEE") {
+        roleCache.set(email, { role, adminRole, companyStatus, timestamp: Date.now() })
+      }
+      return { role, adminRole, companyStatus }
     }
-    return role ? { role, adminRole } : null
+    return null
   } catch {
     return null
   }
@@ -111,7 +130,7 @@ export async function middleware(request: NextRequest) {
   }
 
   const isProtected = ["/admin", "/merchant", "/company", "/employee"].some((p) =>
-    pathname.startsWith(p),
+    matchesPathPrefix(pathname, p),
   )
   const isApiRoute = pathname.startsWith("/api")
 
@@ -130,16 +149,27 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Correlation id for audit rows and logs. A client-supplied id is kept only
+  // when it is well-formed; otherwise a fresh one is generated.
+  const incomingRequestId = request.headers.get("x-request-id")
+  const requestId =
+    incomingRequestId && /^[A-Za-z0-9-]{8,64}$/.test(incomingRequestId)
+      ? incomingRequestId
+      : crypto.randomUUID()
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set("x-request-id", requestId)
+
   const isPublicApi = isApiRoute && PUBLIC_API_ROUTES.some((p) => pathname.startsWith(p))
   if (isPublicApi) {
-    return NextResponse.next()
+    const publicResponse = NextResponse.next({ request: { headers: requestHeaders } })
+    publicResponse.headers.set("x-request-id", requestId)
+    return publicResponse
   }
-
-  const requestHeaders = new Headers(request.headers)
 
   const response = NextResponse.next({
     request: { headers: requestHeaders },
   })
+  response.headers.set("x-request-id", requestId)
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -185,10 +215,45 @@ export async function middleware(request: NextRequest) {
     const isPrivilegedApiRoute =
       pathname.startsWith("/api/admin/") ||
       pathname.startsWith("/api/company/") ||
-      pathname.startsWith("/api/merchant/")
+      pathname.startsWith("/api/merchant/") ||
+      pathname.startsWith("/api/employee/")
 
     if (isPrivilegedApiRoute) {
       const roleInfo = await fetchRole(supabase, user.email!, request)
+      if (
+        pathname.startsWith("/api/employee") &&
+        roleInfo?.role === "EMPLOYEE" &&
+        (!roleInfo.companyStatus || roleInfo.companyStatus !== "ACTIVE")
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "COMPANY_INACTIVE",
+              message: "Your company's access is currently inactive.",
+              companyStatus: roleInfo.companyStatus,
+            },
+          },
+          { status: 403 },
+        )
+      }
+      if (
+        pathname.startsWith("/api/company/") &&
+        roleInfo?.role === "COMPANY_ADMIN" &&
+        isCompanyAccessPending(roleInfo.companyStatus)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "COMPANY_INACTIVE",
+              message: COMPANY_ACCESS_PENDING_MESSAGE,
+              companyStatus: roleInfo.companyStatus,
+            },
+          },
+          { status: 403 },
+        )
+      }
       if (pathname.startsWith("/api/admin/") && !canAdminCallApi(roleInfo?.adminRole, pathname)) {
         return NextResponse.json(
           { success: false, error: { code: "FORBIDDEN", message: "Forbidden" } },
@@ -225,6 +290,24 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
+  if (
+    role === "COMPANY_ADMIN" &&
+    isCompanyAccessPending(roleInfo?.companyStatus) &&
+    matchesPathPrefix(pathname, "/company")
+  ) {
+    return NextResponse.redirect(publicUrl("/company-access-pending"))
+  }
+
+  if (
+    role === "EMPLOYEE" &&
+    (!roleInfo.companyStatus || roleInfo.companyStatus !== "ACTIVE") &&
+    matchesPathPrefix(pathname, "/employee")
+  ) {
+    const loginUrl = publicUrl("/login")
+    loginUrl.searchParams.set("error", "Your company's access is currently inactive.")
+    return NextResponse.redirect(loginUrl)
+  }
+
   if (requiresMfaForRole(role)) {
     const { data: factors } = await supabase.auth.mfa.listFactors()
     const hasTotp = hasVerifiedTotpFactor(factors)
@@ -240,7 +323,7 @@ export async function middleware(request: NextRequest) {
   }
 
   const allowedPaths = ROLE_ACCESS_MAP[role] ?? ["/employee"]
-  const hasAccess = allowedPaths.some((path) => pathname.startsWith(path))
+  const hasAccess = allowedPaths.some((path) => matchesPathPrefix(pathname, path))
   if (!hasAccess) {
     return NextResponse.redirect(
       publicUrl(ROLE_DASHBOARD_MAP[role] ?? "/employee"),

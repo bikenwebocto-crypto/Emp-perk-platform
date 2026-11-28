@@ -3,13 +3,14 @@ import { getAuthContext } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
 import type { CompanyAdmin, Company } from '@prisma/client'
+import { COMPANY_ACCESS_PENDING_MESSAGE, isCompanyAccessPending } from '@/lib/access/company-access'
 
 export class CompanyInactiveError extends Error {
   code = 'COMPANY_INACTIVE'
   constructor(public companyStatus: string) {
     super(
-      companyStatus === 'PENDING' || companyStatus === 'APPROVED_PENDING_PAYMENT'
-        ? `Your company has been approved. Access opens once payment is confirmed.`
+      isCompanyAccessPending(companyStatus)
+        ? COMPANY_ACCESS_PENDING_MESSAGE
         : `Your company's access is currently inactive.`,
     )
     this.name = 'CompanyInactiveError'

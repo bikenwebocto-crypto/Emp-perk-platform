@@ -9,7 +9,7 @@ import {
   normalizeLinkedIn,
   normalizeWebsite,
 } from './normalise';
-import { COMPANY_SIZES, MERCHANT_CATEGORIES, REDEMPTION_OPTIONS, REFERRAL_SOURCES } from './options';
+import { COMPANY_SIZES, REDEMPTION_OPTIONS, REFERRAL_SOURCES } from './options';
 
 // Field names match the website forms (snake_case), so zod error paths can be returned as-is.
 
@@ -113,7 +113,7 @@ export const merchantApplicationSchema = z
     role: optionalText(100),
     website: optionalWebsite,
     instagram: optionalInstagram,
-    category: requiredOption(MERCHANT_CATEGORIES),
+    category: requiredText(100),
     redemption: requiredOption(REDEMPTION_OPTIONS),
     source: optionalOption(REFERRAL_SOURCES),
     'consent-1': requiredConsent,

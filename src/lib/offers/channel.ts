@@ -30,6 +30,45 @@ export const INVALID_BRANCHES_MESSAGE =
 
 export const MISSING_BRANCHES_CODE = "MISSING_REQUIRED_BRANCH";
 
+// ── Evergreen branch coverage (Doc 1 §05 one-perk rule) ──────────────────────
+// Every active in-store branch must be covered by the LIVE Evergreen offer.
+// A branch with no LIVE Evergreen is hidden from the app.
+
+export const EVERGREEN_COVERAGE_CODE = "EVERGREEN_BRANCH_COVERAGE_REQUIRED";
+export const EVERGREEN_BRANCH_LINK_CODE = "EVERGREEN_BRANCH_LINK_REQUIRED";
+
+function branchNames(names: string[]): string {
+  const shown = names.slice(0, 5).join(", ");
+  return names.length > 5 ? `${shown} and ${names.length - 5} more` : shown;
+}
+
+/** Merchant: submitting/replacing an Evergreen that leaves branches uncovered. */
+export function evergreenCoverageMessage(uncovered: string[], channel: OfferChannel): string {
+  if (!channelUsesBranches(channel)) {
+    return `Your Evergreen offer must cover every active in-store branch. An Online-only Evergreen leaves ${branchNames(uncovered)} uncovered. Choose In-store or Both, then pick "All branches" or add these branches.`;
+  }
+  return `Your Evergreen offer must cover every active in-store branch. Not covered: ${branchNames(uncovered)}. Choose "All branches" or add these branches, then submit again.`;
+}
+
+/** Admin: approving an Evergreen that leaves branches uncovered. */
+export function evergreenCoverageApprovalMessage(uncovered: string[]): string {
+  return `This Evergreen offer can't be approved because it doesn't cover every active in-store branch (${branchNames(uncovered)}). Branches without a live Evergreen offer are hidden from the app. Ask the merchant to add these branches or choose "All branches".`;
+}
+
+/** Merchant: adding/activating a branch while the live Evergreen covers only chosen branches. */
+export function evergreenBranchLinkMessage(evergreenTitle: string): string {
+  return `Your live Evergreen offer "${evergreenTitle}" covers only chosen branches, so this branch won't show in the app until it is covered. Link it to "${evergreenTitle}" now (live at once), or replace your Evergreen offer with one that covers this branch (needs admin approval).`;
+}
+
+export const evergreenBranchLinkedMessage = (title: string) =>
+  `Branch linked to your live Evergreen offer "${title}". It is now shown in the app.`;
+export const evergreenBranchCoveredMessage = (title: string) =>
+  `Your live Evergreen offer "${title}" covers all branches, so this branch is shown in the app.`;
+export const EVERGREEN_BRANCH_HIDDEN_MESSAGE =
+  "This branch is hidden from the app until a live Evergreen offer covers it. Replace your Evergreen offer to include it (needs admin approval).";
+export const NO_LIVE_EVERGREEN_BRANCH_MESSAGE =
+  "This branch will show in the app once your Evergreen offer is approved and live.";
+
 /** Active branches the merchant has, by type. */
 export interface ActiveBranchCounts {
   inStore: number;

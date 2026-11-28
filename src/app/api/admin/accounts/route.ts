@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { buildAuditData, fromCurrentUser } from '@/services/audit-log.service'
+import { buildAuditDataWithContext, fromCurrentUser } from '@/services/audit-log.service'
 import { validateUserEmail } from '@/services/user-validation.service'
 import {
   inviteAuthUser, inviteErrorStatus, rollbackAuthUser,
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
         // Only one super admin: hand the role over (current one becomes ADMIN).
         if (role === 'SUPER_ADMIN') demoted = await demoteOtherSuperAdmins(tx, authUserId)
         await tx.auditLog.create({
-          data: buildAuditData(fromCurrentUser(user, 'ADMIN_ACCOUNT_CREATED', 'account', authUserId, {
+          data: await buildAuditDataWithContext(fromCurrentUser(user, 'ADMIN_ACCOUNT_CREATED', 'account', authUserId, {
             metadata: { email, role, ...(demoted.length && { superAdminTransferredFrom: demoted }) },
           })) as any,
         })

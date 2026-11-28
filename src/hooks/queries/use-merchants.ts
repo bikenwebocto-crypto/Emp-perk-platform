@@ -146,7 +146,6 @@ export function useApproveMerchant() {
         status: data.status,
         rejectionReason: data.rejectionReason,
       });
-      console.log('[useApproveMerchant] POST /api/admin/merchants:', body);
 
       const res = await fetch('/api/admin/merchants', {
         method: 'POST',
@@ -243,7 +242,6 @@ export function useCreateMerchant() {
 
   return useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
-      console.log('[useCreateMerchant] POST /api/admin/merchants/create:', data);
       const res = await fetch('/api/admin/merchants/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

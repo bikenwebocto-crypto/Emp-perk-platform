@@ -99,7 +99,7 @@ export async function logReplacementAudit(args: {
   adminId?: string | null
   reason?: string
   reviewNotes?: string
-}) {
+}, client?: Parameters<typeof createAuditLog>[1]) {
   await createAuditLog({
     actorType: args.adminId ? 'admin' : 'merchant',
     actorId: args.adminId ?? args.merchantId,
@@ -113,5 +113,5 @@ export async function logReplacementAudit(args: {
       reason: args.reason ?? null,
       reviewNotes: args.reviewNotes ?? null,
     } as any,
-  })
+  }, client)
 }

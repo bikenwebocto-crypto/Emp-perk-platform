@@ -70,6 +70,7 @@ import {
   type CityReadiness,
   type CompanyDetailScope,
 } from "./types";
+import { formatDateDMY } from "@/lib/format";
 
 async function fetchReadiness(id: string): Promise<CityReadiness> {
   const res = await fetch(`/api/admin/companies/${id}/city-readiness`);
@@ -639,7 +640,7 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
     <div className="space-y-6">
       <PageHeader
         title={company.name}
-        description={`Company Contact: ${company.email} · Created ${new Date(company.createdAt).toLocaleDateString()}`}
+        description={`Company Contact: ${company.email} · Created ${formatDateDMY(company.createdAt)}`}
         actions={
           isSuperAdmin ? (
             <div className="flex items-center gap-2">
@@ -659,10 +660,10 @@ export function CompanyDetailView({ scope, companyId: companyIdProp = "" }: Comp
       <CompanyHeaderCard company={company} />
 
       {/* SECTION 1: Company Information (Contact) */}
-      <CompanyInfoCard company={company} />
+      <CompanyInfoCard company={company} internalNote={!isSuperAdmin} />
 
       {/* SECTION 2: Primary Administrator (the login owner) */}
-      <PrimaryAdminCard primaryAdmin={primaryAdmin} onAssign={openAddAdminModal} />
+      <PrimaryAdminCard primaryAdmin={primaryAdmin} onAssign={openAddAdminModal} internalNote={!isSuperAdmin} />
          {/* Admin Actions (platform-level company lifecycle) */}
       {permissions.manageCompanyStatus && (
         <Card>

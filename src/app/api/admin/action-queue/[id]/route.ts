@@ -1,12 +1,13 @@
 import { notEndedBy } from '@/lib/offers/end-date';
+import { isOtherCategoryName, selectableCategoryWhere } from '@/lib/categories';
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createAuditLog } from "@/services/audit-log.service";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { getEntityKindFromReferenceType } from "@/lib/action-queue-types";
 import { ensureOfferQRCode } from "@/lib/offer-qr";
-import { resolveOfferBranches } from "@/lib/offers/channel.server";
-import { branchSelectionFromConfig, channelUsesBranches } from "@/lib/offers/channel";
+import { getEvergreenUncoveredBranches, resolveOfferBranches } from "@/lib/offers/channel.server";
+import { branchSelectionFromConfig, channelUsesBranches, evergreenCoverageApprovalMessage } from "@/lib/offers/channel";
 import { findLiveEvergreen, isEvergreenOffer, isEvergreenRange } from "@/lib/offers/evergreen";
 import * as mail from '@/emails/templates/merchant';
 import { merchantEmailBase } from '@/lib/merchant-emails';
@@ -33,7 +34,9 @@ async function withRedemptionBranches<
     addressLine1: true,
     addressLine2: true,
     city: true,
+    state: true,
     postalCode: true,
+    country: true,
     phone: true,
     isActive: true,
   });
@@ -84,6 +87,13 @@ class OfferApprovalValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "OfferApprovalValidationError";
+  }
+}
+
+class CompanyActivationValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CompanyActivationValidationError";
   }
 }
 
@@ -140,6 +150,7 @@ async function loadEntity(queueItem: {
                 city: true,
                 state: true,
                 categoryId: true,
+                category: { select: { id: true, name: true } },
                 contactName: true,
                 contactPhone: true,
                 description: true,
@@ -178,6 +189,7 @@ async function loadEntity(queueItem: {
                   logoUrl: true,
                   city: true,
                   state: true,
+                  category: { select: { id: true, name: true } },
                 },
               },
               content: { select: { shortDescription: true, description: true, imageUrls: true } },
@@ -189,7 +201,7 @@ async function loadEntity(queueItem: {
 
           return {
             ...(await withRedemptionBranches(offer)),
-            currentOffer,
+            currentOffer: await withRedemptionBranches(currentOffer),
           };
         }
 
@@ -250,7 +262,10 @@ async function loadEntity(queueItem: {
           redemption: { select: { redemptionType: true, configuration: true } },
         },
       });
-      return { ...(await withRedemptionBranches(offer)), currentOffer };
+      return {
+        ...(await withRedemptionBranches(offer)),
+        currentOffer: await withRedemptionBranches(currentOffer),
+      };
     }
     return withRedemptionBranches(offer);
   }
@@ -423,7 +438,7 @@ export async function POST(
       try {
         await performApprove(queueItem, adminId, now, emailWarnings);
       } catch (error) {
-        if (error instanceof OfferApprovalValidationError) {
+        if (error instanceof OfferApprovalValidationError || error instanceof CompanyActivationValidationError) {
           return badRequest(error.message);
         }
         throw error;
@@ -453,7 +468,7 @@ export async function POST(
       try {
         await performEditAndApprove(queueItem, adminId, edits, now, emailWarnings);
       } catch (error) {
-        if (error instanceof OfferApprovalValidationError) {
+        if (error instanceof OfferApprovalValidationError || error instanceof CompanyActivationValidationError) {
           return badRequest(error.message);
         }
         throw error;
@@ -664,12 +679,20 @@ async function performApprove(queueItem: any, adminId: string, now: Date, emailW
 
         const offer = await prisma.merchantOffer.findFirst({
           where: { id: offerId, deletedAt: null },
-          include: { redemption: { select: { redemptionType: true } } },
+          include: {
+            redemption: { select: { redemptionType: true, configuration: true } },
+            merchant: { select: { category: { select: { name: true, isActive: true } } } },
+          },
         });
 
         if (!offer) {
           console.error(`[FIRST_OFFER_APPROVAL] ❌ Offer not found or was deleted: ${offerId}`);
           throw new Error(`Offer not found or was deleted: ${offerId}`);
+        }
+        if (!offer.merchant.category?.isActive || isOtherCategoryName(offer.merchant.category.name)) {
+          throw new OfferApprovalValidationError(
+            'Assign an active platform category to the merchant before approving this offer.',
+          );
         }
 
         console.log(`[FIRST_OFFER_APPROVAL] ✅ Offer found:`, {
@@ -712,6 +735,10 @@ async function performApprove(queueItem: any, adminId: string, now: Date, emailW
               replacementTargetId: replacedEvergreen?.id ?? null,
             },
           );
+
+          // One-perk rule: the Evergreen must cover every active in-store branch.
+          const uncovered = await getEvergreenUncoveredBranches(tx, offer.merchantId, offer, offer.redemption);
+          if (uncovered.length > 0) throw new Error(evergreenCoverageApprovalMessage(uncovered));
 
           if (replacedEvergreen) {
             await tx.merchantOffer.update({
@@ -834,7 +861,10 @@ async function performApprove(queueItem: any, adminId: string, now: Date, emailW
 
         const newOffer = await prisma.merchantOffer.findFirst({
           where: { id: newOfferId, deletedAt: null },
-          include: { redemption: { select: { redemptionType: true } } },
+          include: {
+            redemption: { select: { redemptionType: true, configuration: true } },
+            merchant: { select: { category: { select: { name: true, isActive: true } } } },
+          },
         });
 
         if (!newOffer) {
@@ -842,6 +872,11 @@ async function performApprove(queueItem: any, adminId: string, now: Date, emailW
             `[OFFER_REPLACEMENT] ❌ Replacement offer not found or was deleted: ${newOfferId}`,
           );
           throw new Error(`Replacement offer not found or was deleted: ${newOfferId}`);
+        }
+        if (!newOffer.merchant.category?.isActive || isOtherCategoryName(newOffer.merchant.category.name)) {
+          throw new OfferApprovalValidationError(
+            'Assign an active platform category to the merchant before approving this offer.',
+          );
         }
 
         console.log(`[OFFER_REPLACEMENT] ✅ New offer found:`, {
@@ -869,6 +904,10 @@ async function performApprove(queueItem: any, adminId: string, now: Date, emailW
               replacementTargetId: oldOfferId ?? null,
             },
           );
+
+          // One-perk rule: a replacement Evergreen must cover every active in-store branch.
+          const uncovered = await getEvergreenUncoveredBranches(tx, newOffer.merchantId, newOffer, newOffer.redemption);
+          if (uncovered.length > 0) throw new Error(evergreenCoverageApprovalMessage(uncovered));
 
           if (oldOfferId) {
             const previousOffer = await tx.merchantOffer.findFirst({
@@ -1017,26 +1056,27 @@ async function performApprove(queueItem: any, adminId: string, now: Date, emailW
           email: company.email,
         });
 
-        await prisma.company.update({
-          where: { id: company.id },
-          data: {
-            status: "ACTIVE",
-            approvedAt: now,
-          },
-        });
-        console.log(`[COMPANY_ACTIVATION] ✅ Company updated to ACTIVE`);
+        if (company.status === "PENDING") {
+          await prisma.company.update({
+            where: { id: company.id },
+            data: { status: "APPROVED_PENDING_PAYMENT" },
+          });
+          console.log(`[COMPANY_ACTIVATION] ✅ Company approved; awaiting payment`);
 
-        await prisma.companyStatusHistory.create({
-          data: {
-            companyId: company.id,
-            fromStatus: company.status,
-            toStatus: "ACTIVE",
-            changedBy: adminId,
-            changedByType: "admin",
-            reason: "Approved via action queue",
-          },
-        });
-        console.log(`[COMPANY_ACTIVATION] ✅ Status history created`);
+          await prisma.companyStatusHistory.create({
+            data: {
+              companyId: company.id,
+              fromStatus: company.status,
+              toStatus: "APPROVED_PENDING_PAYMENT",
+              changedBy: adminId,
+              changedByType: "admin",
+              reason: "Approved via action queue; awaiting payment confirmation",
+            },
+          });
+          console.log(`[COMPANY_ACTIVATION] ✅ Status history created`);
+        } else if (company.status !== "APPROVED_PENDING_PAYMENT" && company.status !== "ACTIVE") {
+          throw new CompanyActivationValidationError("Company is no longer pending approval.");
+        }
 
         break;
       }
@@ -1089,6 +1129,16 @@ case "PROFILE_EDIT_REQUEST": {
     ALLOWED_FIELDS.includes(field) && Object.keys(merchant).includes(field)
   );
 
+  if (validFields.includes('categoryId') && requestedFields.categoryId != null) {
+    const category = await prisma.category.findFirst({
+      where: { id: requestedFields.categoryId, ...selectableCategoryWhere },
+      select: { id: true },
+    });
+    if (!category) {
+      throw new OfferApprovalValidationError('Select an active platform category for the merchant.')
+    }
+  }
+
   console.log(`[PROFILE_EDIT_REQUEST] Valid fields to update:`, validFields);
 
   // Build update data and simplified changes
@@ -1128,7 +1178,6 @@ for (const field of validFields) {
     throw new Error('No fields to update');
   }
 
-  console.log(`[PROFILE_EDIT_REQUEST] Update data:`, updateData);
   console.log(`[PROFILE_EDIT_REQUEST] Simplified changes:`, simplifiedChanges);
 
   // Update merchant
@@ -1263,33 +1312,35 @@ for (const field of validFields) {
     }
 
     console.log(`[ACTION] Updating queue item to COMPLETED...`);
-    await prisma.actionQueueItem.update({
-      where: { id: queueItem.id },
-      data: {
-        status: "COMPLETED",
-        completedAt: now,
-        metadata: {
-          ...(queueItem.metadata ?? {}),
-          approvedAt: now.toISOString(),
-          approvedBy: adminId,
+    await prisma.$transaction(async (tx) => {
+      await tx.actionQueueItem.update({
+        where: { id: queueItem.id },
+        data: {
+          status: "COMPLETED",
+          completedAt: now,
+          metadata: {
+            ...(queueItem.metadata ?? {}),
+            approvedAt: now.toISOString(),
+            approvedBy: adminId,
+          },
         },
-      },
+      });
+
+      await createAuditLog({
+        actorType: "admin",
+        actorId: adminId,
+        action: "ACTION_QUEUE_APPROVED",
+        // Must match the read-side filter in the audit log API.
+        entityType: "action_queue",
+        entityId: queueItem.id,
+        changes: {
+          from: previousStatus,
+          to: "COMPLETED",
+          queueType: queueItem.type,
+        } as any,
+      }, tx);
     });
     console.log(`[ACTION] ✅ Queue item updated to COMPLETED`);
-
-    console.log(`[AUDIT] Creating audit log...`);
-    await createAuditLog({
-      actorType: "admin",
-      actorId: adminId,
-      action: "ACTION_QUEUE_APPROVED",
-      entityType: "ACTION_QUEUE",
-      entityId: queueItem.id,
-      changes: {
-        from: previousStatus,
-        to: "COMPLETED",
-        queueType: queueItem.type,
-      } as any,
-    });
     console.log(`[AUDIT] ✅ Audit log created`);
     console.log("========================================");
     console.log(`✅ APPROVE ACTION QUEUE - SUCCESS`);
@@ -1471,32 +1522,34 @@ async function performReject(
     })));
   }
 
-  await prisma.actionQueueItem.update({
-    where: { id: queueItem.id },
-    data: {
-      status: "FAILED",
-      completedAt: now,
-      metadata: {
-        ...((queueItem.metadata as any) ?? {}),
-        rejectionReason,
-        rejectedBy: adminId,
-        rejectedAt: now.toISOString(),
+  await prisma.$transaction(async (tx) => {
+    await tx.actionQueueItem.update({
+      where: { id: queueItem.id },
+      data: {
+        status: "FAILED",
+        completedAt: now,
+        metadata: {
+          ...((queueItem.metadata as any) ?? {}),
+          rejectionReason,
+          rejectedBy: adminId,
+          rejectedAt: now.toISOString(),
+        },
       },
-    },
-  });
+    });
 
-  await createAuditLog({
-    actorType: "admin",
-    actorId: adminId,
-    action: "ACTION_QUEUE_REJECTED",
-    entityType: "action_queue",
-    entityId: queueItem.id,
-    changes: {
-      from: previousStatus,
-      to: "FAILED",
-      reason: rejectionReason,
-      entityKind: kind,
-    } as any,
+    await createAuditLog({
+      actorType: "admin",
+      actorId: adminId,
+      action: "ACTION_QUEUE_REJECTED",
+      entityType: "action_queue",
+      entityId: queueItem.id,
+      changes: {
+        from: previousStatus,
+        to: "FAILED",
+        reason: rejectionReason,
+        entityKind: kind,
+      } as any,
+    }, tx);
   });
 }
 
@@ -1537,15 +1590,15 @@ async function performRemark(queueItem: any, adminId: string, remark: string) {
         update: { adminNote },
       });
     }
-  });
 
-  await createAuditLog({
-    actorType: "admin",
-    actorId: adminId,
-    action: "ACTION_QUEUE_REMARK_ADDED",
-    entityType: "action_queue",
-    entityId: queueItem.id,
-    changes: { remark } as any,
+    await createAuditLog({
+      actorType: "admin",
+      actorId: adminId,
+      action: "ACTION_QUEUE_REMARK_ADDED",
+      entityType: "action_queue",
+      entityId: queueItem.id,
+      changes: { remark } as any,
+    }, tx);
   });
 }
 
@@ -1560,6 +1613,16 @@ async function performEditAndApprove(
     queueItem.referenceType,
   ) as EntityKind;
   const meta = (queueItem.metadata as Record<string, unknown> | null) ?? {};
+
+  const auditEdit = (tx?: Parameters<typeof createAuditLog>[1]) =>
+    createAuditLog({
+      actorType: "admin",
+      actorId: adminId,
+      action: "ACTION_QUEUE_EDITED",
+      entityType: "action_queue",
+      entityId: queueItem.id,
+      changes: { edits, entityKind: kind } as any,
+    }, tx);
 
   if (kind === "MERCHANT_OFFER") {
     const offerId =
@@ -1610,7 +1673,10 @@ async function performEditAndApprove(
             update: { maxRedemptions: normalized },
           });
         }
+        await auditEdit(tx);
       });
+    } else {
+      await auditEdit();
     }
   } else if (kind === "MERCHANT") {
     const allowed = [
@@ -1637,21 +1703,17 @@ async function performEditAndApprove(
       }
     }
     if (Object.keys(updateData).length > 0) {
-      await prisma.merchant.update({
-        where: { id: queueItem.referenceId },
-        data: { ...updateData } as any,
+      await prisma.$transaction(async (tx) => {
+        await tx.merchant.update({
+          where: { id: queueItem.referenceId },
+          data: { ...updateData } as any,
+        });
+        await auditEdit(tx);
       });
+    } else {
+      await auditEdit();
     }
   }
-
-  await createAuditLog({
-    actorType: "admin",
-    actorId: adminId,
-    action: "ACTION_QUEUE_EDITED",
-    entityType: "action_queue",
-    entityId: queueItem.id,
-    changes: { edits, entityKind: kind } as any,
-  });
 
   await performApprove(queueItem, adminId, now, emailWarnings);
 }

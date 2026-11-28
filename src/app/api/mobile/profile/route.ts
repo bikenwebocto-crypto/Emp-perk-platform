@@ -182,7 +182,7 @@ export async function PATCH(request: NextRequest) {
       },
     });
 
-    void createAuditLog({
+    await createAuditLog({
       actorType: "employee",
       actorId: auth.employee.id,
       action: "EMPLOYEE_PROFILE_UPDATED",

@@ -25,9 +25,10 @@ export async function POST(
     const user = await getCurrentUser()
     if (!user) return unauthorized()
     if (user.userType !== 'admin') return forbidden(user.userType)
+    if (!user.profileId) return forbidden(user.userType)
 
     const { id } = await params
-    await sendBillingReminder(id, user.id)
+    await sendBillingReminder(id, user.profileId)
     return NextResponse.json({ success: true })
   } catch (error) {
     return internalError(error)

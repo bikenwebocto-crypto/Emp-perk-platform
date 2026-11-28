@@ -1,5 +1,5 @@
 import { notEndedBy } from '@/lib/offers/end-date';
-import { getVisibleMerchantIds } from '@/lib/offers/visible-merchants';
+import { getVisibleScope } from '@/lib/offers/visible-merchants';
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { internalError } from '@/lib/employee-helpers'
@@ -37,12 +37,14 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Hidden until the merchant's Evergreen offer is approved and LIVE; only
+    // branches that Evergreen covers count (one-perk rule).
+    const scope = await getVisibleScope()
     const where: Record<string, unknown> = {
       status: 'ACTIVE',
       deletedAt: null,
-      // Hidden until the merchant's Evergreen offer is approved and LIVE.
-      id: { in: await getVisibleMerchantIds() },
-      branches: { some: { isActive: true, status: 'ACTIVE', deletedAt: null } },
+      id: { in: scope.merchantIds },
+      branches: { some: { id: { in: scope.branchIds }, isActive: true, status: 'ACTIVE', deletedAt: null } },
     }
     if (categoryId) where.categoryId = categoryId
     if (q) {
@@ -69,7 +71,7 @@ export async function GET(request: NextRequest) {
         isTopRated: true,
         category: { select: { id: true, name: true, icon: true } },
         branches: {
-          where: { deletedAt: null, status: 'ACTIVE' },
+          where: { id: { in: scope.branchIds }, deletedAt: null, status: 'ACTIVE' },
           select: { latitude: true, longitude: true, isPrimary: true },
         },
         _count: {

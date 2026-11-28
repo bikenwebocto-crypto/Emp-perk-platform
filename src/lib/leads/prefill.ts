@@ -1,5 +1,6 @@
 // Maps a lead to the initial values of the admin "add merchant" / "add company"
 // forms when an admin converts it. Pure so it can be unit tested.
+import { isOtherCategoryName } from '@/lib/categories'
 
 export interface PrefillLead {
   firstName: string
@@ -77,6 +78,7 @@ export function matchCategoryId(
   industry: string | null | undefined,
   categories: { id: string; name: string }[],
 ): string {
+  if (isOtherCategoryName(industry)) return ''
   const term = industry ? normaliseCategoryName(industry) : ''
   if (!term) return ''
   const matches = categories.filter((c) => normaliseCategoryName(c.name) === term)

@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user || user.userType !== 'admin') return fail(401, 'UNAUTHORIZED', 'Unauthorized')
+    if (!user.profileId) return fail(403, 'NO_ADMIN_PROFILE', 'Admin profile not found')
 
     const { currentPassword, newPassword } = await request.json()
     if (!currentPassword || !newPassword) {
@@ -40,10 +41,10 @@ export async function POST(request: NextRequest) {
 
     await createAuditLog({
       actorType: 'admin',
-      actorId: user.id,
+      actorId: user.profileId,
       action: 'PASSWORD_CHANGED',
       entityType: 'ADMIN',
-      entityId: user.id,
+      entityId: user.profileId,
     })
 
     return NextResponse.json({ success: true, message: 'Password changed successfully' })

@@ -51,6 +51,19 @@ interface Base {
   businessName: string
 }
 
+// M-01 Welcome (single email: login email + one-time 72h set-password link)
+export function m01Welcome(d: Base & { loginEmail: string; setPasswordUrl: string }) {
+  return build(
+    'Welcome to Perks & More',
+    'Set your password to get started.',
+    hi(d.firstName) +
+      p(`Your Perks &amp; More merchant account for ${e(d.businessName)} has been created.`) +
+      p(`Your sign-in email is ${b(d.loginEmail)}.`) +
+      button('Set your password', d.setPasswordUrl) +
+      p('The link can be used once and expires after 72 hours. If it has expired, use "Send me a new link" on the page that opens or contact us.'),
+  )
+}
+
 // M-04 Set password reminder (48h after M-01; same link)
 export function m04SetPasswordReminder(d: Base & { loginEmail: string; setPasswordUrl: string; expiresAt: Date }) {
   return build(

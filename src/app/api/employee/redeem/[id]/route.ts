@@ -10,6 +10,7 @@ import {
 } from '@/lib/employee-session'
 import { deriveStatus } from '@/lib/redemption-status'
 import { validateSaving } from '@/lib/redemption-savings-validation'
+import { createAuditLog } from '@/services/audit-log.service'
 
 export async function PATCH(
   request: NextRequest,
@@ -66,7 +67,7 @@ export async function PATCH(
       )
     }
 
-    // Simple, synchronous check — no background job, no alert, no audit log.
+    // Simple, synchronous check — no background job, no alert. The value change itself is audited below.
     const validation = validateSaving(
       redemption.offer.pricing?.pricingType,
       redemption.offer.pricing?.configuration as Record<string, unknown> | undefined,
@@ -76,18 +77,37 @@ export async function PATCH(
     )
 
     const now = new Date()
-    const updated = await prisma.redemption.update({
-      where: { id },
-      data: {
-        billAmount: bill,
-        loggedSavingAmount: saving,
-        quantityPurchased: quantityPurchased ?? null,
-        savingMethod: 'MANUAL',
-        savingLoggedAt: redemption.savingLoggedAt ?? now,
-        savingEditedAt: redemption.savingLoggedAt ? now : null,
-        savingValidationStatus: validation.status,
-        savingValidationMessage: validation.message,
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      const before = await tx.redemption.findUnique({
+        where: { id },
+        select: { billAmount: true, loggedSavingAmount: true, quantityPurchased: true },
+      })
+      const row = await tx.redemption.update({
+        where: { id },
+        data: {
+          billAmount: bill,
+          loggedSavingAmount: saving,
+          quantityPurchased: quantityPurchased ?? null,
+          savingMethod: 'MANUAL',
+          savingLoggedAt: redemption.savingLoggedAt ?? now,
+          savingEditedAt: redemption.savingLoggedAt ? now : null,
+          savingValidationStatus: validation.status,
+          savingValidationMessage: validation.message,
+        },
+      })
+      await createAuditLog({
+        actorType: 'employee',
+        employeeId: employee.id,
+        action: redemption.savingLoggedAt ? 'REDEMPTION_SAVING_EDITED' : 'REDEMPTION_SAVING_LOGGED',
+        entityType: 'redemption',
+        entityId: id,
+        changes: {
+          before: before ?? null,
+          after: { billAmount: bill, loggedSavingAmount: saving, quantityPurchased: quantityPurchased ?? null },
+        },
+        metadata: { validationStatus: validation.status },
+      }, tx)
+      return row
     })
 
     return NextResponse.json({

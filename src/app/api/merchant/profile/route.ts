@@ -80,7 +80,6 @@ export async function GET() {
     timer.section('Serialization')
     timer.point('NextResponse.json')
     timer.end()
-    console.log(" ** profile data ** ", profileData)
     return NextResponse.json({ success: true, data: profileData })
   } catch (error) {
     timer.end()
@@ -184,7 +183,7 @@ export async function PATCH(request: NextRequest) {
         entityId: merchant.id,
         changes: { before: beforeSnapshot, after: afterSnapshot } as any,
         metadata: { hasApprovalChanges },
-      })
+      }, tx)
 
       if (hasApprovalChanges) {
         timer.point('actionQueueItem.findFirst')
@@ -220,7 +219,7 @@ export async function PATCH(request: NextRequest) {
             entityType: 'merchant', entityId: merchant.id,
             changes: { before: beforeSnapshot, after: afterSnapshot } as any,
             metadata: { changeReason, mergedInto: existing.id },
-          })
+          }, tx)
           changeRequestCreated = true
         } else {
           timer.point('actionQueueItem.create')
@@ -243,7 +242,7 @@ export async function PATCH(request: NextRequest) {
             entityType: 'merchant', entityId: merchant.id,
             changes: { before: beforeSnapshot, after: afterSnapshot } as any,
             metadata: { changeReason },
-          })
+          }, tx)
           changeRequestCreated = true
         }
       }

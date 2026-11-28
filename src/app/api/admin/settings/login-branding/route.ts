@@ -29,6 +29,12 @@ export async function PUT(request: NextRequest) {
     if (!user || user.userType !== 'admin') {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
+    if (!user.profileId) {
+      return NextResponse.json(
+        { success: false, error: { code: 'NO_ADMIN_PROFILE', message: 'Admin profile not found' } },
+        { status: 403 },
+      )
+    }
 
     const body = await request.json()
 
@@ -49,11 +55,12 @@ export async function PUT(request: NextRequest) {
     }
 
     const branding = await prisma.$transaction(async (tx) => {
-      const result = await upsertBranding(body)
+      const result = await upsertBranding(body, tx)
       await createAuditLog(
         fromCurrentUser(user, 'LOGIN_BRANDING_UPDATED', 'LoginBranding', result.id, {
           changes: Object.keys(body),
         }),
+        tx,
       )
       return result
     })

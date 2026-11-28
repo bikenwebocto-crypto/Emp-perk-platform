@@ -5,9 +5,11 @@ import { toE164 } from '@/lib/phone';
 import { validateUserEmail } from '@/services/user-validation.service';
 import { publishBusinessToAdmins } from '@/services/business-notification.service';
 import {
-  inviteAuthUser, inviteErrorStatus, normalizeEmail, rollbackAuthUser,
+  createAuthUserSilently, inviteErrorStatus, normalizeEmail, rollbackAuthUser,
 } from '@/services/employee-invite.service';
+import { sendMerchantInvitation } from '@/services/merchant-invitation.service';
 import { cleanSocialLinks, validateSocialLinks } from '@/lib/social-links';
+import { selectableCategoryWhere } from '@/lib/categories';
 
 function unauthorized() {
   return NextResponse.json(
@@ -65,7 +67,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (categoryId) {
-      const category = await prisma.category.findUnique({ where: { id: categoryId } });
+      const category = await prisma.category.findFirst({
+        where: { id: categoryId, ...selectableCategoryWhere },
+      });
       if (!category) {
         return NextResponse.json(
           { success: false, error: { code: 'INVALID_CATEGORY', message: 'Selected category does not exist.' } },
@@ -88,8 +92,9 @@ export async function POST(request: NextRequest) {
     }
     const slug = businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now();
 
-    // Create the Supabase login user + send the merchant "Set password" email.
-    const invite = await inviteAuthUser(normalizedEmail, {
+    // Create the Supabase login user silently; our own Welcome email (M-01)
+    // with the single-use 72h set-password link is sent after the DB write.
+    const invite = await createAuthUserSilently(normalizedEmail, {
       role: 'MERCHANT',
       firstName: contactName,
       merchantName: businessName,
@@ -191,8 +196,22 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const welcome = await sendMerchantInvitation({
+      merchantId: result.id,
+      email: normalizedEmail,
+      contactName,
+      businessName: result.businessName,
+    });
+
     return NextResponse.json(
-      { success: true, data: result, message: 'Merchant created successfully' },
+      {
+        success: true,
+        data: result,
+        emailSent: welcome.success,
+        message: welcome.success
+          ? 'Merchant created successfully. A welcome email has been sent.'
+          : 'Merchant created, but the welcome email could not be sent.',
+      },
       { status: 201 },
     );
   } catch (error: any) {

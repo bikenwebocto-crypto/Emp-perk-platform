@@ -12,6 +12,7 @@ import { Plus, ExternalLink, Mail, UserCog, UserX, Users, CheckCircle2, Pause, B
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCompanies, useUpdateCompanyStatus } from '@/hooks/queries/use-companies'
+import { useCurrentUser } from '@/hooks/queries/use-current-user'
 import { useTablePagination } from '@/hooks/use-table-pagination'
 import { showToast } from '@/hooks/use-toast'
 import type { ColumnDef, TableSortConfig } from '@/types'
@@ -20,7 +21,7 @@ import { formatPhone, phoneCountry } from '@/lib/phone'
 
 type StatusFilter = 'ALL' | 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'CANCELLED' | 'APPROVED_PENDING_PAYMENT' | 'PENDING'
 type AdminStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE'
-type StatusAction = 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'CANCELLED'
+type StatusAction = 'APPROVED_PENDING_PAYMENT' | 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'CANCELLED'
 type ConfirmActionType = StatusAction | null
 
 function getStatusActions(status: string): {
@@ -29,6 +30,8 @@ function getStatusActions(status: string): {
 } {
   switch (status) {
     case 'PENDING':
+      return { primary: 'APPROVED_PENDING_PAYMENT', secondary: [] }
+
     case 'APPROVED_PENDING_PAYMENT':
       return { primary: 'ACTIVE', secondary: [] }
 
@@ -68,6 +71,13 @@ const STATUS_ACTION_CONFIG: Record<StatusAction, {
   confirmMessage: string
   impact: string
 }> = {
+  APPROVED_PENDING_PAYMENT: {
+    label: 'Approve',
+    icon: CheckCircle2,
+    className: 'border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/50',
+    confirmMessage: 'Approve this company and move it to pending payment?',
+    impact: 'The company admin can sign in and set a password, but dashboard access stays locked until payment is confirmed and the company is activated by a Super Admin.',
+  },
   ACTIVE: {
     label: 'Activate',
     icon: CheckCircle2,
@@ -125,6 +135,7 @@ export default function CompaniesPage() {
   })
 
   const updateStatus = useUpdateCompanyStatus()
+  const { data: currentUser } = useCurrentUser()
 
   const handleStatusChange = useCallback((id: string, status: StatusAction, company: any) => {
     setSelectedCompany(id)
@@ -262,7 +273,11 @@ export default function CompaniesPage() {
         const { primary, secondary } = getStatusActions(c.status)
         return (
           <div className="flex items-center gap-1.5">
-            {primary && (() => {
+            {primary && (
+              primary !== 'ACTIVE' ||
+              c.status !== 'APPROVED_PENDING_PAYMENT' ||
+              currentUser?.adminRole === 'SUPER_ADMIN'
+            ) && (() => {
               const cfg = STATUS_ACTION_CONFIG[primary]
               const Icon = cfg.icon
               return (
@@ -377,7 +392,11 @@ export default function CompaniesPage() {
       <ConfirmDialog
         open={confirmOpen}
         title={confirmAction ? STATUS_ACTION_CONFIG[confirmAction].label : ''}
-        message={confirmAction ? STATUS_ACTION_CONFIG[confirmAction].confirmMessage : ''}
+        message={
+          confirmAction === 'ACTIVE' && selectedCompanyRecord?.status === 'APPROVED_PENDING_PAYMENT'
+            ? 'Confirm payment has been received before activating this company.'
+            : confirmAction ? STATUS_ACTION_CONFIG[confirmAction].confirmMessage : ''
+        }
         confirmLabel={confirmAction ? STATUS_ACTION_CONFIG[confirmAction].label : 'Confirm'}
         loading={updateStatus.isPending}
         onConfirm={() => {
@@ -397,7 +416,9 @@ export default function CompaniesPage() {
       >
         {confirmAction && (
           <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-            {STATUS_ACTION_CONFIG[confirmAction].impact}
+            {confirmAction === 'ACTIVE' && selectedCompanyRecord?.status === 'APPROVED_PENDING_PAYMENT'
+              ? 'Activation opens full dashboard and employee access. Only proceed after payment is confirmed.'
+              : STATUS_ACTION_CONFIG[confirmAction].impact}
           </p>
         )}
         {selectedCompanyRecord && (

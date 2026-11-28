@@ -2,8 +2,11 @@
 
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
+import { getCurrentUser } from '@/lib/supabase/server';
+import { createAuditLog } from '@/services/audit-log.service';
 import { adminApproveMerchantSchema, adminApproveOfferSchema, adminCompanyActionSchema } from '@/schemas';
 import type { MerchantStatus, OfferStatus, CompanyStatus } from '@/types';
+import { canActivatePendingCompany } from '@/lib/access/company-access';
 
 // ============================================================
 // MERCHANT ACTIONS
@@ -92,7 +95,18 @@ export async function approveOfferAction(formData: FormData) {
 
   const parsed = adminApproveOfferSchema.parse(raw);
 
+  const user = await getCurrentUser();
+  if (!user || user.userType !== 'admin' || !user.profileId) {
+    throw new Error('Only an admin can review offers.');
+  }
+  const adminId = user.profileId;
+
+  // Review, one-live-offer replacement and their audit rows commit together.
   const offer = await prisma.$transaction(async (tx) => {
+    const before = await tx.merchantOffer.findUnique({
+      where: { id: parsed.offerId },
+      select: { status: true },
+    });
     const updated = await tx.merchantOffer.update({
       where: { id: parsed.offerId },
       data: {
@@ -106,31 +120,54 @@ export async function approveOfferAction(formData: FormData) {
       where: { offerId: parsed.offerId },
       create: {
         offerId: parsed.offerId,
-        reviewedBy: 'system',
+        reviewedBy: adminId,
         reviewedAt: new Date(),
         rejectionReason: parsed.rejectionReason ?? null,
       },
       update: {
-        reviewedBy: 'system',
+        reviewedBy: adminId,
         reviewedAt: new Date(),
         rejectionReason: parsed.rejectionReason ?? null,
       },
     });
 
+    await createAuditLog({
+      actorType: 'admin',
+      adminId,
+      action: parsed.status === 'LIVE' ? 'OFFER_APPROVED' : `OFFER_REVIEWED_${parsed.status}`,
+      entityType: 'merchant_offer',
+      entityId: parsed.offerId,
+      changes: { status: { from: before?.status ?? null, to: parsed.status } },
+      metadata: { merchantId: updated.merchantId, rejectionReason: parsed.rejectionReason ?? null },
+    }, tx);
+
+    // If approved, replace the previous live offer (one live offer rule)
+    if (parsed.status === 'LIVE') {
+      const replaced = await tx.merchantOffer.findMany({
+        where: { merchantId: updated.merchantId, status: 'LIVE', id: { not: parsed.offerId } },
+        select: { id: true },
+      });
+      if (replaced.length) {
+        await tx.merchantOffer.updateMany({
+          where: { id: { in: replaced.map((o) => o.id) }, status: 'LIVE' },
+          data: { status: 'REPLACED' },
+        });
+        for (const r of replaced) {
+          await createAuditLog({
+            actorType: 'admin',
+            adminId,
+            action: 'OFFER_REPLACED',
+            entityType: 'merchant_offer',
+            entityId: r.id,
+            changes: { status: { from: 'LIVE', to: 'REPLACED' } },
+            metadata: { replacedByOfferId: parsed.offerId, merchantId: updated.merchantId },
+          }, tx);
+        }
+      }
+    }
+
     return updated;
   });
-
-  // If approved, expire the previous live offer (one live offer rule)
-  if (parsed.status === 'LIVE') {
-    await prisma.merchantOffer.updateMany({
-      where: {
-        merchantId: offer.merchantId,
-        status: 'LIVE',
-        id: { not: parsed.offerId },
-      },
-      data: { status: 'REPLACED' },
-    });
-  }
 
   // Update action queue
   await prisma.actionQueueItem.updateMany({
@@ -156,6 +193,26 @@ export async function updateCompanyStatusAction(formData: FormData) {
   };
 
   const parsed = adminCompanyActionSchema.parse(raw);
+
+  if (parsed.status === 'APPROVED_PENDING_PAYMENT') {
+    const user = await getCurrentUser()
+    if (!user || user.userType !== 'admin') {
+      throw new Error('Only an admin can approve a company for payment.')
+    }
+  }
+
+  if (parsed.status === 'ACTIVE') {
+    const existing = await prisma.company.findUnique({
+      where: { id: parsed.companyId },
+      select: { status: true },
+    })
+    if (existing?.status === 'PENDING') {
+      throw new Error('Approve the company and confirm payment before activation.')
+    }
+    if (existing && !canActivatePendingCompany(existing.status, (await getCurrentUser())?.adminRole)) {
+      throw new Error('Only a Super Admin can activate a pending company.')
+    }
+  }
 
   const company = await prisma.company.update({
     where: { id: parsed.companyId },

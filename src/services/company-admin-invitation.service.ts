@@ -5,6 +5,7 @@ import { emailService } from '@/lib/email/email'
 import { createAuditLog, type AuditLogInput } from '@/services/audit-log.service'
 import { renderCompanyAdminInvitationTemplate } from '@/emails/templates'
 import { createInviteToken } from '@/lib/auth/invite-token'
+import { reportAuditAlert } from '@/lib/monitoring/audit-health'
 
 export interface CompanyAdminInvitationParams {
   /** CompanyAdmin.id — the invite outcome is recorded against this admin. */
@@ -23,10 +24,10 @@ export interface CompanyAdminInvitationResult {
   error?: string
 }
 
-/** Audit actions that record each invite attempt. The latest one is the admin's invite status. */
+/** Audit actions that record each invite attempt (history only; state is CompanyAdmin.inviteStatus). */
 export const INVITE_SENT_ACTION = 'COMPANY_ADMIN_INVITE_SENT'
 export const INVITE_FAILED_ACTION = 'COMPANY_ADMIN_INVITE_FAILED'
-/** Recorded when an invite link is opened; its jti makes the link single-use. */
+/** Recorded when an invite link is spent. Evidence only: single-use is enforced by invite_token_uses. */
 export const INVITE_USED_ACTION = 'COMPANY_ADMIN_INVITE_USED'
 
 export type CompanyAdminInviteStatus = 'SENT' | 'FAILED'
@@ -68,43 +69,60 @@ export async function sendCompanyAdminInvitation(
     ? (params.actorType as AuditLogInput['actorType'])
     : 'system'
 
-  await createAuditLog({
-    actorType,
-    actorId: params.actorId,
-    action: result.success ? INVITE_SENT_ACTION : INVITE_FAILED_ACTION,
-    entityType: 'company_admin',
-    entityId: params.adminId,
-    metadata: { companyId: params.companyId, email: params.email, error: result.error ?? null },
+  const status: CompanyAdminInviteStatus = result.success ? 'SENT' : 'FAILED'
+  // State and evidence commit together; the column is what the app reads.
+  await prisma.$transaction(async (tx) => {
+    await tx.companyAdmin.updateMany({
+      where: { id: params.adminId },
+      data: { inviteStatus: status, inviteStatusAt: new Date() },
+    })
+    await createAuditLog(
+      {
+        actorType,
+        actorId: params.actorId,
+        action: result.success ? INVITE_SENT_ACTION : INVITE_FAILED_ACTION,
+        entityType: 'company_admin',
+        entityId: params.adminId,
+        metadata: { companyId: params.companyId, email: params.email, error: result.error ?? null },
+      },
+      tx,
+    )
   })
+
+  if (!result.success) {
+    reportAuditAlert('delivery_failed', { channel: 'email', purpose: 'company_admin_invite', adminId: params.adminId })
+  }
 
   return result
 }
 
 /**
  * Get a fresh Supabase one-time token for the set-password form. Creates the
- * Supabase user via an `invite` link; if the user already exists (resend,
- * earlier invite), falls back to a `recovery` link. Throws on failure.
- * Called when the 72h invite link is opened, so Supabase's 24h cap never applies.
+ * Supabase user id for an invited email, creating the user if it does not
+ * exist yet. Uses generateLink (which sends no email): `invite` creates the
+ * user; if it already exists, `recovery` returns it. Throws on failure.
  */
-export async function createSetPasswordToken(
-  rawEmail: string,
-): Promise<{ tokenHash: string; type: 'invite' | 'recovery' }> {
+export async function ensureAuthUserId(rawEmail: string): Promise<string> {
   const email = rawEmail.trim().toLowerCase()
   const admin = getAdminClient()
 
-  let type: 'invite' | 'recovery' = 'invite'
   let { data, error } = await admin.auth.admin.generateLink({ type: 'invite', email })
   if (error) {
     const exists =
       error.code === 'email_exists' || error.status === 422 || /already (been )?registered/i.test(error.message)
     if (!exists) throw new Error(error.message)
-    type = 'recovery'
     ;({ data, error } = await admin.auth.admin.generateLink({ type: 'recovery', email }))
     if (error) throw new Error(error.message)
   }
-  const tokenHash = data?.properties?.hashed_token
-  if (!tokenHash) throw new Error('Supabase did not return a link token')
-  return { tokenHash, type }
+  const id = data?.user?.id
+  if (!id) throw new Error('Supabase did not return the user')
+  return id
+}
+
+/** True when this invite token (jti) was already used to set a password. */
+export async function isInviteTokenUsed(kind: string, adminId: string, jti: string): Promise<boolean> {
+  const used = await prisma.inviteTokenUse.findUnique({ where: { jti }, select: { kind: true, subjectId: true } })
+  return !!used && used.kind === kind && used.subjectId === adminId
 }
 
 /** Latest invite outcome per admin id (admins with no recorded attempt are omitted). */
@@ -113,21 +131,13 @@ export async function getLatestInviteStatuses(
 ): Promise<Map<string, { status: CompanyAdminInviteStatus; at: Date }>> {
   const out = new Map<string, { status: CompanyAdminInviteStatus; at: Date }>()
   if (!adminIds.length) return out
-  const logs = await prisma.auditLog.findMany({
-    where: {
-      entityType: 'company_admin',
-      entityId: { in: adminIds },
-      action: { in: [INVITE_SENT_ACTION, INVITE_FAILED_ACTION] },
-    },
-    orderBy: { createdAt: 'desc' },
-    select: { entityId: true, action: true, createdAt: true },
+  const admins = await prisma.companyAdmin.findMany({
+    where: { id: { in: adminIds }, inviteStatus: { not: null }, inviteStatusAt: { not: null } },
+    select: { id: true, inviteStatus: true, inviteStatusAt: true },
   })
-  for (const log of logs) {
-    if (!log.entityId || out.has(log.entityId)) continue
-    out.set(log.entityId, {
-      status: log.action === INVITE_SENT_ACTION ? 'SENT' : 'FAILED',
-      at: log.createdAt,
-    })
+  for (const a of admins) {
+    if (a.inviteStatus !== 'SENT' && a.inviteStatus !== 'FAILED') continue
+    out.set(a.id, { status: a.inviteStatus, at: a.inviteStatusAt! })
   }
   return out
 }

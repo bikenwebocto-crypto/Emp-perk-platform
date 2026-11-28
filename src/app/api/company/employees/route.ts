@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { createAuditLog } from "@/services/audit-log.service";
 import { getCompanyAdmin, handleApiError, AuthError } from "../helpers";
 import { validateUserEmail } from "@/services/user-validation.service";
 import { inviteAuthUser, rollbackAuthUser } from "@/services/employee-invite.service";
@@ -167,16 +168,15 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        await tx.auditLog.create({
-          data: {
-            actorType: "COMPANY_ADMIN",
-            companyId: company.id,
-            action: "EMPLOYEE_CREATED",
-            entityType: "EMPLOYEE",
-            entityId: created.id,
-            metadata: { createdBy: companyAdmin.id, firstName, lastName, department, invited: true },
-          },
-        });
+        await createAuditLog({
+          actorType: "company_admin",
+          actorId: companyAdmin.id,
+          companyId: company.id,
+          action: "EMPLOYEE_CREATED",
+          entityType: "EMPLOYEE",
+          entityId: created.id,
+          metadata: { createdBy: companyAdmin.id, firstName, lastName, department, invited: true },
+        }, tx);
 
         return created;
       });

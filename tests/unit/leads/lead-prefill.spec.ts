@@ -55,6 +55,12 @@ describe('leadToMerchantPrefill', () => {
     expect(prefill.website).toBe('')
   })
 
+  it('does not turn the website-only Other option into a merchant category', () => {
+    const legacyOther = [{ id: 'legacy-other', name: 'Other' }]
+    expect(matchCategoryId('Other', legacyOther)).toBe('')
+    expect(leadToMerchantPrefill({ ...baseLead, industry: 'Other' }, legacyOther).categoryId).toBe('')
+  })
+
   it('does not partially match category names', () => {
     expect(matchCategoryId('Food', categories)).toBe('')
   })

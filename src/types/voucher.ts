@@ -38,6 +38,10 @@ export interface VoucherVerificationRequest {
   ipAddress?: string
   deviceId?: string
   userAgent?: string
+  /** Authenticated caller performing the verification (audit actor). */
+  actorType?: 'admin' | 'merchant' | 'company_admin' | 'employee'
+  /** Internal profile id of the caller (never the Supabase auth id). */
+  actorProfileId?: string
 }
 
 export interface VoucherVerificationResponse {

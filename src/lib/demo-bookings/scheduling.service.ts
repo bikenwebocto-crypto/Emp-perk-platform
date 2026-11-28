@@ -221,9 +221,19 @@ export type RescheduleResult =
  * collision check, and the whole read-check-write runs under the same
  * per-day advisory lock so a simultaneous request cannot take the slot.
  */
+/**
+ * Runs inside the write transaction after a successful update, so audit
+ * evidence commits (or rolls back) together with the change.
+ */
+export type InTransactionHook<T> = (tx: Prisma.TransactionClient, result: T) => Promise<void>;
+
 export async function rescheduleDemoBooking(
   input: RescheduleDemoBookingInput,
   now: Date = new Date(),
+  onCommit?: InTransactionHook<{
+    previous: { startsAt: Date; durationMinutes: number; timezone: string };
+    booking: RescheduledBooking;
+  }>,
 ): Promise<RescheduleResult> {
   const booking = await prisma.demoBooking.findUnique({
     where: { id: input.bookingId },
@@ -268,19 +278,21 @@ export async function rescheduleDemoBooking(
       return { kind: 'state_changed' as const, status: current?.status ?? 'UNKNOWN' };
     }
 
-    return {
-      kind: 'updated' as const,
-      updated: {
-        id: booking.id,
-        reference: booking.reference,
-        status: booking.status,
-        leadId: booking.leadId,
-        startsAt: input.startsAt,
-        durationMinutes,
-        timezone,
-        meetingLink: input.meetingLink,
-      },
+    const updated: RescheduledBooking = {
+      id: booking.id,
+      reference: booking.reference,
+      status: booking.status,
+      leadId: booking.leadId,
+      startsAt: input.startsAt,
+      durationMinutes,
+      timezone,
+      meetingLink: input.meetingLink,
     };
+    await onCommit?.(tx, {
+      previous: { startsAt: booking.startsAt, durationMinutes: booking.durationMinutes, timezone: booking.timezone },
+      booking: updated,
+    });
+    return { kind: 'updated' as const, updated };
   });
 
   if (outcome.kind === 'state_changed') {
@@ -350,6 +362,7 @@ export type ChangeStatusResult =
  */
 export async function changeDemoBookingStatus(
   input: ChangeDemoBookingStatusInput,
+  onCommit?: InTransactionHook<{ previous: DemoBookingStatus; booking: StatusChangedBooking }>,
 ): Promise<ChangeStatusResult> {
   const booking = await prisma.demoBooking.findUnique({
     where: { id: input.bookingId },
@@ -364,6 +377,16 @@ export async function changeDemoBookingStatus(
       allowed: getAllowedNextStatuses(booking.status),
     };
   }
+
+  const changed: StatusChangedBooking = {
+    id: booking.id,
+    reference: booking.reference,
+    status: input.status,
+    leadId: booking.leadId,
+    startsAt: booking.startsAt,
+    durationMinutes: booking.durationMinutes,
+    timezone: booking.timezone,
+  };
 
   const dayKey = toBusinessWallClock(booking.startsAt).dateKey;
   const outcome = await prisma.$transaction(async (tx) => {
@@ -385,23 +408,17 @@ export async function changeDemoBookingStatus(
       where: { id: input.bookingId, status: booking.status },
       data: { status: input.status },
     });
-    return count === 0 ? { kind: 'conflict' as const } : { kind: 'updated' as const };
+    if (count === 0) return { kind: 'conflict' as const };
+    await onCommit?.(tx, { previous: booking.status, booking: changed });
+    return { kind: 'updated' as const };
   });
   if (outcome.kind === 'slot_taken') return { ok: false, kind: 'SLOT_TAKEN', clashesWith: outcome.clashesWith };
   if (outcome.kind === 'conflict') return { ok: false, kind: 'CONFLICT' };
- 
+
   return {
     ok: true,
     previous: booking.status,
-    booking: {
-      id: booking.id,
-      reference: booking.reference,
-      status: input.status,
-      leadId: booking.leadId,
-      startsAt: booking.startsAt,
-      durationMinutes: booking.durationMinutes,
-      timezone: booking.timezone,
-    },
+    booking: changed,
     requester: {
       email: booking.lead.email,
       firstName: booking.lead.firstName,

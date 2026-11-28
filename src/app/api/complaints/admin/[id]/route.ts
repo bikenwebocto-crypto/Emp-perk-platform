@@ -49,6 +49,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const user = await getCurrentUser();
     if (!user || user.userType !== "admin") return unauthorized();
+    if (!user.profileId) return badRequest("Admin profile not found");
 
     const { id } = await params;
 
@@ -73,7 +74,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // First admin view moves an OPEN ticket into review automatically —
     // no separate "Start Review" action, opening the ticket IS the action.
     if (complaint.status === "OPEN") {
-      const adminId = user.profileId ?? user.id;
+      if (!user.profileId) return badRequest("Admin profile not found");
+      const adminId = user.profileId;
       await prisma.$transaction(async (tx) => {
         await tx.complaint.update({
           where: { id },
@@ -104,6 +106,7 @@ export async function PATCH(
   try {
     const user = await getCurrentUser();
     if (!user || user.userType !== "admin") return unauthorized();
+    if (!user.profileId) return badRequest("Admin profile not found");
 
     const { id } = await params;
     const body = await request.json();
@@ -149,7 +152,7 @@ export async function PATCH(
           where: { complaintId: id, status: "PENDING" },
           data: {
             status: status === "RESOLVED" ? "RESOLVED" : "REJECTED",
-            superAdminId: user.profileId ?? user.id,
+            superAdminId: user.profileId,
             resolvedAt: new Date(),
           },
         });
@@ -159,7 +162,7 @@ export async function PATCH(
         data: {
           complaintId: id,
           actorType: "SUPER_ADMIN",
-          adminId: user.profileId ?? user.id,
+          adminId: user.profileId,
           actionType: status === "RESOLVED" ? "RESOLVED" : "REJECTED",
           notes: resolutionNotes ?? null,
         },
@@ -170,7 +173,7 @@ export async function PATCH(
 
     await createAuditLog({
       actorType: "admin",
-      actorId: user.profileId ?? user.id,
+      actorId: user.profileId,
       action:
         status === "RESOLVED" ? "COMPLAINT_RESOLVED" : "COMPLAINT_REJECTED",
       entityType: "COMPLAINT",

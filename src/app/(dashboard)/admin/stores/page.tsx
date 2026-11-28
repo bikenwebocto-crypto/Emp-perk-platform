@@ -33,21 +33,12 @@ import {
   type AdminStoresQueryFilters,
 } from '@/hooks/queries/use-store-map'
 import { normalizeOpeningHours, formatOpeningHours } from '@/lib/branch-helpers'
+import { formatBranchAddress, formatBranchName } from '@/lib/format'
 
 const MAP_LIBRARIES: ('places' | 'marker')[] = ['places', 'marker']
 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' }
 const MAP_CENTER = { lat: 20.5937, lng: 78.9629 }
-
-function formatAddress(addr: AdminStoreBranch['address']): string {
-  return [addr.line1, addr.line2, addr.city, addr.state, addr.postalCode, addr.country]
-    .filter(Boolean)
-    .join(', ')
-}
-
-function formatShortAddress(addr: AdminStoreBranch['address']): string {
-  return [addr.line1, addr.city, addr.state].filter(Boolean).join(', ')
-}
 
 export default function AdminStoresPage() {
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null)
@@ -359,9 +350,9 @@ function StoreCard({
               </Badge>
             )}
           </div>
-          <p className="truncate text-xs text-muted-foreground">{store.branchName}</p>
-          <p className="mt-1 truncate text-xs text-muted-foreground">
-            {formatShortAddress(store.address)}
+          <p className="break-words text-xs text-muted-foreground">{formatBranchName(store)}</p>
+          <p className="mt-1 break-words text-xs text-muted-foreground">
+            {formatBranchAddress(store)}
           </p>
           <div className="mt-1.5 flex items-center gap-2">
             <StatusBadge status={store.status} />
@@ -455,7 +446,7 @@ function StoresMap({
       const pin = new google.maps.marker.AdvancedMarkerElement({
         map,
         position: { lat: b.latitude, lng: b.longitude },
-        title: b.branchName,
+        title: formatBranchName(b),
       })
       pin.addListener('click', () => {
         onSelectStore(b)
@@ -565,10 +556,10 @@ function buildInfoWindowContent(store: AdminStoreBranch): string {
         ${logo}
         <div>
           <div style="font-weight:600;font-size:14px;">${store.merchantName}</div>
-          <div style="color:#666;font-size:12px;">${store.branchName}</div>
+          <div style="color:#666;font-size:12px;">${formatBranchName(store)}</div>
         </div>
       </div>
-      <div style="color:#555;margin-bottom:8px;">${formatAddress(store.address)}</div>
+      <div style="color:#555;margin-bottom:8px;">${formatBranchAddress(store)}</div>
       <div style="display:flex;gap:12px;margin-bottom:8px;font-size:12px;color:#555;">
         ${store.phone ? `<span>Phone: ${store.phone}</span>` : ''}
         ${store.email ? `<span>Email: ${store.email}</span>` : ''}

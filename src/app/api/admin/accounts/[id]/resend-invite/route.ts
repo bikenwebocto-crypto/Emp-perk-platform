@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { buildAuditData, fromCurrentUser } from "@/services/audit-log.service";
+import { createAuditLog, fromCurrentUser } from "@/services/audit-log.service";
 import { canManageTarget } from "@/lib/access/account-access";
 import {
   apiError,
@@ -53,13 +53,11 @@ export async function POST(
       );
     }
 
-    await prisma.auditLog.create({
-      data: buildAuditData(
-        fromCurrentUser(user, "ADMIN_INVITE_RESENT", "account", id, {
-          metadata: { email: account.email },
-        }),
-      ) as any,
-    });
+    await createAuditLog(
+      fromCurrentUser(user, "ADMIN_INVITE_RESENT", "account", id, {
+        metadata: { email: account.email },
+      }),
+    );
 
     return NextResponse.json({
       success: true,

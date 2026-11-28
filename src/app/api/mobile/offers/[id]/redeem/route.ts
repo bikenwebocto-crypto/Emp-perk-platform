@@ -214,7 +214,7 @@ export async function POST(
         },
       });
 
-      void createAuditLog({
+      await createAuditLog({
         actorType: "employee",
         actorId: auth.employee.id,
         action: `REDEMPTION_CREATED_${redemptionType}`,

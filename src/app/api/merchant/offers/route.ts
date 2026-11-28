@@ -1,5 +1,6 @@
 import { notEndedBy } from '@/lib/offers/end-date';
 import { categoryLockError } from '@/lib/offers/category-lock'
+import { selectableCategoryWhere } from '@/lib/categories'
 import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
@@ -12,7 +13,7 @@ import {
 import { requiredBranchesError, validateBranchSelection } from "@/lib/offers/channel.server";
 import { MISSING_BRANCHES_CODE } from "@/lib/offers/channel";
 import { getMerchantFromSession } from '@/lib/merchant-session'
-import { OfferStatus } from "@prisma/client";
+import { OfferStatus, Prisma } from "@prisma/client";
 import {
   ReplacementValidationError,
   validateReplacement,
@@ -71,9 +72,12 @@ function unauthorized() {
   );
 }
 
-function badRequest(message: string) {
+function badRequest(message: string, field?: string) {
   return NextResponse.json(
-    { success: false, error: { code: "VALIDATION", message } },
+    {
+      success: false,
+      error: { code: "VALIDATION", message, ...(field ? { field } : {}) },
+    },
     { status: 400 },
   );
 }
@@ -210,7 +214,142 @@ async function checkDuplicateOffer(
 }
 
 /**
- * Everything here is side-effect / notification / audit work that the
+ * Saves the offer-code audit row, the approval or replacement request and the
+ * submission audit row. Runs inside the create transaction so the offer can't
+ * be saved without them.
+ */
+async function recordOfferCreate(
+  tx: Prisma.TransactionClient,
+  params: {
+    saveAsDraft: boolean;
+    qcPassed: boolean;
+    offerId: string;
+    title: string;
+    merchantId: string;
+    merchantBusinessName: string;
+    replacesOfferId: string | null;
+    replacementReason: string | null;
+    redemptionType: string | null;
+    offerCodeValue: string | null;
+    autoActivated: boolean;
+    replacedOfferId: string | null;
+  },
+) {
+  const {
+    saveAsDraft, qcPassed, offerId, title, merchantId, merchantBusinessName,
+    replacesOfferId, replacementReason, redemptionType, offerCodeValue,
+    autoActivated, replacedOfferId,
+  } = params;
+
+  if (offerCodeValue) {
+    await createAuditLog({
+      actorType: 'merchant',
+      actorId: merchantId,
+      action: "OFFER_CODE_GENERATED",
+      entityType: "MERCHANT_OFFER",
+      entityId: offerId,
+      metadata: { offerCode: offerCodeValue, redemptionType },
+    }, tx);
+  }
+
+  if (autoActivated) {
+    await createAuditLog({
+      actorType: 'merchant',
+      actorId: merchantId,
+      action: "EVERGREEN_OFFER_AUTO_ACTIVATED",
+      entityType: "MERCHANT_OFFER",
+      entityId: offerId,
+      metadata: {
+        title,
+        redemptionType: redemptionType ?? null,
+        offerCode: offerCodeValue ?? null,
+        replacedOfferId,
+      },
+    }, tx);
+    if (replacedOfferId) {
+      // Evidence on the replaced offer itself, so its own history shows why it left LIVE.
+      await createAuditLog({
+        actorType: 'merchant',
+        actorId: merchantId,
+        action: "OFFER_REPLACED",
+        entityType: "MERCHANT_OFFER",
+        entityId: replacedOfferId,
+        changes: { status: { from: 'LIVE', to: 'REPLACED' } },
+        metadata: { replacedByOfferId: offerId, reason: 'evergreen_auto_activation' },
+      }, tx);
+    }
+    return;
+  }
+
+  if (saveAsDraft || !qcPassed) return;
+
+  if (replacesOfferId) {
+    await tx.offerReplacementRequest.create({
+      data: {
+        currentOfferId: replacesOfferId,
+        newOfferId: offerId,
+        status: "AWAITING_APPROVAL",
+        reason: replacementReason ?? null,
+      },
+    });
+    await tx.actionQueueItem.create({
+      data: {
+        type: "OFFER_REPLACEMENT",
+        title: `Offer Replacement: ${title}`,
+        description: `Merchant ${merchantBusinessName} submitted a replacement offer`,
+        referenceId: merchantId,
+        merchantId,
+        referenceType: "merchant",
+        status: "PENDING",
+        priority: 1,
+        metadata: {
+          currentOfferId: replacesOfferId,
+          newOfferId: offerId,
+          reason: replacementReason ?? null,
+        },
+      },
+    });
+    await logReplacementAudit({
+      event: 'OFFER_REPLACEMENT_CREATED',
+      merchantId,
+      newOfferId: offerId,
+      currentOfferId: replacesOfferId,
+      reason: replacementReason ?? undefined,
+    }, tx);
+  } else {
+    // A brand-new offer can't already have a queue item, so no duplicate check is needed.
+    await tx.actionQueueItem.create({
+      data: {
+        type: "FIRST_OFFER_APPROVAL",
+        title: `Offer Approval: ${title}`,
+        description: `Merchant ${merchantBusinessName} submitted an offer for approval`,
+        referenceId: merchantId,
+        merchantId,
+        referenceType: "merchant",
+        status: "PENDING",
+        priority: 1,
+        metadata: { offerId },
+      },
+    });
+  }
+
+  await createAuditLog({
+    actorType: 'merchant',
+    actorId: merchantId,
+    action: "OFFER_SUBMITTED_FOR_APPROVAL",
+    entityType: "MERCHANT_OFFER",
+    entityId: offerId,
+    metadata: {
+      title,
+      replacesOfferId: replacesOfferId ?? null,
+      redemptionType: redemptionType ?? null,
+      offerCode: offerCodeValue ?? null,
+    },
+  }, tx);
+}
+
+/**
+ * Everything here is side-effect / notification work that the
  * merchant does NOT need to wait for — the offer is already safely
  * created and committed by the time this runs. Called without `await`
  * from the handler; all errors are caught and logged locally so they
@@ -250,19 +389,6 @@ async function firePostCreateSideEffects(params: {
       }
       // The merchant notice was already sent (awaited) before the response.
       await notifyEvergreenBroadcast({ offerId, title, merchantId });
-      await createAuditLog({
-        actorType: 'merchant',
-        actorId: merchantId,
-        action: "EVERGREEN_OFFER_AUTO_ACTIVATED",
-        entityType: "MERCHANT_OFFER",
-        entityId: offerId,
-        metadata: {
-          title,
-          redemptionType: redemptionType ?? null,
-          offerCode: offerCodeValue ?? null,
-          replacedOfferId,
-        },
-      });
       return;
     }
 
@@ -289,41 +415,6 @@ async function firePostCreateSideEffects(params: {
     if (saveAsDraft || !qcPassed) return;
 
     if (replacesOfferId) {
-      await prisma.offerReplacementRequest.create({
-        data: {
-          currentOfferId: replacesOfferId,
-          newOfferId: offerId,
-          status: "AWAITING_APPROVAL",
-          reason: replacementReason ?? null,
-        },
-      });
-
-      await prisma.actionQueueItem.create({
-        data: {
-          type: "OFFER_REPLACEMENT",
-          title: `Offer Replacement: ${title}`,
-          description: `Merchant ${merchantBusinessName} submitted a replacement offer`,
-          referenceId: merchantId,
-          merchantId,
-          referenceType: "merchant",
-          status: "PENDING",
-          priority: 1,
-          metadata: {
-            currentOfferId: replacesOfferId,
-            newOfferId: offerId,
-            reason: replacementReason ?? null,
-          },
-        },
-      });
-
-      await logReplacementAudit({
-        event: 'OFFER_REPLACEMENT_CREATED',
-        merchantId,
-        newOfferId: offerId,
-        currentOfferId: replacesOfferId,
-        reason: replacementReason ?? undefined,
-      });
-
       await notifyReplacement({
         event: 'SUBMITTED',
         merchantId,
@@ -338,29 +429,6 @@ async function firePostCreateSideEffects(params: {
         currentOfferId: replacesOfferId,
       }).catch((err) => console.error('Replacement admin notify failed', err));
     } else {
-      const existingItems = await prisma.actionQueueItem.findMany({
-        where: { referenceId: merchantId, type: 'FIRST_OFFER_APPROVAL', status: 'PENDING' },
-      });
-      const hasExisting = existingItems.some((i) => {
-        const meta = i.metadata as Record<string, unknown> | null;
-        return meta?.offerId === offerId;
-      });
-      if (!hasExisting) {
-        await prisma.actionQueueItem.create({
-          data: {
-            type: "FIRST_OFFER_APPROVAL",
-            title: `Offer Approval: ${title}`,
-            description: `Merchant ${merchantBusinessName} submitted an offer for approval`,
-            referenceId: merchantId,
-            merchantId,
-            referenceType: "merchant",
-            status: "PENDING",
-            priority: 1,
-            metadata: { offerId },
-          },
-        });
-      }
-
       const template = BUSINESS_NOTIFICATION_TEMPLATES.offerSubmitted(title);
       await publishBusinessToAdmins({
         ...template,
@@ -370,20 +438,6 @@ async function firePostCreateSideEffects(params: {
         metadata: { merchantId },
       });
     }
-
-    await createAuditLog({
-      actorType: 'merchant',
-      actorId: merchantId,
-      action: "OFFER_SUBMITTED_FOR_APPROVAL",
-      entityType: "MERCHANT_OFFER",
-      entityId: offerId,
-      metadata: {
-        title,
-        replacesOfferId: replacesOfferId ?? null,
-        redemptionType: redemptionType ?? null,
-        offerCode: offerCodeValue ?? null,
-      },
-    });
   } catch (err) {
     // Never let a notification/audit failure surface to the client —
     // the offer record itself already saved and committed successfully.
@@ -555,9 +609,15 @@ export async function POST(request: NextRequest) {
     }
     const categoryLock = categoryLockError(body.categoryId, merchant.categoryId);
     if (categoryLock) return categoryLock;
-    if (!merchant.categoryId && !body.saveAsDraft) {
+    const assignedCategory = merchant.categoryId
+      ? await prisma.category.findFirst({
+          where: { id: merchant.categoryId, ...selectableCategoryWhere },
+          select: { id: true },
+        })
+      : null;
+    if (!assignedCategory && !body.saveAsDraft) {
       return NextResponse.json(
-        { success: false, error: { code: "MISSING_CATEGORY", message: "Your business category is not set. Please contact hello@perksandmore.com." } },
+        { success: false, error: { code: "MISSING_CATEGORY", message: "Your business category must be assigned from the active platform categories before submitting an offer." } },
         { status: 400 },
       );
     }
@@ -671,15 +731,24 @@ export async function POST(request: NextRequest) {
     if (redemptionType === 'ONLINE_CODE' && !bookingUrl && !saveAsDraft) {
       return badRequest("Booking URL is required for ONLINE_CODE offers");
     }
+    if (
+      redemptionType === 'ONLINE_CODE' &&
+      typeof redemptionCode === 'string' &&
+      redemptionCode.trim() &&
+      !isValidOfferCode(redemptionCode.trim())
+    ) {
+      // Drafts skip runQualityChecks, so the format rule must be enforced here too.
+      return badRequest("3 to 13 letters and numbers", "redemptionCode");
+    }
     if (redemptionType === 'ONLINE_CODE' && !saveAsDraft && !String(redemptionCode ?? '').trim()) {
-      return badRequest("Offer code is required for ONLINE_CODE offers");
+      return badRequest("Offer code is required for ONLINE_CODE offers", "redemptionCode");
     }
     if (
       redemptionType === 'ONLINE_CODE' &&
       String(redemptionCode ?? '').trim() &&
       (await isPromoCodeTakenByLiveOffer(String(redemptionCode)))
     ) {
-      return badRequest(PROMO_CODE_TAKEN_MESSAGE);
+      return badRequest(PROMO_CODE_TAKEN_MESSAGE, "redemptionCode");
     }
     if (redemptionType === 'BOOKING_LINK' && !bookingUrl && !saveAsDraft) {
       return badRequest("Booking URL is required for BOOKING_LINK offers");
@@ -687,7 +756,7 @@ export async function POST(request: NextRequest) {
 
     // ── Validation reads: these gate creation, so they stay awaited.
     if (categoryId) {
-      const category = await prisma.category.findUnique({ where: { id: categoryId } });
+      const category = await prisma.category.findFirst({ where: { id: categoryId, ...selectableCategoryWhere } });
       if (!category) {
         return NextResponse.json(
           { success: false, error: { code: "INVALID_CATEGORY", message: "Selected category does not exist." } },
@@ -965,6 +1034,22 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      // Queue items and audit rows are saved with the offer, not after the response.
+      await recordOfferCreate(tx, {
+        saveAsDraft: !!saveAsDraft,
+        qcPassed: qcResult.passed,
+        offerId: created.id,
+        title,
+        merchantId: merchant.id,
+        merchantBusinessName: merchant.businessName,
+        replacesOfferId: replacesOfferId ?? null,
+        replacementReason: replacementReason ?? null,
+        redemptionType: redemptionType ?? null,
+        offerCodeValue,
+        autoActivated: autoActivate,
+        replacedOfferId: replacedEvergreen.replacedOfferId,
+      });
+
       return created;
     }, { timeout: 15000, maxWait: 5000 });
 
@@ -999,20 +1084,8 @@ export async function POST(request: NextRequest) {
       { status: 201 },
     );
 
-    // ── Step 3: fire notifications + audit log WITHOUT awaiting.
-    // Intentionally not `await`ed — errors are caught internally inside
+    // ── Step 3: fire notifications WITHOUT awaiting. Errors are caught inside
     // firePostCreateSideEffects and never affect the response above.
-    if (offerCodeValue) {
-      void createAuditLog({
-        actorType: 'merchant',
-        actorId: merchant.id,
-        action: "OFFER_CODE_GENERATED",
-        entityType: "MERCHANT_OFFER",
-        entityId: offer.id,
-        metadata: { offerCode: offerCodeValue, redemptionType },
-      }).catch((err) => console.error('[MERCHANT OFFERS POST] Offer code audit log failed:', err));
-    }
-
     // after() keeps the work alive past the response on serverless hosts.
     after(() => firePostCreateSideEffects({
       saveAsDraft: !!saveAsDraft,
@@ -1090,28 +1163,28 @@ export async function DELETE(request: NextRequest) {
 
     const offerIds = offers.map(o => o.id);
 
-    await prisma.merchantOffer.updateMany({
-      where: { id: { in: offerIds }, merchantId: merchant.id },
-      data: {
-        deletedAt: new Date(),
-        deletedById: merchant.id,
-        deletedByRole: 'merchant',
-      },
-    });
+    await prisma.$transaction(async (tx) => {
+      await tx.merchantOffer.updateMany({
+        where: { id: { in: offerIds }, merchantId: merchant.id },
+        data: {
+          deletedAt: new Date(),
+          deletedById: merchant.id,
+          deletedByRole: 'merchant',
+        },
+      });
 
-    // Fire-and-forget: audit logs for deletion don't need to block the response.
-    void Promise.all(
-      offers.map((offer) =>
-        createAuditLog({
+      // Sequential: a transaction client runs one query at a time.
+      for (const offer of offers) {
+        await createAuditLog({
           actorType: 'merchant',
           actorId: merchant.id,
           action: 'OFFER_DELETED',
           entityType: 'MERCHANT_OFFER',
           entityId: offer.id,
           metadata: { title: offer.title, previousStatus: offer.status },
-        }),
-      ),
-    ).catch((err) => console.error('[MERCHANT OFFERS DELETE] Audit log failed:', err));
+        }, tx);
+      }
+    });
 
     return NextResponse.json({ success: true, deleted: offers.length });
   } catch (error) {

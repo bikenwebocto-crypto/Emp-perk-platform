@@ -8,6 +8,7 @@ import {
   merchantApplicationSchema,
 } from '@/lib/leads/schemas'
 import { parseLeadSubmission } from '@/lib/leads/parse'
+import { isValidMerchantLeadCategory } from '@/lib/leads/category-options'
 
 const employer = {
   form_key: 'employer_enquiry',
@@ -151,10 +152,15 @@ describe('merchant_application schema', () => {
     },
   )
 
-  it('rejects an unknown category, redemption type or source', () => {
-    expect(errorsOf(merchantApplicationSchema, { ...merchant, category: 'Coffee' })).toMatchObject({
-      category: 'Choose a valid option',
-    })
+  it('accepts database-configured category names and validates them against the current list', () => {
+    expect(merchantApplicationSchema.safeParse({ ...merchant, category: 'Coffee' }).success).toBe(true)
+    expect(isValidMerchantLeadCategory('Coffee', ['Coffee'])).toBe(true)
+    expect(isValidMerchantLeadCategory('Food & Drinks', ['Online Shopping & E-commerce'])).toBe(false)
+    expect(isValidMerchantLeadCategory('Other', [])).toBe(true)
+    expect(isValidMerchantLeadCategory('other', ['Other'])).toBe(true)
+  })
+
+  it('rejects an invalid redemption type or source', () => {
     expect(errorsOf(merchantApplicationSchema, { ...merchant, redemption: 'Cash' })).toMatchObject({
       redemption: 'Choose a valid option',
     })

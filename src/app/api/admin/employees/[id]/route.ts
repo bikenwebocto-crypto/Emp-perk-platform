@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { adminEmployeeUpdateSchema } from "@/schemas";
-import { buildAuditData, fromCurrentUser } from "@/services/audit-log.service";
+import { buildAuditDataWithContext, fromCurrentUser } from "@/services/audit-log.service";
 import { deleteImage } from "@/lib/upload/image";
 import { isPromotedAccount, PROMOTED_EMPLOYEE_MESSAGE } from "@/lib/employees/promoted-guard";
 function unauthorized() {
@@ -246,7 +246,7 @@ export async function PATCH(
       });
 
       await tx.auditLog.create({
-        data: buildAuditData(
+        data: await buildAuditDataWithContext(
           fromCurrentUser(user, "EMPLOYEE_UPDATED", "employee", id, {
             changes: { before, after, changedFields },
           }),

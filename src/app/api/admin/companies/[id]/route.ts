@@ -6,9 +6,11 @@ import { sendLaunchPack, sendBillingReminder } from '@/lib/company-activation/la
 import { derivePrimaryAdmin, ensurePrimaryAdmin, summarizeAdmins } from '@/lib/company-contact';
 import { createAuditLog, fromCurrentUser } from '@/services/audit-log.service';
 import { forbidden } from '@/lib/api-auth';
+import { writeBillingAudit, BILLING_AUDIT_ACTIONS } from '@/lib/billing/auth-helpers';
 import { getCompanyDetail } from '@/lib/company-detail/service';
 import { collectEmailWarnings, notifyCompanyStatusChange } from '@/services/business-notification.service';
 import { signOutAuthUsers } from "@/app/api/admin/accounts/helpers";
+import { canActivatePendingCompany } from '@/lib/access/company-access';
 
 export async function GET(
   _request: NextRequest,
@@ -57,6 +59,13 @@ export async function PATCH(
         { status: 401 },
       );
     }
+    if (!user.profileId) {
+      return NextResponse.json(
+        { success: false, error: { code: 'NO_ADMIN_PROFILE', message: 'Admin profile not found' } },
+        { status: 403 },
+      );
+    }
+    const adminId = user.profileId;
 
     const { id } = await params;
     const body = await request.json();
@@ -66,6 +75,30 @@ export async function PATCH(
       return NextResponse.json(
         { success: false, error: { code: 'NOT_FOUND', message: 'Company not found' } },
         { status: 404 },
+      );
+    }
+
+    if (body.status === 'APPROVED_PENDING_PAYMENT' && company.status !== 'PENDING') {
+      return NextResponse.json(
+        { success: false, error: { code: 'INVALID_TRANSITION', message: 'Only a pending company can be approved for payment.' } },
+        { status: 409 },
+      );
+    }
+
+    if (body.status === 'ACTIVE' && company.status === 'PENDING') {
+      return NextResponse.json(
+        { success: false, error: { code: 'INVALID_TRANSITION', message: 'Approve the company and confirm payment before activation.' } },
+        { status: 409 },
+      );
+    }
+
+    if (
+      body.status === 'ACTIVE' &&
+      !canActivatePendingCompany(company.status, user.adminRole)
+    ) {
+      return NextResponse.json(
+        { success: false, error: { code: 'FORBIDDEN', message: 'Only a Super Admin can activate a pending company.' } },
+        { status: 403 },
       );
     }
 
@@ -109,29 +142,42 @@ export async function PATCH(
         }
       }
 
-      await prisma.company.update({
-        where: { id },
-        data: {
-          status: body.status,
-          adminNote: body.adminNote ?? company.adminNote,
-          approvedAt: body.status === 'ACTIVE' && !company.approvedAt ? new Date() : undefined,
-        },
-      });
+      await prisma.$transaction(async (tx) => {
+        await tx.company.update({
+          where: { id },
+          data: {
+            status: body.status,
+            adminNote: body.adminNote ?? company.adminNote,
+            approvedAt: body.status === 'ACTIVE' && !company.approvedAt ? new Date() : undefined,
+          },
+        });
 
-      await prisma.companyStatusHistory.create({
-        data: {
-          companyId: id,
-          fromStatus: previousStatus,
-          toStatus: body.status,
-          changedBy: user.id,
-          changedByType: 'admin',
-          reason: body.reason,
-        },
-      });
+        await tx.companyStatusHistory.create({
+          data: {
+            companyId: id,
+            fromStatus: previousStatus,
+            toStatus: body.status,
+            changedBy: adminId,
+            changedByType: 'admin',
+            reason: body.reason,
+          },
+        });
 
-      await createAuditLog(fromCurrentUser(user, `COMPANY_${body.status}`, 'company', id, {
-        changes: { from: previousStatus, to: body.status, reason: body.reason },
-      }));
+        await createAuditLog(fromCurrentUser(user, `COMPANY_${body.status}`, 'company', id, {
+          changes: { from: previousStatus, to: body.status, reason: body.reason },
+        }), tx);
+
+        if (
+          body.status === 'APPROVED_PENDING_PAYMENT' ||
+          body.status === 'ACTIVE' ||
+          body.status === 'CANCELLED'
+        ) {
+          await tx.actionQueueItem.updateMany({
+            where: { referenceId: id, referenceType: 'company', status: 'PENDING' },
+            data: { status: 'COMPLETED', completedAt: new Date() },
+          });
+        }
+      });
 
       // When activation succeeds, dispatch the launch pack to the
       // company admin + active employees.
@@ -181,10 +227,24 @@ export async function PATCH(
       }
 
       const previousBilling = await prisma.companyBilling.findUnique({ where: { companyId: id } })
-      await prisma.companyBilling.update({
-        where: { companyId: id },
-        data: { billingStatus: body.billingStatus as any },
-      });
+      const nextBillingStatus = body.billingStatus as string
+      if (previousBilling?.billingStatus !== nextBillingStatus) {
+        await prisma.$transaction(async (tx) => {
+          await tx.companyBilling.update({
+            where: { companyId: id },
+            data: { billingStatus: nextBillingStatus as any },
+          });
+          await writeBillingAudit({
+            action: BILLING_AUDIT_ACTIONS.STATUS_CHANGED,
+            companyId: id,
+            profileId: user.profileId,
+            fromStatus: previousBilling?.billingStatus ?? undefined,
+            toStatus: nextBillingStatus,
+            metadata: { source: 'admin_company_patch' },
+            tx,
+          });
+        });
+      }
 
       // Non-payment cascade: when a company moves to INVOICE_OVERDUE,
       // send a reminder to the company admin(s) via the existing

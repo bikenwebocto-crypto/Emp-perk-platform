@@ -146,8 +146,12 @@ export default function BranchDetailPage({ params }: { params: Promise<{ id: str
   async function handleToggleStatus() {
     const newStatus: BranchStatus = isActive ? 'INACTIVE' : 'ACTIVE'
     try {
-      await updateBranch.mutateAsync({ status: newStatus })
-      showToast({ type: 'success', title: `Branch ${newStatus.toLowerCase()}` })
+      const result = await updateBranch.mutateAsync({ status: newStatus })
+      showToast({
+        type: 'success',
+        title: `Branch ${newStatus.toLowerCase()}`,
+        description: result?.evergreenCoverage ? result.message : undefined,
+      })
     } catch (e: any) {
       showToast({ type: 'error', title: 'Action failed', description: e.message })
     }

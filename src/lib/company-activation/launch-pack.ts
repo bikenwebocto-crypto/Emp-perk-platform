@@ -37,14 +37,14 @@ export async function sendLaunchPack(companyId: string, profileId: string) {
   const options = {
     type: 'LAUNCH_PACK' as const,
     recipients: adminIds.map((id) => ({ role: 'company_admin' as const, id })),
-    title: `Welcome to ${company.name} on the platform`,
-    message: `Your account is ready. Sign in to manage your team and start exploring offers.`,
+    title: `Company activated: ${company.name}`,
+    message: `${company.name} is now active. Your dashboard is open: manage your team and start exploring offers.`,
     priority: 'NORMAL' as const,
     channels: ['IN_APP' as const, 'EMAIL' as const],
     referenceType: 'launch_pack',
     referenceId: companyId,
-    actionUrl: '/login',
-    actionLabel: 'Sign in',
+    actionUrl: '/company',
+    actionLabel: 'Open your dashboard',
   }
   const { email } = await NotificationService.publishDetailed(options)
   const emailWarning = emailWarningFor(email, options.title)

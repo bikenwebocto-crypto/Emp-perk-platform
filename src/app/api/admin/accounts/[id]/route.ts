@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { buildAuditData, fromCurrentUser } from "@/services/audit-log.service";
+import { buildAuditDataWithContext, fromCurrentUser } from "@/services/audit-log.service";
 import {
   ACTIVE_ADMIN_ROLES,
   ADMIN_ROLES,
@@ -142,7 +142,7 @@ export async function PATCH(
         }
 
         await tx.auditLog.create({
-          data: buildAuditData(
+          data: await buildAuditDataWithContext(
             fromCurrentUser(user, "ADMIN_ACCOUNT_UPDATED", "account", id, {
               changes: {
                 before: {

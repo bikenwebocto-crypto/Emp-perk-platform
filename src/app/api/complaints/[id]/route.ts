@@ -85,8 +85,8 @@ async function resolveRequester() {
 
   // Try super admin
   const user = await getCurrentUser();
-  if (user && user.userType === "admin")
-    return { role: "admin" as const, id: user.profileId ?? user.id, user };
+  if (user && user.userType === "admin" && user.profileId)
+    return { role: "admin" as const, id: user.profileId, user };
 
   return null;
 }

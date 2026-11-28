@@ -92,18 +92,22 @@ export async function PATCH(
       updateData.merchantNotes = `${updateData.merchantNotes ?? redemption.merchantNotes ?? ''}\nMerchant note: ${notes}`
     }
 
-    const updated = await prisma.redemption.update({
-      where: { id },
-      data: updateData,
-    })
+    const updated = await prisma.$transaction(async (tx) => {
+      const updated = await tx.redemption.update({
+        where: { id },
+        data: updateData,
+      })
 
-    await createAuditLog({
-      actorType: 'merchant',
-      actorId: merchant.id,
-      action: auditAction,
-      entityType: 'redemption',
-      entityId: id,
-      metadata: { action, rejectionReason: rejectionReason ?? null, notes: notes ?? null },
+      await createAuditLog({
+        actorType: 'merchant',
+        actorId: merchant.id,
+        action: auditAction,
+        entityType: 'redemption',
+        entityId: id,
+        metadata: { action, rejectionReason: rejectionReason ?? null, notes: notes ?? null },
+      }, tx)
+
+      return updated
     })
 
     return NextResponse.json({

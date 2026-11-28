@@ -58,6 +58,44 @@ export async function inviteAuthUser(
   }
 }
 
+/**
+ * Create the Supabase login user WITHOUT Supabase sending any email. Used when
+ * we send our own Welcome email with a single-use 72h set-password link
+ * (merchants). Same result shape as inviteAuthUser.
+ */
+export async function createAuthUserSilently(
+  email: string,
+  meta: { role: InviteRole; firstName?: string | null; companyName?: string | null; merchantName?: string | null },
+): Promise<InviteResult> {
+  const normalized = normalizeEmail(email)
+  try {
+    const { data, error } = await getAdminClient().auth.admin.createUser({
+      email: normalized,
+      email_confirm: true,
+      user_metadata: {
+        role: meta.role,
+        first_name: meta.firstName ?? '',
+        company_name: meta.companyName ?? '',
+        merchant_name: meta.merchantName ?? '',
+      },
+    })
+    if (error || !data?.user?.id) {
+      const exists =
+        error?.code === 'email_exists' ||
+        error?.status === 422 ||
+        /already (been )?registered/i.test(error?.message ?? '')
+      console.error('[AUTH_USER] create failed', normalized, error?.code, error?.message)
+      return exists
+        ? { ok: false, code: 'EMAIL_EXISTS', message: 'A user with this email already exists' }
+        : { ok: false, code: 'INVITE_FAILED', message: 'Could not create the login. Please try again.' }
+    }
+    return { ok: true, authUserId: data.user.id }
+  } catch (err) {
+    console.error('[AUTH_USER] create failed', normalized, err)
+    return { ok: false, code: 'INVITE_FAILED', message: 'Could not create the login. Please try again.' }
+  }
+}
+
 /** Delete the Supabase user created by inviteAuthUser (DB write failed). Never throws. */
 export async function rollbackAuthUser(authUserId: string): Promise<void> {
   try {

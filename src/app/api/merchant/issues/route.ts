@@ -130,7 +130,9 @@ export async function POST(request: NextRequest) {
 
     // const systemEmployeeId = await getOrCreateSystemEmployee()
 
-    const issue = await prisma.issueReport.create({
+    // The issue, its review queue item and the audit row are saved together.
+    const issue = await prisma.$transaction(async (tx) => {
+    const issue = await tx.issueReport.create({
       data: {
         merchantId: merchant.id,
         title: title.trim(),
@@ -141,7 +143,7 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    await prisma.actionQueueItem.create({
+    await tx.actionQueueItem.create({
       data: {
         type: 'ISSUE_REVIEW',
         title: `Issue from ${merchant.businessName}: ${title}`,
@@ -169,6 +171,9 @@ export async function POST(request: NextRequest) {
       entityType: 'issue_report',
       entityId: issue.id,
       metadata: { title, category, priority: priority ?? 'normal' },
+    }, tx)
+
+    return issue
     })
 
     return NextResponse.json({ success: true, data: issue, message: 'Issue submitted for review' }, { status: 201 })

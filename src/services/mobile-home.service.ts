@@ -35,6 +35,9 @@ import { prisma } from '@/lib/prisma'
 import { redemptionResponseFields, type OfferChannel } from '@/lib/offers/channel'
 import { haversineKm, branchCoordinate } from '@/lib/distance'
 import { safeQuery } from '@/lib/prisma/safe-query'
+import { getVisibleScope } from '@/lib/offers/visible-merchants'
+
+type VisibleScope = { merchantIds: string[]; branchIds: string[] }
 
 // Minimal employee shape required by this service. Decoupled from
 // `EmployeeSession` (from `@/lib/employee-session`) so the service can
@@ -161,16 +164,19 @@ const SECTION_LIMITS = {
 // place that filters LIVE offers (e.g. buildNearbyOffers) MUST reuse this.
 // Flash offers are excluded from every regular section; they are served
 // only by `/api/mobile/flash`.
-const liveOfferWhere = (now: Date) => ({
+// `scope` limits offers to merchants with a LIVE Evergreen and to branches
+// that Evergreen covers (one-perk rule; see getVisibleScope).
+const liveOfferWhere = (now: Date, scope: VisibleScope) => ({
   status: 'LIVE' as const,
   isFlash: false,
   startDate: { lte: now },
   AND: [notEndedBy(now)],
+  merchantId: { in: scope.merchantIds },
   merchant: {
     status: 'ACTIVE' as const,
     deletedAt: null,
     branches: {
-      some: { isActive: true, status: 'ACTIVE' as const, deletedAt: null },
+      some: { id: { in: scope.branchIds }, isActive: true, status: 'ACTIVE' as const, deletedAt: null },
     },
   },
 })
@@ -307,9 +313,9 @@ function mapMerchant(
 // Section builders
 // ---------------------------------------------------------------------------
 
-async function buildDiscover(now: Date): Promise<MobileHomeOffer[]> {
+async function buildDiscover(now: Date, scope: VisibleScope): Promise<MobileHomeOffer[]> {
   const rows = await prisma.merchantOffer.findMany({
-    where: liveOfferWhere(now),
+    where: liveOfferWhere(now, scope),
     orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
     take: SECTION_LIMITS.discover,
     select: offerSelect,
@@ -359,12 +365,14 @@ async function buildBanners(now: Date): Promise<MobileHomeBanner[]> {
 
 async function buildBrandsNearYou(
   location: Location | null,
+  scope: VisibleScope,
 ): Promise<MobileHomeMerchant[]> {
   const rows = await prisma.merchant.findMany({
     where: {
       status: 'ACTIVE',
       deletedAt: null,
-      branches: { some: { isActive: true, status: 'ACTIVE', deletedAt: null } },
+      id: { in: scope.merchantIds },
+      branches: { some: { id: { in: scope.branchIds }, isActive: true, status: 'ACTIVE', deletedAt: null } },
     },
     take: SECTION_LIMITS.nearBrands * 3, // overscan then re-sort in memory
     orderBy: [{ isFeatured: 'desc' }, { isTopRated: 'desc' }, { businessName: 'asc' }],
@@ -376,7 +384,7 @@ async function buildBrandsNearYou(
       isTopRated: true,
       category: { select: { id: true, name: true, icon: true } },
       branches: {
-        where: { deletedAt: null, status: 'ACTIVE' },
+        where: { id: { in: scope.branchIds }, deletedAt: null, status: 'ACTIVE' },
         select: { latitude: true, longitude: true, isPrimary: true },
       },
       _count: {
@@ -414,7 +422,7 @@ async function buildBrandsNearYou(
   return enriched.slice(0, SECTION_LIMITS.nearBrands).map((e) => mapMerchant(e.merchant, e.distance))
 }
 
-async function buildForYou(employeeId: string, now: Date): Promise<MobileHomeOffer[]> {
+async function buildForYou(employeeId: string, now: Date, scope: VisibleScope): Promise<MobileHomeOffer[]> {
   const limit = SECTION_LIMITS.forYou
   const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
 
@@ -444,7 +452,7 @@ async function buildForYou(employeeId: string, now: Date): Promise<MobileHomeOff
   // Newest live offers, minus the given ids. Used for cold start and backfill.
   const newestLive = (excludeIds: string[], take: number) =>
     prisma.merchantOffer.findMany({
-      where: { ...liveOfferWhere(now), id: { notIn: excludeIds } },
+      where: { ...liveOfferWhere(now, scope), id: { notIn: excludeIds } },
       orderBy: { createdAt: 'desc' },
       take,
       select: offerSelect,
@@ -476,7 +484,7 @@ async function buildForYou(employeeId: string, now: Date): Promise<MobileHomeOff
   // Fetch more than we need so ranking has something to choose from.
   const candidates = await prisma.merchantOffer.findMany({
     where: {
-      ...liveOfferWhere(now),
+      ...liveOfferWhere(now, scope),
       id: { notIn: redeemedIds },
       OR: [
         ...(topCategoryIds.length > 0 ? [{ categoryId: { in: topCategoryIds } }] : []),
@@ -510,10 +518,11 @@ async function buildForYou(employeeId: string, now: Date): Promise<MobileHomeOff
 async function buildNearbyOffers(
   now: Date,
   location: Location | null,
+  scope: VisibleScope,
 ): Promise<MobileHomeOffer[]> {
   if (!location) {
     const rows = await prisma.merchantOffer.findMany({
-      where: liveOfferWhere(now),
+      where: liveOfferWhere(now, scope),
       orderBy: { createdAt: 'desc' },
       take: SECTION_LIMITS.nearbyOffers,
       select: offerSelect,
@@ -521,12 +530,12 @@ async function buildNearbyOffers(
     return rows.map((o) => mapOffer(o, null))
   }
 
-  // Reuse `liveOfferWhere(now)` as the single source of truth for branch
+  // Reuse `liveOfferWhere(now, scope)` as the single source of truth for branch
   // visibility. Previously the location path used a slightly looser
   // `branches: { some: { deletedAt: null, status: 'ACTIVE' } }` (no
   // `isActive` check) — fixed in this version.
   const rows = await prisma.merchantOffer.findMany({
-    where: liveOfferWhere(now),
+    where: liveOfferWhere(now, scope),
     take: SECTION_LIMITS.nearbyOffers * 3,
     orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
     select: {
@@ -535,7 +544,7 @@ async function buildNearbyOffers(
         select: {
           ...offerSelect.merchant.select,
           branches: {
-            where: { deletedAt: null, status: 'ACTIVE', isActive: true },
+            where: { id: { in: scope.branchIds }, deletedAt: null, status: 'ACTIVE', isActive: true },
             select: { latitude: true, longitude: true, isPrimary: true },
           },
         },
@@ -562,9 +571,9 @@ async function buildNearbyOffers(
   })
 }
 
-async function buildNewArrivals(now: Date): Promise<MobileHomeOffer[]> {
+async function buildNewArrivals(now: Date, scope: VisibleScope): Promise<MobileHomeOffer[]> {
   const rows = await prisma.merchantOffer.findMany({
-    where: liveOfferWhere(now),
+    where: liveOfferWhere(now, scope),
     orderBy: { createdAt: 'desc' },
     take: SECTION_LIMITS.newArrivals,
     select: offerSelect,
@@ -575,9 +584,9 @@ async function buildNewArrivals(now: Date): Promise<MobileHomeOffer[]> {
 // Most Requested — ranked by tap on Redeem button (redemption intent).
 // Uses clickCount from offer_analytics to surface offers employees most
 // frequently attempt to redeem.
-async function buildMostRequested(now: Date): Promise<MobileHomeOffer[]> {
+async function buildMostRequested(now: Date, scope: VisibleScope): Promise<MobileHomeOffer[]> {
   const rows = await prisma.merchantOffer.findMany({
-    where: liveOfferWhere(now),
+    where: liveOfferWhere(now, scope),
     orderBy: [
       { analytics: { clickCount: 'desc' } },
       { isFeatured: 'desc' },
@@ -592,9 +601,9 @@ async function buildMostRequested(now: Date): Promise<MobileHomeOffer[]> {
 // Most Redeemed — ranked by completed redemption count.
 // Uses redeemedCount from offer_redemption_capacity (the atomically
 // maintained counter that increments on each successful Redemption record).
-async function buildMostRedeemed(now: Date): Promise<MobileHomeOffer[]> {
+async function buildMostRedeemed(now: Date, scope: VisibleScope): Promise<MobileHomeOffer[]> {
   const rows = await prisma.merchantOffer.findMany({
-    where: liveOfferWhere(now),
+    where: liveOfferWhere(now, scope),
     orderBy: [
       { capacity: { redeemedCount: 'desc' } },
       { isFeatured: 'desc' },
@@ -608,13 +617,13 @@ async function buildMostRedeemed(now: Date): Promise<MobileHomeOffer[]> {
 
 const EXPIRING_SOON_DAYS = 2
 
-async function buildExpiringSoon(now: Date): Promise<MobileHomeOffer[]> {
+async function buildExpiringSoon(now: Date, scope: VisibleScope): Promise<MobileHomeOffer[]> {
   const cutoff = new Date(now.getTime() + EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000)
 
   const rows = await prisma.merchantOffer.findMany({
     where: {
       AND: [
-        liveOfferWhere(now),                    // still live: active, approved, not paused, etc.
+        liveOfferWhere(now, scope),                    // still live: active, approved, not paused, etc.
         { endDate: { gt: now, lte: cutoff } },  // expires within the next 45 days
       ],
     },
@@ -650,6 +659,7 @@ export async function getMobileHomeLight({
   location,
 }: GetMobileHomeInput) {
   const now = new Date();
+  const scope = await getVisibleScope(now);
 
   const [
     company,
@@ -668,9 +678,9 @@ export async function getMobileHomeLight({
     }),
 
     buildBanners(now),
-    buildDiscover(now),
-    buildNewArrivals(now),
-    buildExpiringSoon(now),
+    buildDiscover(now, scope),
+    buildNewArrivals(now, scope),
+    buildExpiringSoon(now, scope),
   ]);
 
   return {
@@ -723,6 +733,7 @@ export async function getMobileHomeHeavy({
   location,
 }: GetMobileHomeInput) {
   const now = new Date();
+  const scope = await getVisibleScope(now);
 
   const [
     nearBrands,
@@ -731,11 +742,11 @@ export async function getMobileHomeHeavy({
     mostRequested,
     mostRedeemed,
   ] = await Promise.all([
-    buildBrandsNearYou(location ?? null),
-    buildForYou(employee.id, now),
-    buildNearbyOffers(now, location ?? null),
-    buildMostRequested(now),
-    buildMostRedeemed(now),
+    buildBrandsNearYou(location ?? null, scope),
+    buildForYou(employee.id, now, scope),
+    buildNearbyOffers(now, location ?? null, scope),
+    buildMostRequested(now, scope),
+    buildMostRedeemed(now, scope),
   ]);
 
   // All offers from all offer-based sections

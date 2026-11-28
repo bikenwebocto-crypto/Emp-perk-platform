@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { internalError, notFound } from '@/lib/employee-helpers'
 import { getAuthenticatedMobileEmployee } from '@/lib/mobile-auth'
 import { isEvergreenRange, offerRank } from '@/lib/offers/evergreen'
-import { isMerchantVisible } from '@/lib/offers/visible-merchants'
+import { getVisibleScope } from '@/lib/offers/visible-merchants'
 
 // GET /api/mobile/brands/[id]
 //
@@ -22,6 +22,10 @@ export async function GET(
     if (!id) return notFound('Brand not found')
 
     const now = new Date()
+    // Hidden until the merchant's Evergreen offer is approved and LIVE; only
+    // the branches that Evergreen covers are listed (one-perk rule).
+    const scope = await getVisibleScope(now, [id])
+    if (scope.merchantIds.length === 0) return notFound('Brand not found')
     const merchant = await prisma.merchant.findFirst({
       where: {
         id,
@@ -31,7 +35,7 @@ export async function GET(
       include: {
         category: { select: { id: true, name: true, icon: true } },
         branches: {
-          where: { deletedAt: null, status: 'ACTIVE' },
+          where: { id: { in: scope.branchIds }, deletedAt: null, status: 'ACTIVE' },
           orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }],
         },
         offers: {
@@ -58,8 +62,7 @@ export async function GET(
         _count: { select: { offers: true, branches: true } },
       },
     })
-    // Hidden until the merchant's Evergreen offer is approved and LIVE.
-    if (!merchant || !(await isMerchantVisible(merchant.id, now))) return notFound('Brand not found')
+    if (!merchant) return notFound('Brand not found')
 
     const offers = [...(merchant.offers ?? [])]
       .map((offer) => ({
